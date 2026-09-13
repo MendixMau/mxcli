@@ -71,6 +71,29 @@ vanished from storage, while the multi-key shape died as `missing ')' at ','`.
 The error now names the container keyword and rewrites your entry into the form
 that works.
 
+The same rule covers the two spellings that carry no entry to key on
+(`mendixlabs/mxcli#1056`):
+
+```sql
+selectionhelper sh (renderStyle: 'custom', customAllSelected: [])          -- MDL-WIDGET27
+selectionhelper sh (renderStyle: 'custom', customAllSelected: 'something') -- MDL-WIDGET27
+```
+
+A **widgets**-typed property such as `customAllSelected` holds child widgets, so
+it is written as a block with widgets in it rather than entries:
+
+```sql
+selectionhelper sh (renderStyle: 'custom') {
+  customallselected s1 { dynamictext d1 (Content: 'All') }
+}
+```
+
+The empty form is reported from its shape, with no project needed. The scalar
+form is reported only when the widget resolves, because without a definition
+`p: 'x'` is the ordinary property form and flagging it would be a guess. Both
+matter because a required slot left empty is not a silent no-op at build time —
+it is `CE0642 "Property '…' is required."`, one per slot.
+
 `describe widget <name> -p <project.mpr>` lists a widget's container keywords
 under **Body containers**, and — for an object list — the widgets-typed **slots
 inside one item**, with the widget types that route into each:
