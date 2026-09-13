@@ -157,7 +157,7 @@ func (r *StarlarkRule) convertViolation(v starlark.Value) *Violation {
 // LoadStarlarkRule loads a Starlark rule from a file.
 // communityBuiltins need REFRESH CATALOG COMMUNITIES (the graph_* tables).
 var communityBuiltins = []string{
-	"cycles", "module_dependencies", "community_of", "layer_of",
+	"cycles", "module_cycles", "module_dependencies", "community_of", "layer_of",
 	"centrality", "god_nodes", "integration_surface",
 }
 
@@ -334,6 +334,7 @@ func (r *StarlarkRule) buildPredeclared() starlark.StringDict {
 		"community_of":         starlark.NewBuiltin("community_of", r.builtinCommunityOf),
 		"layer_of":             starlark.NewBuiltin("layer_of", r.builtinLayerOf),
 		"cycles":               starlark.NewBuiltin("cycles", r.builtinCycles),
+		"module_cycles":        starlark.NewBuiltin("module_cycles", r.builtinModuleCycles),
 		"module_dependencies":  starlark.NewBuiltin("module_dependencies", r.builtinModuleDependencies),
 		"centrality":           starlark.NewBuiltin("centrality", r.builtinCentrality),
 		"god_nodes":            starlark.NewBuiltin("god_nodes", r.builtinGodNodes),

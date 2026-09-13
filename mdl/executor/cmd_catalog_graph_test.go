@@ -15,11 +15,17 @@ import (
 // hand-written refs graph — the state a `refresh catalog full` leaves behind,
 // with no graph-analysis pass yet.
 //
-// The edge set is shaped to populate every graph table at once: two clusters so
-// the community split is real (and graph_integration_surface has a cross-
-// community edge to classify), and one MUTUAL pair so graph_cycles is non-empty.
-// Without that pair the cycles table would stay empty and the table at the heart
-// of mendixlabs/mxcli#1060 would be the one the drift guard below fails to cover.
+// The edge set is shaped to populate every graph table at once, and it is also
+// mendixlabs/mxcli#1060 in miniature:
+//
+//   - two clusters, so the community split is real and
+//     graph_integration_surface has a cross-community edge to classify;
+//   - one MUTUAL asset pair, so graph_cycles is non-empty — without it the very
+//     table the issue was about would be the one the drift guard fails to cover;
+//   - a return edge from B to A whose kind is `layout`, which is NOT one of
+//     graphRefKinds. Modules A and B therefore reference each other while no
+//     document-level cycle spans them, which is exactly the shape that had
+//     graph_module_coupling listing both directions and graph_cycles empty.
 func graphProbeCatalog(t *testing.T) *catalog.Catalog {
 	t.Helper()
 	cat, err := catalog.NewFromFile(filepath.Join(t.TempDir(), "catalog.db"))
@@ -31,19 +37,22 @@ func graphProbeCatalog(t *testing.T) *catalog.Catalog {
 	if _, err := db.Exec(`INSERT INTO snapshots (SnapshotId, ProjectId) VALUES ('s1','default')`); err != nil {
 		t.Fatalf("insert snapshot: %v", err)
 	}
-	edges := [][2]string{
-		// Cluster A, densely connected; A.1 <-> A.2 is the cycle.
-		{"A.1", "A.2"}, {"A.2", "A.1"}, {"A.2", "A.3"}, {"A.3", "A.1"},
+	edges := []struct{ src, tgt, kind string }{
+		// Cluster A, densely connected; A.1 <-> A.2 is the asset cycle.
+		{"A.1", "A.2", "call"}, {"A.2", "A.1", "call"}, {"A.2", "A.3", "call"}, {"A.3", "A.1", "call"},
 		// Cluster B, densely connected, no cycle.
-		{"B.1", "B.2"}, {"B.2", "B.3"}, {"B.1", "B.3"},
-		// The single bridge between them.
-		{"A.1", "B.1"},
+		{"B.1", "B.2", "call"}, {"B.2", "B.3", "call"}, {"B.1", "B.3", "call"},
+		// A -> B, structural: the bridge the integration surface classifies.
+		{"A.1", "B.1", "call"},
+		// B -> A, navigational: closes the MODULE cycle without closing any
+		// asset cycle, and without joining the two clusters in the asset graph.
+		{"B.3", "A.3", "layout"},
 	}
 	for _, e := range edges {
 		if _, err := db.Exec(`INSERT INTO refs
 			(SourceType, SourceId, SourceName, TargetType, TargetId, TargetName, RefKind, ModuleName, ProjectId, SnapshotId)
-			VALUES ('MICROFLOW','',?,'MICROFLOW','',?,'call',?,'default','s1')`,
-			e[0], e[1], strings.SplitN(e[0], ".", 2)[0]); err != nil {
+			VALUES ('MICROFLOW','',?,'MICROFLOW','',?,?,?,'default','s1')`,
+			e.src, e.tgt, e.kind, strings.SplitN(e.src, ".", 2)[0]); err != nil {
 			t.Fatalf("insert ref: %v", err)
 		}
 	}

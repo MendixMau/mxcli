@@ -1348,6 +1348,25 @@ func (c *Catalog) createTables() error {
 			LEFT JOIN graph_centrality_data gc ON gc.AssetName = d.Asset
 			GROUP BY d.Asset`,
 
+		// graph_analysis_scope — which reference kinds reach the asset-level
+		// analysis graph, and how many edges each kind contributes.
+		//
+		// Exists because the two graph families disagree by construction and there
+		// was no way to see it from SQL: graph_module_coupling and friends read
+		// EVERY kind straight off refs, while the computed pass (communities,
+		// graph_cycles, graph_layers, graph_centrality) is restricted to the
+		// structural kinds so navigational edges do not blur the clustering. On
+		// ako/TestApp that is 110 of 316 edges — a third of the graph — excluded
+		// with nothing recording the fact (mendixlabs/mxcli#1060).
+		//
+		// The IN list is generated from graphRefKinds, so this view cannot drift
+		// from the filter it describes.
+		`CREATE VIEW IF NOT EXISTS graph_analysis_scope AS
+			SELECT RefKind, COUNT(*) AS Edges,
+				CASE WHEN RefKind IN (` + graphRefKindsSQL() + `) THEN 1 ELSE 0 END AS InAssetGraph
+			FROM refs WHERE SourceName != '' AND TargetName != ''
+			GROUP BY RefKind`,
+
 		// graph_module_coupling — cross-module edges ("surprise edges").
 		`CREATE VIEW IF NOT EXISTS graph_module_coupling AS
 			SELECT substr(SourceName, 1, instr(SourceName, '.') - 1) AS SourceModule,
@@ -1407,11 +1426,33 @@ func (c *Catalog) createTables() error {
 		viewWithFullSnapshot("communities"),
 
 		// graph_cycles — SCC membership for assets in a dependency cycle.
+		// ASSET-level, over the structural edge kinds only (graphRefKinds) — the
+		// same graph communities and layers are computed on. See
+		// graph_module_cycles for the module-level question and
+		// graph_analysis_scope for which kinds are in this graph.
 		`CREATE TABLE IF NOT EXISTS graph_cycles_data (
 			AssetName TEXT, ModuleName TEXT, CycleId INTEGER, CycleSize INTEGER,
 			ProjectId TEXT, SnapshotId TEXT
 		)`,
 		viewWithFullSnapshot("graph_cycles"),
+
+		// graph_module_cycles — SCC membership for MODULES in a dependency cycle.
+		//
+		// A separate question from graph_cycles, not a rollup of it: modules A and
+		// B can depend on each other through four documents that form no cycle
+		// between themselves, which is the ordinary shape of a module cycle and why
+		// graph_cycles stayed empty while graph_module_coupling listed both
+		// directions (mendixlabs/mxcli#1060).
+		//
+		// Computed over EVERY reference kind, matching graph_module_coupling — the
+		// table this one is read next to. A page bound to a layout in another
+		// module is a real dependency of that module even though `layout` is not a
+		// structural kind for clustering purposes.
+		`CREATE TABLE IF NOT EXISTS graph_module_cycles_data (
+			ModuleName TEXT, CycleId INTEGER, CycleSize INTEGER, RefKinds TEXT,
+			ProjectId TEXT, SnapshotId TEXT
+		)`,
+		viewWithFullSnapshot("graph_module_cycles"),
 
 		// graph_layers — topological layer (sequence number) per asset.
 		`CREATE TABLE IF NOT EXISTS graph_layers_data (

@@ -91,6 +91,7 @@ var fullOnlyTables = map[string]bool{
 	"graph_dead_assets":          true,
 	"graph_refkind_distribution": true,
 	"graph_entity_hotspots":      true,
+	"graph_analysis_scope":       true,
 }
 
 // sourceOnlyTables are catalog tables only populated by REFRESH CATALOG FULL SOURCE.
@@ -110,6 +111,7 @@ var communitiesOnlyTables = map[string]bool{
 	"communities":               true,
 	"community_summary":         true,
 	"graph_cycles":              true,
+	"graph_module_cycles":       true,
 	"graph_layers":              true,
 	"graph_centrality":          true,
 	"graph_integration_surface": true,

@@ -254,9 +254,18 @@ until it runs and a query against one says so rather than returning `0 rows`.
 See **[Graph Analysis](graph-analysis.md)** for the full reference and the
 `mxcli graph-report` command.
 
+Cycles come in two flavours, because they are two questions:
+`CATALOG.GRAPH_CYCLES` for tangled **documents** and `CATALOG.GRAPH_MODULE_CYCLES`
+for tangled **modules** — the second is not a rollup of the first, since modules
+reference each other through documents that need form no cycle themselves.
+`CATALOG.GRAPH_ANALYSIS_SCOPE` reports which reference kinds reach the computed
+asset graph, which is what to check when a `graph_module_coupling` edge seems to
+have no effect on cycles or layers.
+
 ```sql
 select * from CATALOG.graph_god_nodes order by Degree desc limit 20;
 select * from CATALOG.graph_module_coupling order by Edges desc;
+select * from CATALOG.graph_module_cycles order by CycleSize desc;
 show communities;
 ```
 
