@@ -1387,7 +1387,7 @@ func TestTraverseFlowUntilMerge_NestedEmptyThenSwapEmitsHeaderOnce(t *testing.T)
 	var lines []string
 	visited := map[model.ID]bool{}
 
-	traverseFlowUntilMerge(e.newExecContext(context.Background()), mkID("split"), mkID("parentMerge"), activityMap, flowsByOrigin, nil, splitMergeMap, visited, nil, nil, &lines, 0, nil, 0, nil)
+	traverseFlowUntilMerge(e.newExecContext(context.Background()), mkID("split"), mkID("parentMerge"), activityMap, flowsByOrigin, nil, splitMergeMap, visited, nil, nil, &lines, 0, nil, 0, nil, nil)
 
 	output := strings.Join(lines, "\n")
 	if strings.Count(output, "if ") != 1 {
@@ -1576,7 +1576,7 @@ func TestTraverseFlow_InheritanceSplitOmitsEmptyElse(t *testing.T) {
 		var lines []string
 		traverseFlowUntilMerge(e.newExecContext(context.Background()), mkID("split"), mkID("merge"),
 			activityMap, flowsByOrigin, nil, map[model.ID]model.ID{mkID("split"): mkID("merge")},
-			map[model.ID]bool{}, nil, nil, &lines, 0, nil, 0, nil)
+			map[model.ID]bool{}, nil, nil, &lines, 0, nil, 0, nil, nil)
 		return strings.Join(lines, "\n")
 	}
 

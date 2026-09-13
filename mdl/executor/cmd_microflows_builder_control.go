@@ -156,6 +156,10 @@ func (fb *flowBuilder) addIfStatement(s *ast.IfStmt) model.ID {
 		for i, stmt := range s.ThenBody {
 			thisAnchor := stmtOwnAnchor(stmt)
 			actID := fb.addStatement(stmt)
+			if fb.takeBranchJoin(lastThenID, splitID, "true", pendingThenCase, prevThenAnchor, trueBranchAnchor) {
+				pendingThenCase, pendingThenAnchor = "", nil
+				continue
+			}
 			if actID != "" {
 				fb.applyPendingAnnotations(actID)
 				if lastThenID == "" {
@@ -248,6 +252,10 @@ func (fb *flowBuilder) addIfStatement(s *ast.IfStmt) model.ID {
 		for i, stmt := range s.ElseBody {
 			thisAnchor := stmtOwnAnchor(stmt)
 			actID := fb.addStatement(stmt)
+			if fb.takeBranchJoin(lastElseID, splitID, "false", pendingElseCase, prevElseAnchor, falseBranchAnchor) {
+				pendingElseCase, pendingElseAnchor = "", nil
+				continue
+			}
 			if actID != "" {
 				fb.applyPendingAnnotations(actID)
 				if lastElseID == "" {
@@ -392,6 +400,10 @@ func (fb *flowBuilder) addIfStatement(s *ast.IfStmt) model.ID {
 		for _, stmt := range s.ThenBody {
 			thisAnchor := stmtOwnAnchor(stmt)
 			actID := fb.addStatement(stmt)
+			if fb.takeBranchJoin(lastThenID, splitID, "true", pendingThenCase, prevThenAnchor, trueBranchAnchor) {
+				pendingThenCase, pendingThenAnchor = "", nil
+				continue
+			}
 			if actID != "" {
 				fb.applyPendingAnnotations(actID)
 				if lastThenID == "" {

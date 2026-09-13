@@ -489,6 +489,22 @@ func (fb *flowBuilder) addEnumSplit(s *ast.EnumSplitStmt) model.ID {
 		for j, stmt := range br.body {
 			thisAnchor := stmtOwnAnchor(stmt)
 			actID := fb.addStatement(stmt)
+			if fb.pendingJoin != nil {
+				// `join L` as the FIRST statement of a case body means the split
+				// itself goes to the merge, so the case flows are emitted with the
+				// merge as destination rather than an activity.
+				if lastID == "" {
+					label := fb.pendingJoin.Label
+					fb.pendingJoin = nil
+					fb.labels().handled++
+					m := fb.mergeForLabel(label)
+					fb.addGroupedEnumSplitFlows(splitID, m.ID, br.values, i, splitX+SplitWidth+HorizontalSpacing/4, branchY)
+				} else {
+					fb.takePendingJoin(lastID, pendingCase, prevAnchor)
+				}
+				pendingCase = ""
+				continue
+			}
 			if actID == "" {
 				continue
 			}
@@ -652,6 +668,10 @@ func (fb *flowBuilder) addStructuredInheritanceSplit(s *ast.InheritanceSplitStmt
 		for _, stmt := range body {
 			thisAnchor := stmtOwnAnchor(stmt)
 			actID := fb.addStatement(stmt)
+			if fb.takeBranchJoin(lastID, splitID, caseValue, pendingCase, prevAnchor, nil) {
+				pendingCase = ""
+				continue
+			}
 			if actID == "" {
 				continue
 			}

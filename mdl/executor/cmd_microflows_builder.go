@@ -105,6 +105,14 @@ type flowBuilder struct {
 	errorHandlerTailIsSource bool
 	errorHandlerReturnValue  string
 	pendingErrorHandlers     []pendingErrorHandlerState
+	// labelReg holds the `merge <label>` table and the pending `join` edges.
+	// Shared with the error-handler sub-builder (same object collection) and
+	// deliberately NOT with a loop's sub-builder, whose LoopedActivity owns a
+	// collection a sequence flow may not leave. See builder_merge.go.
+	labelReg *labelRegistry
+	// pendingJoin is the `join` addStatement just saw, waiting for the enclosing
+	// body loop to say which activity the path had reached.
+	pendingJoin *ast.JoinStmt
 }
 
 type flowBuilderVariableState struct {

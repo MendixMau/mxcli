@@ -489,6 +489,7 @@ annotationName
     | CAPTION
     | ANNOTATION
     | ANCHOR
+    | MERGE       // @merge(x, y) — the layout hint predates the `merge` keyword
     ;
 
 annotationParams
@@ -581,6 +582,7 @@ keyword
     | BREAK | CONTINUE | THROW | RAISE | CASE | WHEN
     | CALL | LOG | TRACE | WITH | FOR | TO | OF | RETURNING | RETURNS
     | NOTHING | EXPRESSION | JAVASCRIPT
+    | MERGE
 
     // Query / SQL
     | SELECT | FROM | WHERE | JOIN | LEFT | RIGHT | INNER | OUTER | FULL | CROSS
