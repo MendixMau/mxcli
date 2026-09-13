@@ -124,12 +124,20 @@ func validateWidgetTreeIn(widgets []*ast.WidgetV3, registry *WidgetRegistry, loc
 		// Slice 0: is this a widget at all, and does the parent declare this
 		// container? Both were previously left to `exec`.
 		out = append(out, validateWidgetKind(w, registry, lookupWidgetDef(parent, registry), parentObjectLists, locationPrefix)...)
+		// A keyword whose stored $Type Mendix no longer has. Unlike MDL-WIDGET25
+		// this needs no project: the type is unknown to every Mendix version.
+		out = append(out, validateRetiredWidgetKind(w, locationPrefix)...)
 		out = append(out, validatePluggableWidgetProperties(w, registry, locationPrefix)...)
 		// A repeatable property written as a property value — `attributes:
 		// [(…)]` — which used to check clean, exec, and vanish (#999). Runs for
 		// every widget kind and needs no definition: the SHAPE is wrong whatever
 		// the widget declares.
 		out = append(out, validateObjectEntryProperties(w, registry, locationPrefix)...)
+		// #1062: an action slot holding something that is not an action, which
+		// used to check clean, exec clean, build clean and render dead. Runs for
+		// every widget kind and needs no definition, for the same reason as the
+		// rule above: the SHAPE of the value is wrong whatever the widget is.
+		out = append(out, validateWidgetActionSlot(w, locationPrefix)...)
 		// #928: contentparams with no `{N}` placeholder to consume them.
 		if lookupWidgetDef(w, registry) != nil {
 			out = append(out, validatePluggableContentParams(w, locationPrefix)...)
@@ -148,6 +156,12 @@ func validateWidgetTreeIn(widgets []*ast.WidgetV3, registry *WidgetRegistry, loc
 		// widgets get the stricter def.json check (MDL-WIDGET01) above, and
 		// object-list items are validated by the object-list engine.
 		def := lookupWidgetDef(w, registry)
+		// #2 from the view-entity-examples findings: a child the parent has
+		// nowhere to put. MDL-WIDGET26 above covers a container KEYWORD in that
+		// position; this covers a real widget, which resolves fine on its own and
+		// so gets past every other rule. Needs the parent's definition, and stays
+		// quiet without one for the same reason MDL-WIDGET26 does.
+		out = append(out, validateUnroutedChildren(w, def, locationPrefix)...)
 		// A generic widget type that resolved to nothing is already reported as
 		// MDL-WIDGET25 (the kind is wrong). Validating its properties on top of
 		// that says the kind is fine and the property is not, which points at

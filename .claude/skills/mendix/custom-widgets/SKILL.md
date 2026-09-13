@@ -72,7 +72,20 @@ The error now names the container keyword and rewrites your entry into the form
 that works.
 
 `describe widget <name> -p <project.mpr>` lists a widget's container keywords
-under **Body containers**.
+under **Body containers**, and — for an object list — the widgets-typed **slots
+inside one item**, with the widget types that route into each:
+
+```
+column        object list  -> columns  authorable
+                items: showContentAs, attribute, dynamicText, …
+                slot content -> content: any other widget in the item body
+                slot filter  -> filter: textfilter | numberfilter | datefilter | dropdownfilter
+```
+
+Read that last line before guessing where something goes. It says a Data Grid 2
+column filter is written directly in the **column's** braces — not in
+`controlbar`, which is the grid-wide filter bar and renders "Unable to get
+filter store" if you put a column filter there.
 
 ### When the name is not found
 
@@ -80,6 +93,11 @@ A name resolving to no installed definition is an **error** (MDL-WIDGET25, with
 near-miss suggestions), and a container the parent does not declare is
 MDL-WIDGET26. Both need `-p`: without a project, mxcli knows only its embedded
 widgets, so it stays quiet rather than reporting every real widget as unknown.
+
+MDL-WIDGET29 needs no project: `statictext` writes `Forms$Text`, a type Mendix
+does not have, and the project that comes out cannot be *loaded* at all (`mx
+check` and Studio Pro both stop at `TypeCacheUnknownTypeException` before
+validation). Use `dynamictext` with a literal `Content:`.
 If a widget you have installed is not found, extract its definition:
 
 ```bash
