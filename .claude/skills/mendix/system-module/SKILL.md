@@ -117,7 +117,7 @@ The central user entity. All application users are instances of `System.User` or
 
 | Association | Target | Type | Description |
 |-------------|--------|------|-------------|
-| User_UserRoles | System.UserRole | Many-to-Many | Roles assigned to this user |
+| UserRoles | System.UserRole | Many-to-Many | Roles assigned to this user. In XPath it is `System.UserRoles` — **not** `System.User_UserRoles`, which fails the build with CE1613 "The selected association … no longer exists" |
 | User_Language | System.Language | Many-to-One | User's preferred language |
 | User_TimeZone | System.TimeZone | Many-to-One | User's timezone |
 

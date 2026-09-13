@@ -346,9 +346,12 @@ func (m *Mutator) InsertPath(activityRef string, atPos int, pathCaption string, 
 		{Key: "$Type", Value: "Workflows$ParallelSplitOutcome"},
 	}
 
-	if len(activities) > 0 {
-		pathDoc = append(pathDoc, bson.E{Key: "Flow", Value: m.buildSubFlowBson(activities)})
-	}
+	// A path must end with Mendix's end-of-path marker or the engine skips its
+	// contents at runtime (workflows.EndParallelSplitPath) — an empty path too.
+	ended := workflows.EndParallelSplitPath(&workflows.Flow{Activities: activities}, func() model.ID {
+		return model.ID(bsonutil.BsonBinaryToID(bsonutil.NewIDBsonBinary()))
+	})
+	pathDoc = append(pathDoc, bson.E{Key: "Flow", Value: m.buildSubFlowBson(ended.Activities)})
 
 	pathDoc = append(pathDoc, bson.E{Key: "PersistentId", Value: bsonutil.NewIDBsonBinary()})
 
@@ -518,9 +521,12 @@ func (m *Mutator) InsertBoundaryEvent(activityRef string, atPos int, eventType s
 		eventDoc = append(eventDoc, bson.E{Key: "FirstExecutionTime", Value: delay})
 	}
 
-	if len(activities) > 0 {
-		eventDoc = append(eventDoc, bson.E{Key: "Flow", Value: m.buildSubFlowBson(activities)})
-	}
+	// End the path with Mendix's marker (workflows.EndBoundaryEventPath) — an
+	// unterminated non-interrupting path builds, then stops the runtime starting.
+	ended := workflows.EndBoundaryEventPath(&workflows.Flow{Activities: activities}, func() model.ID {
+		return model.ID(bsonutil.BsonBinaryToID(bsonutil.NewIDBsonBinary()))
+	})
+	eventDoc = append(eventDoc, bson.E{Key: "Flow", Value: m.buildSubFlowBson(ended.Activities)})
 
 	eventDoc = append(eventDoc, bson.E{Key: "PersistentId", Value: bsonutil.NewIDBsonBinary()})
 

@@ -50,7 +50,7 @@ func checkNoDroppedWorkflowConstructs(ctx *ExecContext, workflowID model.ID, qua
 			qualifiedName, n))
 	}
 
-	storedBE := countRawWorkflowNodes(raw, "BoundaryEvent")
+	storedBE := countRawBoundaryEvents(raw)
 	if storedBE == 0 {
 		return nil
 	}
@@ -71,6 +71,35 @@ func checkNoDroppedWorkflowConstructs(ctx *ExecContext, workflowID model.ID, qua
 // three timer boundary-event variants and the two event-sub-process start
 // activities all differ by prefix, and a variant added later should be caught by
 // the guard rather than slip past it.
+// countRawBoundaryEvents counts the boundary events stored in a raw workflow.
+//
+// It matches a $Type that ENDS in "BoundaryEvent". A substring match also
+// counted Workflows$EndOfBoundaryEventPathActivity — the marker that ends every
+// boundary path, and which mxcli now writes — so one event read as two and
+// `create or modify` refused a workflow whose statement restated it exactly.
+func countRawBoundaryEvents(v any) int {
+	switch t := v.(type) {
+	case map[string]any:
+		n := 0
+		if s, ok := t["$Type"].(string); ok && strings.HasSuffix(s, "BoundaryEvent") {
+			n++
+		}
+		for k, child := range t {
+			if k != "$Type" {
+				n += countRawBoundaryEvents(child)
+			}
+		}
+		return n
+	case []any:
+		n := 0
+		for _, e := range t {
+			n += countRawBoundaryEvents(e)
+		}
+		return n
+	}
+	return 0
+}
+
 func countRawWorkflowNodes(v any, marker string) int {
 	switch t := v.(type) {
 	case map[string]any:
