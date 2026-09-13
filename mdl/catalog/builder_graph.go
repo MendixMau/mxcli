@@ -4,7 +4,9 @@ package catalog
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mendixlabs/mxcli/mdl/catalog/graph"
 )
@@ -25,6 +27,17 @@ var graphRefKinds = []string{
 // betweenness is skipped (PageRank/communities still run) to keep the pass fast.
 const betweennessNodeCap = 6000
 
+// effectiveResolution normalises the Leiden resolution. One function so the
+// value recorded in the cache is the value the pass actually used — recording
+// the caller's 0 would make a later re-run at "the same resolution" a different
+// run.
+func effectiveResolution(r float64) float64 {
+	if r <= 0 {
+		return 1.0
+	}
+	return r
+}
+
 // AddGraphAnalysis runs the graph-analysis pass (communities/cycles/layers/
 // centrality) on an already-built catalog WITHOUT re-parsing. The catalog must
 // already contain the refs table (built in full or source mode). This lets
@@ -33,6 +46,7 @@ const betweennessNodeCap = 6000
 // the source FTS data. The graph rows reuse the catalog's existing SnapshotId so
 // the snapshot-framed views resolve.
 func (c *Catalog) AddGraphAnalysis(resolution float64) error {
+	resolution = effectiveResolution(resolution)
 	var snapID string
 	if err := c.db.QueryRow("SELECT SnapshotId FROM snapshots ORDER BY rowid DESC LIMIT 1").Scan(&snapID); err != nil {
 		return fmt.Errorf("catalog has no snapshot (build full first): %w", err)
@@ -52,7 +66,17 @@ func (c *Catalog) AddGraphAnalysis(resolution float64) error {
 		_ = tx.Rollback()
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	// Record that the pass ran. An empty graph_cycles_data means "no cycles"
+	// only once this is set; before it, it means "never computed" — and the two
+	// were indistinguishable (mendixlabs/mxcli#1060). Written after the commit
+	// so the flag can never claim a pass that was rolled back.
+	if err := c.SetMeta(MetaGraphAnalysis, time.Now().Format(time.RFC3339)); err != nil {
+		return err
+	}
+	return c.SetMeta(MetaGraphResolution, strconv.FormatFloat(resolution, 'g', -1, 64))
 }
 
 // buildGraphAnalysis runs the pure-Go graph algorithms over the refs graph and
@@ -77,10 +101,7 @@ func (b *Builder) buildGraphAnalysis() error {
 
 	g := graph.New(edges)
 	projectID, snapshotID := b.snapshotMeta()
-	resolution := b.resolution
-	if resolution <= 0 {
-		resolution = 1.0
-	}
+	resolution := effectiveResolution(b.resolution)
 	// Communities.
 	comm := g.Communities(resolution)
 	commStmt, err := b.tx.Prepare(

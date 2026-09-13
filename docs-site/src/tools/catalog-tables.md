@@ -249,8 +249,10 @@ The dependency graph (`CATALOG.REFS`, full refresh) is analysed by a family of
 `graph_*` views and tables — god nodes, module coupling/cohesion, dead documents,
 communities, cycles, layers, centrality, and the integration surface. The
 community/cycle/layer/centrality tables are populated by `REFRESH CATALOG
-COMMUNITIES`. See **[Graph Analysis](graph-analysis.md)** for the full reference
-and the `mxcli graph-report` command.
+COMMUNITIES` — a pass, not a build mode, so a full-mode catalog has them empty
+until it runs and a query against one says so rather than returning `0 rows`.
+See **[Graph Analysis](graph-analysis.md)** for the full reference and the
+`mxcli graph-report` command.
 
 ```sql
 select * from CATALOG.graph_god_nodes order by Degree desc limit 20;

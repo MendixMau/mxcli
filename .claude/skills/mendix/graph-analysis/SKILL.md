@@ -37,6 +37,15 @@ Two separate commands are needed. The full catalog must exist before community d
 | `REFRESH CATALOG FULL` | `GRAPH_GOD_NODES`, `GRAPH_MODULE_COUPLING`, `GRAPH_MODULE_COHESION`, `GRAPH_DEAD_ASSETS`, `GRAPH_ENTITY_HOTSPOTS`, `GRAPH_MODULE_DEPENDENCIES`, `GRAPH_REFKIND_DISTRIBUTION` |
 | `REFRESH CATALOG COMMUNITIES` | `COMMUNITIES`, `COMMUNITY_SUMMARY`, `GRAPH_CYCLES`, `GRAPH_LAYERS`, `GRAPH_CENTRALITY`, `GRAPH_INTEGRATION_SURFACE` |
 
+**An empty table from the second row is ambiguous unless you check.** Step 2 is
+not a build mode — it augments whatever the catalog is, so `Build mode: full`
+says nothing about whether it ran, and before mendixlabs/mxcli#1060 an un-run
+pass and a genuinely cycle-free project produced the same `0 rows`. A query now
+warns `requires refresh catalog communities (not run for this catalog)` when the
+pass is missing, and `SHOW CATALOG STATUS` has a `Graph analysis:` line. **No
+warning plus no rows is a real answer**; treat anything else as "not computed
+yet", not as "clean".
+
 `REFRESH CATALOG COMMUNITIES` with a resolution modifier:
 - `REFRESH CATALOG COMMUNITIES` — default resolution (balanced granularity)
 - `REFRESH CATALOG COMMUNITIES resolution 0.6` — coarser clusters (fewer, larger communities; good for monolith-to-multi-app planning)

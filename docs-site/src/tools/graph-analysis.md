@@ -64,6 +64,33 @@ populates these catalog objects (and fills the `PageRank`/`Betweenness` columns 
 The `resolution` knob selects granularity: high γ → fine **candidate modules**;
 low γ → coarse **candidate apps**.
 
+### If one of these is empty
+
+Empty means one of two very different things, and they used to look identical.
+The tables above are filled by the pass, not by a build mode — so a catalog built
+with `refresh catalog full` has all of them empty while `graph_module_coupling`,
+a plain view over `refs`, answers normally. That asymmetry was
+[mendixlabs/mxcli#1060](https://github.com/mendixlabs/mxcli/issues/1060).
+
+A query now says which case you are in:
+
+```
+Warning: CATALOG.GRAPH_CYCLES requires refresh catalog communities (not run for this catalog)
+```
+
+No warning and no rows means the pass ran and genuinely found nothing.
+`show catalog status` reports the same thing up front:
+
+```
+Graph analysis: ✓ Available (resolution 1)
+Graph analysis: ✗ Not run (use refresh catalog communities)
+```
+
+The pass is **not** a build mode — it augments whatever mode is cached, so
+`Build mode: full` says nothing about it. A later `refresh catalog full` used to
+drop these tables silently; it now re-runs the pass at the same resolution, so the
+graph survives a rebuild. To drop back, delete `.mxcli/catalog.db` and refresh.
+
 ### SHOW commands
 
 ```sql

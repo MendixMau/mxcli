@@ -98,6 +98,23 @@ var sourceOnlyTables = map[string]bool{
 	"source": true,
 }
 
+// communitiesOnlyTables are populated by the graph-analysis pass (REFRESH
+// CATALOG COMMUNITIES), not by any build mode. They were the ONLY graph tables
+// missing from the lists above, which is exactly why mendixlabs/mxcli#1060 was
+// reported the way it was: GRAPH_MODULE_COUPLING is a plain view over refs, so
+// it answered from any full catalog, while GRAPH_CYCLES answered "0 rows" — the
+// same output as "no cycles found". A query against these is a mode question no
+// rank can settle, since the pass augments fast/full/source alike; it is
+// answered by the graph-analysis flag on the catalog.
+var communitiesOnlyTables = map[string]bool{
+	"communities":               true,
+	"community_summary":         true,
+	"graph_cycles":              true,
+	"graph_layers":              true,
+	"graph_centrality":          true,
+	"graph_integration_surface": true,
+}
+
 // extractTableFromQuery extracts the table name after FROM in a converted catalog query.
 func extractTableFromQuery(query string) string {
 	lower := strings.ToLower(query)
@@ -122,17 +139,25 @@ func warnIfCatalogModeInsufficient(ctx *ExecContext, query string) {
 		return
 	}
 
-	// Determine current build mode
+	// Determine current build mode, and whether the graph pass has run.
 	buildMode := "fast"
+	graphAnalysis := false
 	if ctx.Catalog != nil {
-		if info, err := ctx.Catalog.GetCacheInfo(); err == nil && info.BuildMode != "" {
-			buildMode = info.BuildMode
+		if info, err := ctx.Catalog.GetCacheInfo(); err == nil {
+			if info.BuildMode != "" {
+				buildMode = info.BuildMode
+			}
+			graphAnalysis = info.GraphAnalysis
 		}
 	}
 
 	modeRank := map[string]int{"fast": 1, "full": 2, "source": 3}
 	currentRank := modeRank[buildMode]
 
+	if communitiesOnlyTables[table] && !graphAnalysis {
+		fmt.Fprintf(ctx.Output, "Warning: CATALOG.%s requires refresh catalog communities (not run for this catalog)\n", strings.ToUpper(table))
+		return
+	}
 	if sourceOnlyTables[table] && currentRank < modeRank["source"] {
 		fmt.Fprintf(ctx.Output, "Warning: CATALOG.%s requires refresh catalog full source (current mode: %s)\n", strings.ToUpper(table), buildMode)
 	} else if fullOnlyTables[table] && currentRank < modeRank["full"] {
@@ -172,8 +197,11 @@ func execCatalogQuery(ctx *ExecContext, query string) error {
 	return nil
 }
 
-// tableRequiredMode returns the minimum catalog build mode for a table.
+// tableRequiredMode returns the command that populates a table.
 func tableRequiredMode(table string) string {
+	if communitiesOnlyTables[table] {
+		return "refresh catalog communities"
+	}
 	if sourceOnlyTables[table] {
 		return "refresh catalog full source"
 	}
@@ -247,23 +275,33 @@ func catalogModeRank(mode string) int {
 // statement of the level this project is set up for, and that is what callers
 // here are asking about.
 func cachedCatalogMode(ctx *ExecContext) string {
-	cachePath := getCachePath(ctx)
-	if cachePath == "" {
+	info := cachedCatalogInfo(ctx)
+	if info == nil {
 		return ""
 	}
+	return info.BuildMode
+}
+
+// cachedCatalogInfo reads the on-disk cache's metadata, or nil when there is no
+// readable cache. Same indifference to validity as cachedCatalogMode.
+func cachedCatalogInfo(ctx *ExecContext) *catalog.CacheInfo {
+	cachePath := getCachePath(ctx)
+	if cachePath == "" {
+		return nil
+	}
 	if _, err := os.Stat(cachePath); err != nil {
-		return ""
+		return nil
 	}
 	cat, err := catalog.NewFromFile(cachePath)
 	if err != nil {
-		return ""
+		return nil
 	}
 	defer cat.Close()
 	info, err := cat.GetCacheInfo()
 	if err != nil {
-		return ""
+		return nil
 	}
-	return info.BuildMode
+	return info
 }
 
 // ensureCatalog ensures a catalog is available, using cache if possible.
@@ -406,10 +444,38 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%.1fd", d.Hours()/24)
 }
 
+// carryGraphAnalysis decides whether a rebuild should re-run the graph pass the
+// cache it is about to replace already had, and at which resolution.
+//
+// A rebuild starts from an empty catalog, so it drops the graph-analysis tables
+// — and the recorded mode stays "full", so nothing downstream could tell. That
+// is the same shape as #1081 (a narrower build overwriting a richer cache) and
+// the reason mendixlabs/mxcli#1060's GRAPH_CYCLES was empty on a project whose
+// GRAPH_MODULE_COUPLING had rows. Re-running re-reads the refs the rebuild just
+// wrote and re-parses nothing.
+//
+// Only for a build that is already full. A fast build must NOT be promoted: it
+// never overwrites a full cache (the #1081 guard in buildCatalog), so it has
+// nothing to preserve, and promoting it would make `mxcli check -p` pay for a
+// full parse plus a graph pass.
+func carryGraphAnalysis(prior *catalog.CacheInfo, full, communities bool) (bool, float64) {
+	if communities || !full || prior == nil || !prior.GraphAnalysis {
+		return false, 0
+	}
+	return true, prior.GraphResolution
+}
+
 // buildCatalog builds the catalog from the project.
 func buildCatalog(ctx *ExecContext, full, isSource, communities bool, resolution float64) error {
 	if isSource || communities {
 		full = true // both imply full (they read refs/source built in full mode)
+	}
+
+	if carry, res := carryGraphAnalysis(cachedCatalogInfo(ctx), full, communities); carry {
+		communities, resolution = true, res
+		if !ctx.Quiet {
+			fmt.Fprintln(ctx.Output, "Carrying over graph analysis (this catalog has it)...")
+		}
 	}
 
 	if !ctx.Quiet {
@@ -724,6 +790,15 @@ func execShowCatalogStatus(ctx *ExecContext) error {
 		fmt.Fprintln(ctx.Output, "Source mode: ✓ Available")
 	} else {
 		fmt.Fprintln(ctx.Output, "Source mode: ✗ Not cached (use refresh catalog source)")
+	}
+	// Reported separately from the mode because it IS separate: the graph pass
+	// augments whatever mode is cached, so "full" says nothing about whether
+	// COMMUNITIES / GRAPH_CYCLES / GRAPH_LAYERS / GRAPH_CENTRALITY have anything
+	// in them.
+	if info.GraphAnalysis {
+		fmt.Fprintf(ctx.Output, "Graph analysis: ✓ Available (resolution %g)\n", info.GraphResolution)
+	} else {
+		fmt.Fprintln(ctx.Output, "Graph analysis: ✗ Not run (use refresh catalog communities)")
 	}
 
 	return nil
