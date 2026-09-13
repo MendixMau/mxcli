@@ -1,0 +1,36 @@
+-- Bug: declaring a view entity's association column as an attribute wrote a
+-- model that does not build (ako/view-entity-examples FINDINGS §4).
+--
+-- `select m.ID as MeterRef` already gives the view entity an association named
+-- MeterRef (see view-entity-association.mdl). Declaring it again in the
+-- attribute list — `MeterRef: Trends.Meter`, or `MeterRef: Trends.Meter.ID` —
+-- parsed, because a bare qualified name is how MDL spells an enumeration type,
+-- and exec stored exactly that beside the association.
+--
+-- Measured on 11.14.0 before the fix, against a module with Trends.Meter,
+-- Trends.Reading and Trends.Reading_Meter:
+--   check           -> "Check passed!"
+--   check -p        -> "OQL select has 1 columns but 2 attributes declared", and
+--                      MeterRef compared against the NEXT column ('r.Kwh')
+--   exec --no-check -> writes MeterRef: Enumeration(Trends.Meter)
+--   mx check        -> CE1613 "The selected enumeration 'Trends.Meter' no longer exists."
+--                      With Trends.Meter.ID: mx check throws "An error occurred when
+--                      trying to set the 'Enumeration' property of a Enumeration"
+--                      and validates nothing.
+--
+-- Fixed: MDL080 refuses it in check with no project, and exec refuses it before
+-- writing, --no-check included (0 files changed). An entity-typed attribute under
+-- a name that is NOT an association column needs the project to tell an entity
+-- from an enumeration; that refusal is in check -p and exec, and covered by unit
+-- tests in mdl/executor/view_attribute_object_test.go.
+--
+-- Expected: check fails with MDL080.
+
+create view entity Trends.ReadingVE (
+  MeterRef: Trends.Meter,
+  Kwh: Decimal
+) as (
+  from Trends.Reading as r
+  join r/Trends.Reading_Meter/Trends.Meter as m
+  select m.ID as MeterRef, r.Kwh as Kwh
+);
