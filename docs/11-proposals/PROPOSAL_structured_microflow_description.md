@@ -6,10 +6,14 @@ date: 2026-08-20
 
 # Proposal: Structured description of irreducible microflow graphs
 
-**Status:** Partial — Phase 0 (detector, `MDL-FLOW01`, describe-time warning) is
-shipped; the prevalence scan that gates the rest is
-[measured below](#measured-2026-09-12) and selects Mode 3. Phases 1–2 unscheduled.
-**Date:** 2026-08-20 (scan: 2026-09-12)
+**Status:** Partial — Phase 0 (detector, `MDL-FLOW01`, describe-time warning) and
+**Phase E** (`merge`/`join`, both authoring and DESCRIBE, for error-path rejoins)
+are shipped; the prevalence scan that gates the rest is
+[measured below](#measured-2026-09-12) and selects Mode 3. Mode 2 for the
+*non*-error irreducible graphs — crossed branches with no error handler — is the
+remaining piece: those still describe to flattened MDL with the MDL-FLOW01
+warning. Phases 1–2 otherwise unscheduled.
+**Date:** 2026-08-20 (scan: 2026-09-12; Phase E: 2026-09-13)
 
 `DESCRIBE MICROFLOW` renders a microflow's control flow as nested `if/then/else`.
 That works only for graphs that are *properly nested*. A Mendix microflow is an
@@ -402,6 +406,24 @@ Two deviations from the plan above, both deliberate:
   best-practices grade; the model here is valid and builds cleanly, so docking a
   project's score for an mxcli limitation would be wrong.
 
+Two more from Phase E, where the shipped syntax differs from the Mode 2 sketch
+above:
+
+- **`@position` goes BEFORE `merge <label>;`, not after it.** The sketch writes
+  `merge m1 @position(-200, 173);`. Every other MDL statement takes its
+  annotations on preceding lines, and the builder already moves the layout cursor
+  from `pendingAnnotations` before dispatching — so the prefix form needed no
+  special case and the suffix form would have needed one, in exchange for
+  breaking the pattern a reader has already learned.
+- **Fall-through into a `merge` is allowed, not an error.** The sketch requires
+  every path in a microflow containing any `merge` to end in `join`, `return` or
+  an end event. That was listed in Open Questions as the strict half of a choice,
+  and the permissive alternative is what shipped: `… ; merge m1; …` simply means
+  "and this path also arrives here", which is unambiguous because the inbound
+  edge is explicit in the text order. The rule that IS enforced is the one that
+  was actually a bug: a path that has already ended does not fall through into a
+  following `merge`, which was emitting a duplicate flow into it.
+
 ### Phase E — error-handler rejoins
 
 The third caveat above is a separate population with its own phasing, because the
@@ -421,6 +443,17 @@ mxbuild is green. (The unmutated microflow round-trips correctly — error → m
 the same end event as the `else` branch — but by luck: the empty handler falls
 through to the enclosing branch's continuation, which happens to be that end
 event. That is also why #450's post-pass was enough to make it *buildable*.)
+
+**Shipped 2026-09-13.** E0 was subsumed rather than built: once DESCRIBE can
+*spell* the rejoin there is nothing to warn about, so the empty block became
+`join <label>` and the warning was not needed. E1 and E2 landed as described.
+Measured on the two fixtures above: the original and the repointed
+`SUB_Feedback_SendToServer` now describe **differently** (the `merge` declaration
+lands at (230, 160) and (-200, -50) respectively), each round-trips to its own
+graph — the repointed one keeps its loop back into the AppId split — and both are
+0 errors on mxbuild 11.14.0. describe → exec → describe is a fixed point for
+every error-handling form. What is NOT covered: a crossed-branch graph with no
+error handler, which is the general Mode 2 case and still warns.
 
 - **E0 — detect and warn (independently shippable).** Ask, of each custom error
   handler, whether the node it reaches is reachable from the start over normal

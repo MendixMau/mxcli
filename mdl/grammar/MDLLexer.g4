@@ -55,6 +55,12 @@ RENAME: R E N A M E;
 MOVE: M O V E;
 MODIFY: M O D I F Y;
 
+// `merge <label>` declares a join point in a microflow body. It was an
+// IDENTIFIER until it became a statement keyword, which is why it appears in
+// both `annotationName` (for the older `@merge(x, y)` layout hint) and
+// `keyword` (so an entity or variable called "merge" still parses).
+MERGE: M E R G E;
+
 ENTITY: E N T I T Y;
 PERSISTENT: P E R S I S T E N T;
 VIEW: V I E W;

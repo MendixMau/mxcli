@@ -726,6 +726,11 @@ func (fb *flowBuilder) addErrorHandlerFlow(sourceActivityID model.ID, sourceX in
 		// (or the reverse) lands in one collection — sharing the registry is
 		// sound here in a way it is not across a loop boundary (#1077).
 		annotationsByLabel: fb.annotationsByLabel,
+		// Same collection, so the same label table: `join recovered` inside a
+		// handler must find the `merge recovered` declared on the main path.
+		// This is the one rejoin MDL could not spell before, and the reason the
+		// registry is a shared pointer rather than per-builder state.
+		labelReg: fb.labels(),
 	}
 
 	var lastErrID model.ID
@@ -733,6 +738,24 @@ func (fb *flowBuilder) addErrorHandlerFlow(sourceActivityID model.ID, sourceX in
 	var lastErrAnchor *ast.FlowAnchors
 	for _, stmt := range errorBody {
 		actID := errBuilder.addStatement(stmt)
+		if errBuilder.pendingJoin != nil {
+			// A handler whose FIRST statement is a join has no activity of its
+			// own: the ERROR edge itself has to land on the merge, so it is
+			// created here rather than recorded as an ordinary join edge.
+			if lastErrID == "" {
+				label := errBuilder.pendingJoin.Label
+				errBuilder.pendingJoin = nil
+				m := errBuilder.mergeForLabel(label)
+				fb.flows = append(fb.flows, newErrorHandlerFlow(sourceActivityID, m.ID))
+				// Wired here rather than by resolveJoins, so it still counts as
+				// handled — otherwise the unwired-body-loop guard would report a
+				// join that was in fact wired.
+				errBuilder.labels().handled++
+				continue
+			}
+			errBuilder.takePendingJoin(lastErrID, lastErrCase, lastErrAnchor)
+			continue
+		}
 		if actID != "" {
 			errBuilder.applyPendingAnnotations(actID)
 			if lastErrID == "" {
@@ -961,6 +984,10 @@ func isTerminalStmt(stmt ast.MicroflowStatement) bool {
 	case *ast.BreakStmt:
 		return true
 	case *ast.ContinueStmt:
+		return true
+	case *ast.JoinStmt:
+		// A join ends the path at a named merge, so a branch ending in one owes
+		// no flow to the enclosing IF's merge — exactly like a RETURN.
 		return true
 	case *ast.IfStmt:
 		if len(s.ElseBody) == 0 {

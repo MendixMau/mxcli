@@ -201,6 +201,8 @@ microflowStatement
     | annotation* whileStatement SEMICOLON
     | annotation* continueStatement SEMICOLON
     | annotation* breakStatement SEMICOLON
+    | annotation* mergeStatement SEMICOLON
+    | annotation* joinStatement SEMICOLON
     | annotation* returnStatement SEMICOLON
     | annotation* raiseErrorStatement SEMICOLON
     | annotation* logStatement SEMICOLON
@@ -409,6 +411,23 @@ continueStatement
 
 breakStatement
     : BREAK
+    ;
+
+/**
+ * `merge <label>` declares an ExclusiveMerge that paths can `join`.
+ *
+ * The label exists only in MDL — a Mendix ExclusiveMerge stores no name — so it
+ * is resolved at build time and at describe time, never written to the model.
+ * Forward and backward references both resolve, which is what makes a retry
+ * loop (`merge attempt; … join attempt;`) expressible.
+ */
+mergeStatement
+    : MERGE (IDENTIFIER | QUOTED_IDENTIFIER)
+    ;
+
+/** `join <label>` sends this path to the merge declared under that label. */
+joinStatement
+    : JOIN (IDENTIFIER | QUOTED_IDENTIFIER)
     ;
 
 returnStatement

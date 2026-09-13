@@ -67,6 +67,10 @@ func getStatementAnnotations(stmt ast.MicroflowStatement) *ast.ActivityAnnotatio
 		return s.Annotations
 	case *ast.ContinueStmt:
 		return s.Annotations
+	case *ast.MergeStmt:
+		return s.Annotations
+	case *ast.JoinStmt:
+		return s.Annotations
 	case *ast.ListOperationStmt:
 		return s.Annotations
 	case *ast.AggregateListStmt:
