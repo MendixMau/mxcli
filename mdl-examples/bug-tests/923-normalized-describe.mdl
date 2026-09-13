@@ -1,0 +1,50 @@
+-- ============================================================================
+-- Mode 3: DESCRIBE ... NORMALIZED on the #923 graph
+-- ============================================================================
+--
+-- MF_Orig is mendixlabs/mxcli#923's graph: an inner split's branch lands where
+-- an outer split's branch lands, so the branches cross and no nesting of IF
+-- reproduces them.
+--
+--   split1 : true -> split2      false -> merge1
+--   split2 : true -> merge1      false -> merge2
+--
+-- The activity on merge1 runs on `not($A) or $B`. The DEFAULT description
+-- renders it as `$A and $B` and warns (MDL-FLOW01) -- with the reporter's own
+-- expressions, a program that always logged described as one that never did.
+--
+--   mxcli -p app.mpr -c "describe microflow Mode3.MF_Orig"             -- $A and $B
+--   mxcli -p app.mpr -c "describe microflow Mode3.MF_Orig normalized"  -- $B or not($A)
+--
+-- $Result is what makes the difference observable: it distinguishes the two
+-- renderings on the (false, *) rows, which is what
+-- 923-normalized-describe.test.mdl asserts against a real runtime by comparing
+-- MF_Orig with the microflow rebuilt from the normalized output.
+--
+-- Run it:
+--   mxcli exec mdl-examples/bug-tests/923-normalized-describe.mdl -p app.mpr
+--   mxcli -p app.mpr -c "describe microflow Mode3.MF_Orig normalized" \
+--     | sed 's/MF_Orig/MF_Norm/' > /tmp/norm.mdl
+--   mxcli exec /tmp/norm.mdl -p app.mpr
+--   mxcli test mdl-examples/bug-tests/923-normalized-describe.test.mdl -p app.mpr --local
+
+CREATE MODULE Mode3;
+/
+CREATE OR REPLACE MICROFLOW Mode3.MF_Orig (A: Boolean, B: Boolean) RETURNS String
+BEGIN
+  DECLARE $Result String = 'skipped';
+  IF $A THEN
+    IF $B THEN
+      JOIN m1;
+    ELSE
+      JOIN m2;
+    END IF;
+  ELSE
+    JOIN m1;
+  END IF;
+  MERGE m1;
+  SET $Result = 'ran';
+  JOIN m2;
+  MERGE m2;
+  RETURN $Result;
+END;

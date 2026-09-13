@@ -302,6 +302,13 @@ type DescribeStmt struct {
 	// the code or name of a GLYPH (a glyph has no qualified name — it is a
 	// character code in a font, not an element in the project).
 	Qualifier string
+	// Normalized selects Mode 3 for DESCRIBE MICROFLOW: an irreducible but
+	// recombinable graph is rendered by folding the branch guards into one
+	// condition instead of being flattened. Opt-in because the output
+	// re-executes to a DIFFERENT graph — equivalent behaviour, fewer nodes —
+	// and silently reshaping someone's diagram because they asked to read it
+	// is its own guard-don't-drop violation.
+	Normalized bool
 }
 
 func (s *DescribeStmt) isStatement() {}

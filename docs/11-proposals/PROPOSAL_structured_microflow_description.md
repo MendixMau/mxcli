@@ -6,18 +6,22 @@ date: 2026-08-20
 
 # Proposal: Structured description of irreducible microflow graphs
 
-**Status:** Partial — Phase 0 (detector, `MDL-FLOW01`, describe-time warning) and
+**Status:** Partial — Phase 0 (detector, `MDL-FLOW01`, describe-time warning),
 **Phase E** (`merge`/`join`, both authoring and DESCRIBE, for error-path rejoins)
-are shipped; the prevalence scan that gates the rest is
-[measured below](#measured-2026-09-12) and selects Mode 3. Mode 2 for the
-*non*-error irreducible graphs — crossed branches with no error handler — is the
-remaining piece: those still describe to flattened MDL with the MDL-FLOW01
-warning. **Mode 3 is unblocked**: `and`/`or` were measured to short-circuit
-(2026-09-13), so guard folding is semantics-preserving. Phases 1–2 otherwise
-unscheduled. One [known limitation](#known-limitation-a-merge-outside-both-described-forms-is-dropped)
-is open: a merge that is neither an error rejoin nor an `if`/`else` join is
-dropped by a describe → exec round trip.
-**Date:** 2026-08-20 (scan: 2026-09-12; Phase E and the runtime measurements: 2026-09-13)
+and **Mode 3** (`DESCRIBE … NORMALIZED`, opt-in guard folding for recombinable
+graphs) are shipped; the prevalence scan that gates the rest is
+[measured below](#measured-2026-09-12) and selects Mode 3, which the scan called
+the class most irreducible graphs fall into.
+
+**Mode 2 for the *non*-error irreducible graphs remains the open piece.** Mode 3
+covers them only when the caller opts in *and* the region folds; the DEFAULT
+rendering of a crossed graph is still flattened MDL with the MDL-FLOW01 warning,
+and an interleaved graph has no faithful rendering at all. Phases 1–2 otherwise
+unscheduled. One
+[known limitation](#known-limitation-a-merge-outside-both-described-forms-is-dropped)
+is open but now reported: a merge that is neither an error rejoin nor an
+`if`/`else` join is dropped by a describe → exec round trip, and DESCRIBE warns.
+**Date:** 2026-08-20 (scan: 2026-09-12; Phase E, the runtime measurements and Mode 3: 2026-09-13)
 
 `DESCRIBE MICROFLOW` renders a microflow's control flow as nested `if/then/else`.
 That works only for graphs that are *properly nested*. A Mendix microflow is an
@@ -187,7 +191,35 @@ Properties:
   `check` error, not a guess. (See Open Questions — the permissive alternative is
   viable and cheaper for hand-authors.)
 
-### Mode 3 — normalized (opt-in)
+### Mode 3 — normalized (opt-in) — SHIPPED 2026-09-13
+
+Implementation notes, where they differ from the sketch below:
+
+- **It is not a second describer.** `normalizeCollection` rewrites a *copy* of
+  the graph into the equivalent properly-nested one and hands that to the
+  existing describer, so Mode 3 inherits every activity renderer, annotation and
+  layout rule and cannot drift from Mode 1.
+- **The folded split keeps its identity** — same `$ID`, position and annotations
+  — but its stored `Caption` is cleared: it labels the *original* guard, and
+  leaving it puts a second, wrong condition in the more prominent place.
+- **The entry merge is spliced out.** After folding it has one predecessor and
+  one successor, and describe → exec would delete it anyway; removing it in the
+  transform makes Mode 3's output describe exactly the graph re-executing it
+  builds.
+- **Refusals are per-decision and explained**, and the rest of the microflow
+  still renders: an activity in the region (would move a side effect), a
+  rule-based decision (a rule call cannot go inside an expression), and
+  interleaved branches.
+- **Verified behaviourally, not just algebraically.** `microflownorm`'s
+  simplifier is checked against truth tables over 3000 generated formulas (with
+  a deliberately broken rewrite rule as the control), and the whole pipeline
+  against a **real runtime**: the original graph and the microflow rebuilt from
+  its normalized description return the same value for all four inputs
+  (`mdl-examples/bug-tests/923-normalized-describe{,.test}.mdl`). The two
+  `$A = false` rows are exactly the ones the flattened Mode 1 rendering gets
+  wrong.
+
+The original sketch:
 
 Recombine guards into an equivalent nested form. For the reporter's graph,
 `¬c1 ∨ (c1 ∧ c2)` simplifies to `¬c1 ∨ c2` and the whole microflow collapses to:
@@ -525,11 +557,16 @@ every supported version; this is a describe/parse-side concern. No entry in
 
 ## Open Questions
 
-1. **`normalized` as an MDL modifier vs a CLI flag.** The modifier keeps it in the
-   language and works in the REPL; a flag keeps a rendering option out of the
-   grammar. No existing `DESCRIBE` modifier sets precedent.
+None outstanding.
 
 ### Settled
+
+- **`normalized` as an MDL modifier vs a CLI flag** (was Q3) — shipped as the
+  **modifier**, `DESCRIBE MICROFLOW Module.Name NORMALIZED`. It keeps the option
+  in the language, so it works in the REPL and in a script, and it is what this
+  proposal's own examples were written as. `NORMALIZED` is registered in
+  `keyword` as well as the lexer, so an element called "normalized" still
+  parses — the same treatment `MERGE` needed.
 
 - **Short-circuit semantics of `and`/`or`** (was Q1, blocked Mode 3) — **both
   short-circuit**, so folding a guard does not introduce an evaluation the

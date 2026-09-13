@@ -61,6 +61,11 @@ MODIFY: M O D I F Y;
 // `keyword` (so an entity or variable called "merge" still parses).
 MERGE: M E R G E;
 
+// `describe microflow X normalized` selects Mode 3 rendering. Like MERGE it is
+// a word people already use as a name, so it goes in `keyword` too and an
+// entity or variable called "normalized" still parses.
+NORMALIZED: N O R M A L I Z E D;
+
 ENTITY: E N T I T Y;
 PERSISTENT: P E R S I S T E N T;
 VIEW: V I E W;

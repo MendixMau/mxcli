@@ -1,0 +1,41 @@
+/**
+ * Mode 3 must preserve BEHAVIOUR, not merely produce a plausible formula.
+ *
+ * MF_Orig is the #923 graph (an inner split's branch landing where an outer
+ * split's branch lands); MF_Norm is what `describe ... normalized` emitted for
+ * it, executed back. Their return value differs exactly when the shared suffix
+ * runs, so comparing it over all four inputs is a complete truth table.
+ *
+ * Mode 1 renders MF_Orig as `$A and $B`, so the (false, *) rows are the ones
+ * that would fail against the flattened description — they are the bug.
+ *
+ * @test A=true  B=true  -> both run the shared suffix
+ * @expect $orig = 'ran' and $norm = 'ran'
+ */
+$orig = call microflow Mode3.MF_Orig(A = true, B = true);
+$norm = call microflow Mode3.MF_Norm(A = true, B = true);
+/
+
+/**
+ * @test A=true  B=false -> both skip it
+ * @expect $orig = 'skipped' and $norm = 'skipped'
+ */
+$orig = call microflow Mode3.MF_Orig(A = true, B = false);
+$norm = call microflow Mode3.MF_Norm(A = true, B = false);
+/
+
+/**
+ * @test A=false B=true  -> both run it (Mode 1 would say skipped)
+ * @expect $orig = 'ran' and $norm = 'ran'
+ */
+$orig = call microflow Mode3.MF_Orig(A = false, B = true);
+$norm = call microflow Mode3.MF_Norm(A = false, B = true);
+/
+
+/**
+ * @test A=false B=false -> both run it (Mode 1 would say skipped)
+ * @expect $orig = 'ran' and $norm = 'ran'
+ */
+$orig = call microflow Mode3.MF_Orig(A = false, B = false);
+$norm = call microflow Mode3.MF_Norm(A = false, B = false);
+/

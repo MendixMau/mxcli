@@ -156,6 +156,51 @@ func init() {
 	})
 
 	Register(SyntaxFeature{
+		Path:    "microflow.normalized-describe",
+		Summary: "DESCRIBE MICROFLOW ... NORMALIZED: fold crossed branches into one condition",
+		Keywords: []string{
+			"normalized", "normalize", "describe", "fold", "recombinable",
+			"irreducible", "crossed branches", "guard", "mode 3",
+		},
+		Syntax: "DESCRIBE MICROFLOW Module.Name NORMALIZED;\n\n" +
+			"-- Opt-in rendering for a graph whose branches cross. Nested IF cannot\n" +
+			"-- describe one faithfully, so the DEFAULT rendering flattens it and warns\n" +
+			"-- (MDL-FLOW01). NORMALIZED instead folds the branch guards into a single\n" +
+			"-- condition, which is equivalent and duplicates nothing.\n" +
+			"--\n" +
+			"-- The graph from mxcli #923:\n" +
+			"--   split1: true -> split2      false -> merge1\n" +
+			"--   split2: true -> merge1      false -> merge2\n" +
+			"-- The activity on merge1 runs on `not(c1) or c2`. Default DESCRIBE renders\n" +
+			"-- it as `c1 and c2` -- with the reporter's expressions, a program that\n" +
+			"-- always logged described as one that never did.\n" +
+			"--\n" +
+			"-- WHY OPT-IN. The output re-executes to a DIFFERENT graph: same behaviour,\n" +
+			"-- fewer nodes, different layout. Describing a microflow to change one\n" +
+			"-- activity must not rebuild the canvas, so this is never the default and\n" +
+			"-- the output carries a NOTE saying so.\n" +
+			"--\n" +
+			"-- WHAT IT REFUSES, rather than guessing:\n" +
+			"--   * an activity between the decision and the shared part -- folding\n" +
+			"--     would move a side effect;\n" +
+			"--   * a rule-based decision -- a rule call cannot go inside an expression;\n" +
+			"--   * genuinely interleaved branches -- nesting those needs a duplicated\n" +
+			"--     activity or an invented boolean (Boehm-Jacopini), neither of which\n" +
+			"--     is a description.\n" +
+			"-- A refusal leaves that decision rendered as-is and says why.\n" +
+			"--\n" +
+			"-- Folding is safe because Mendix `and`/`or` SHORT-CIRCUIT -- measured, see\n" +
+			"-- mdl-examples/bug-tests/923-short-circuit-semantics.test.mdl. Were they\n" +
+			"-- eager, the folded form could evaluate a guard the original skipped.",
+		Example: "DESCRIBE MICROFLOW MyModule.MF_Reporter NORMALIZED;\n\n" +
+			"-- emits, for the crossed graph above:\n" +
+			"--   if $B or not($A) then\n" +
+			"--     log info node 'NODE' 'Do something';\n" +
+			"--   end if;",
+		SeeAlso: []string{"microflow.merge-join", "microflow.control-flow"},
+	})
+
+	Register(SyntaxFeature{
 		Path:    "microflow.merge-join",
 		Summary: "Named join points: MERGE <label> and JOIN <label>",
 		Keywords: []string{
