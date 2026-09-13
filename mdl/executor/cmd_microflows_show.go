@@ -758,6 +758,7 @@ func formatMicroflowActivities(
 	var lines []string
 	lines = append(lines, duplicateOutputVariableWarnings(mf.ObjectCollection)...)
 	lines = append(lines, irreducibleGraphWarnings(mf.ObjectCollection)...)
+	lines = append(lines, droppedMergeWarnings(ctx, mf.ObjectCollection, labelRejoinMerges(mf.ObjectCollection))...)
 
 	// Sort flows by OriginConnectionIndex for each origin
 	for originID := range flowsByOrigin {
@@ -996,6 +997,7 @@ func formatMicroflowActivitiesWithSourceMap(
 	var lines []string
 	lines = append(lines, duplicateOutputVariableWarnings(mf.ObjectCollection)...)
 	lines = append(lines, irreducibleGraphWarnings(mf.ObjectCollection)...)
+	lines = append(lines, droppedMergeWarnings(ctx, mf.ObjectCollection, labelRejoinMerges(mf.ObjectCollection))...)
 
 	for originID := range flowsByOrigin {
 		flows := flowsByOrigin[originID]
