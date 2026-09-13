@@ -1431,3 +1431,72 @@ func TestWorkflowMutator_SetPropertyWithEntity_Unsupported(t *testing.T) {
 		t.Fatal("Expected error for unsupported property")
 	}
 }
+
+// ALTER WORKFLOW … INSERT PATH builds the path's BSON itself, so it must end the
+// path with Mendix's marker too — an empty path included — or the runtime skips
+// the path's contents (ako/view-entity-examples §6).
+func TestWorkflowMutator_InsertPath_EndsWithMarker(t *testing.T) {
+	for name, acts := range map[string][]workflows.WorkflowActivity{
+		"with activities": {makeTestWorkflowActivity("path_act", "PathAct")},
+		"empty":           nil,
+	} {
+		act := makeWfActivityWithOutcomes("Split", "split1")
+		act[1] = bson.E{Key: "$Type", Value: "Workflows$ParallelSplitActivity"}
+		m := newMutator(makeWorkflowDoc(act))
+		if err := m.InsertPath("Split", 0, "", acts); err != nil {
+			t.Fatalf("%s: InsertPath: %v", name, err)
+		}
+		actDoc, _ := m.findActivityByCaption("Split", 0)
+		outcomes := bsonnav.DGetArrayElements(bsonnav.DGet(actDoc, "Outcomes"))
+		flow := bsonnav.DGetDoc(outcomes[len(outcomes)-1].(bson.D), "Flow")
+		if flow == nil {
+			t.Fatalf("%s: path has no Flow", name)
+		}
+		items := bsonnav.DGetArrayElements(bsonnav.DGet(flow, "Activities"))
+		// testWfDeps stamps one $Type on every activity it serializes, so the
+		// $Type is the stub's, not the mutator's. What the mutator controls is
+		// that the marker is appended last: count and caption say so.
+		if want := len(acts) + 1; len(items) != want {
+			t.Fatalf("%s: path flow has %d activities, want %d (the path's plus the marker)", name, len(items), want)
+		}
+		last := items[len(items)-1].(bson.D)
+		if got := bsonnav.DGetString(last, "Caption"); got != "End of parallel split path" {
+			t.Errorf("%s: last activity caption = %q, want the end-of-path marker", name, got)
+		}
+	}
+}
+
+// ALTER WORKFLOW … INSERT BOUNDARY EVENT builds the event's flow itself, so it
+// must end the path with Mendix's marker too — an unterminated non-interrupting
+// path builds and then stops the runtime from starting. testWfDeps stamps one
+// $Type on everything, so the assertion is on count and caption.
+func TestWorkflowMutator_InsertBoundaryEvent_EndsWithMarker(t *testing.T) {
+	for name, tc := range map[string]struct {
+		eventType string
+		acts      []workflows.WorkflowActivity
+	}{
+		"interrupting with activities":     {"InterruptingTimer", []workflows.WorkflowActivity{makeTestWorkflowActivity("esc", "Escalate")}},
+		"non-interrupting with activities": {"NonInterruptingTimer", []workflows.WorkflowActivity{makeTestWorkflowActivity("esc", "Escalate")}},
+		"no body":                          {"InterruptingTimer", nil},
+	} {
+		act := makeWfActivity("Workflows$UserTask", "Review", "task1")
+		act = append(act, bson.E{Key: "BoundaryEvents", Value: bson.A{int32(3)}})
+		m := newMutator(makeWorkflowDoc(act))
+		if err := m.InsertBoundaryEvent("Review", 0, tc.eventType, "addHours([%CurrentDateTime%], 1)", tc.acts); err != nil {
+			t.Fatalf("%s: InsertBoundaryEvent: %v", name, err)
+		}
+		actDoc, _ := m.findActivityByCaption("Review", 0)
+		events := bsonnav.DGetArrayElements(bsonnav.DGet(actDoc, "BoundaryEvents"))
+		flow := bsonnav.DGetDoc(events[len(events)-1].(bson.D), "Flow")
+		if flow == nil {
+			t.Fatalf("%s: boundary event has no Flow", name)
+		}
+		items := bsonnav.DGetArrayElements(bsonnav.DGet(flow, "Activities"))
+		if want := len(tc.acts) + 1; len(items) != want {
+			t.Fatalf("%s: flow has %d activities, want %d", name, len(items), want)
+		}
+		if got := bsonnav.DGetString(items[len(items)-1].(bson.D), "Caption"); got != "End of boundary event path" {
+			t.Errorf("%s: last activity caption = %q, want the end-of-path marker", name, got)
+		}
+	}
+}

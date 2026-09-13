@@ -145,11 +145,65 @@ func init() {
 			"--\n" +
 			"-- A handler that does NOT end in RETURN/THROW merges back into the main\n" +
 			"-- flow, so a variable created after the merge is out of scope on the error\n" +
-			"-- path (CE0108). End the handler, or expect that.",
+			"-- path (CE0108). End the handler, or expect that.\n" +
+			"--\n" +
+			"-- An EMPTY handler `{ }` is not a no-op: it means \"on error, do whatever\n" +
+			"-- the enclosing branch does next\". Say where the path goes with JOIN.",
 		Example: "COMMIT $Order ON ERROR {\n  LOG ERROR 'Failed to save order';\n  RETURN empty;\n};\n\n" +
 			"COMMIT $Batch ON ERROR WITHOUT ROLLBACK {\n  LOG WARNING 'Batch save failed, continuing';\n};\n\n" +
 			"DECLARE $Name String = 'default' ON ERROR {\n  RETURN 'could not initialise';\n};",
 		SeeAlso: []string{"microflow.control-flow"},
+	})
+
+	Register(SyntaxFeature{
+		Path:    "microflow.merge-join",
+		Summary: "Named join points: MERGE <label> and JOIN <label>",
+		Keywords: []string{
+			"merge", "join", "rejoin", "label", "goto", "converge",
+			"exclusive merge", "irreducible", "crossed branches", "retry loop",
+		},
+		Syntax: "MERGE <label>;                 -- declare a join point\n" +
+			"JOIN <label>;                  -- send this path to it\n\n" +
+			"-- A Mendix ExclusiveMerge has no name, so the label is MDL-only: it is\n" +
+			"-- resolved when the microflow is built and never stored in the model.\n" +
+			"--\n" +
+			"-- Forward and backward references both resolve, so declaration order is\n" +
+			"-- free. A backward one is how a retry loop is written:\n" +
+			"--   MERGE attempt;\n" +
+			"--   $r = CALL MICROFLOW M.Post() ON ERROR WITHOUT ROLLBACK { JOIN attempt; };\n" +
+			"--\n" +
+			"-- What this is FOR. Nested IF can only describe a graph whose branches\n" +
+			"-- pair up. Two cases do not:\n" +
+			"--   1. An ERROR path that rejoins the normal one somewhere other than the\n" +
+			"--      enclosing branch's own continuation. Without JOIN the only\n" +
+			"--      spellings are \"terminate\" and \"fall through\", and DESCRIBE used to\n" +
+			"--      emit an empty `{ }` for anything else — MDL that re-executes to a\n" +
+			"--      DIFFERENT graph, with no warning.\n" +
+			"--   2. Crossed branches: an inner split's branch landing where an outer\n" +
+			"--      split's branch lands. No nesting of IF reproduces that.\n" +
+			"--\n" +
+			"-- Rules, all reported by `mxcli check`:\n" +
+			"--   MDL-FLOW02  JOIN with no MERGE of that label, or a MERGE nothing joins\n" +
+			"--   MDL-FLOW03  the same label declared twice\n" +
+			"--   MDL-FLOW04  MERGE / JOIN inside a LOOP or WHILE body. A Mendix loop\n" +
+			"--               owns its own object collection and a sequence flow cannot\n" +
+			"--               leave it, so there is no graph this could build.\n" +
+			"--\n" +
+			"-- A path that has already ended (RETURN, THROW, JOIN) does NOT fall\n" +
+			"-- through into a following MERGE — the merge starts a new path.",
+		Example: "CREATE MICROFLOW M.Post (Payload: String) RETURNS String\n" +
+			"BEGIN\n" +
+			"  DECLARE $Status String = 'sent';\n" +
+			"  $r = CALL MICROFLOW M.Send(Payload = $Payload) ON ERROR WITHOUT ROLLBACK {\n" +
+			"    LOG WARNING NODE 'M' 'send failed, degrading';\n" +
+			"    SET $Status = 'degraded';\n" +
+			"    JOIN recovered;\n" +
+			"  };\n" +
+			"  JOIN recovered;\n" +
+			"  MERGE recovered;\n" +
+			"  RETURN $Status;\n" +
+			"END;",
+		SeeAlso: []string{"microflow.error-handling", "microflow.control-flow"},
 	})
 
 	Register(SyntaxFeature{

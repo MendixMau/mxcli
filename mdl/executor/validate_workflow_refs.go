@@ -173,7 +173,62 @@ func validateWorkflowStatementRefs(ctx *ExecContext, s *ast.CreateWorkflowStmt, 
 			}
 		}
 	}
+	errs = append(errs, bareTimerBoundaryEventErrors(ctx, s.Activities, 0)...)
 	return append(errs, validateWorkflowReferences(ctx, s.Activities, sc)...)
+}
+
+// bareTimerBoundaryEventErrors refuses `boundary event timer` without a kind
+// (MDL-WF07) on Mendix 11 and later.
+//
+// The bare form writes Workflows$TimerBoundaryEvent. No 11.x runtime has that
+// class — measured by its absence from the 11.10, 11.13 and 11.14 runtime
+// bundles, which carry only the interrupting and non-interrupting variants — and
+// the consequence is the worst available: `mxcli check` and mxbuild both pass,
+// and the runtime refuses to START the application:
+//
+//	Class 'Workflows$TimerBoundaryEvent' could not be found
+//
+// This is not a document failing to load; it is every user of the app locked
+// out by one boundary event. The form was also mxcli's own documented example.
+//
+// Gated on 11, because that is where it is measured: whether a 10.x runtime
+// knew the type is unknown here, and refusing it there would be a guess.
+// extraBare counts bare events the caller found outside the activity list — an
+// ALTER op's own event — and is added to the walk's.
+func bareTimerBoundaryEventErrors(ctx *ExecContext, activities []ast.WorkflowActivityNode, extraBare int) []string {
+	if ctx == nil || ctx.Backend == nil {
+		return nil
+	}
+	pv := ctx.Backend.ProjectVersion()
+	if pv == nil || !pv.IsAtLeast(11, 0) {
+		return nil
+	}
+	n := extraBare
+	count := func(events []ast.WorkflowBoundaryEventNode) {
+		for _, e := range events {
+			if e.EventType == "Timer" {
+				n++
+			}
+		}
+	}
+	walkWorkflowActivities(activities, func(a ast.WorkflowActivityNode) {
+		switch t := a.(type) {
+		case *ast.WorkflowUserTaskNode:
+			count(t.BoundaryEvents)
+		case *ast.WorkflowCallMicroflowNode:
+			count(t.BoundaryEvents)
+		case *ast.WorkflowWaitForNotificationNode:
+			count(t.BoundaryEvents)
+		}
+	})
+	if n == 0 {
+		return nil
+	}
+	return []string{fmt.Sprintf(
+		"%d boundary event(s) written as a bare `timer` — on Mendix %s that stores Workflows$TimerBoundaryEvent, a type the runtime does not have, "+
+			"so check and mxbuild pass and the application then refuses to start (\"Class 'Workflows$TimerBoundaryEvent' could not be found\"). "+
+			"Write `boundary event interrupting timer` or `boundary event non interrupting timer` [MDL-WF07]",
+		n, pv.String())}
 }
 
 // validateAlterWorkflowRefs validates ALTER WORKFLOW, which had no case in the
@@ -190,6 +245,34 @@ func validateAlterWorkflowRefs(ctx *ExecContext, s *ast.AlterWorkflowStmt, sc *s
 		if !known[qn] && (sc == nil || !sc.workflows[qn]) {
 			errs = append(errs, fmt.Sprintf("workflow not found: %s", qn))
 		}
+	}
+
+	// MDL-WF07: a bare `timer` is refused here too — INSERT BOUNDARY EVENT writes
+	// the same unloadable type, and so does any boundary event nested in an
+	// inserted activity.
+	{
+		bare := 0
+		var nested []ast.WorkflowActivityNode
+		for _, op := range s.Operations {
+			switch o := op.(type) {
+			case *ast.InsertBoundaryEventOp:
+				if o.EventType == "Timer" {
+					bare++
+				}
+				nested = append(nested, o.Activities...)
+			case *ast.InsertAfterOp:
+				nested = append(nested, o.NewActivity)
+			case *ast.ReplaceActivityOp:
+				nested = append(nested, o.NewActivity)
+			case *ast.InsertOutcomeOp:
+				nested = append(nested, o.Activities...)
+			case *ast.InsertPathOp:
+				nested = append(nested, o.Activities...)
+			case *ast.InsertBranchOp:
+				nested = append(nested, o.Activities...)
+			}
+		}
+		errs = append(errs, bareTimerBoundaryEventErrors(ctx, nested, bare)...)
 	}
 
 	// Every op that introduces activities gets the same reference check a CREATE

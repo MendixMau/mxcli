@@ -97,6 +97,10 @@ func buildMicroflowStatement(ctx parser.IMicroflowStatementContext) ast.Microflo
 		stmt = &ast.BreakStmt{}
 	} else if mfCtx.ContinueStatement() != nil {
 		stmt = &ast.ContinueStmt{}
+	} else if merge := mfCtx.MergeStatement(); merge != nil {
+		stmt = &ast.MergeStmt{Label: mergeJoinLabel(merge.IDENTIFIER(), merge.QUOTED_IDENTIFIER())}
+	} else if join := mfCtx.JoinStatement(); join != nil {
+		stmt = &ast.JoinStmt{Label: mergeJoinLabel(join.IDENTIFIER(), join.QUOTED_IDENTIFIER())}
 	} else if listOp := mfCtx.ListOperationStatement(); listOp != nil {
 		stmt = buildListOperationStatement(listOp)
 	} else if aggr := mfCtx.AggregateListStatement(); aggr != nil {
@@ -678,6 +682,10 @@ func setStatementAnnotations(stmt ast.MicroflowStatement, ann *ast.ActivityAnnot
 	case *ast.BreakStmt:
 		s.Annotations = ann
 	case *ast.ContinueStmt:
+		s.Annotations = ann
+	case *ast.MergeStmt:
+		s.Annotations = ann
+	case *ast.JoinStmt:
 		s.Annotations = ann
 	case *ast.ListOperationStmt:
 		s.Annotations = ann
@@ -1885,4 +1893,18 @@ func annotationPointValue(paramCtx *parser.AnnotationParamContext) (*ast.Positio
 		vals = append(vals, v)
 	}
 	return &ast.Position{X: vals[0], Y: vals[1]}, true
+}
+
+// mergeJoinLabel reads the label off a `merge`/`join` statement. Quoting is
+// what lets a label collide with a keyword, so it is stripped here rather than
+// carried into the AST — the label is matched by string when the merge is
+// resolved, and `join "end"` must find `merge "end"`.
+func mergeJoinLabel(plain, quoted antlr.TerminalNode) string {
+	if quoted != nil {
+		return unquoteIdentifier(quoted.GetText())
+	}
+	if plain != nil {
+		return plain.GetText()
+	}
+	return ""
 }

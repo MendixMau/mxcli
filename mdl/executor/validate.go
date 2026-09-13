@@ -661,6 +661,12 @@ func validateWithContext(ctx *ExecContext, stmt ast.Statement, sc *scriptContext
 			return mdlerrors.NewValidationf("view entity '%s':\n  - %s",
 				s.Name.String(), strings.Join(nameErrors, "\n  - "))
 		}
+		// An attribute typed with an entity is refused before the type comparison,
+		// which would line it up against the wrong column (FINDINGS §4).
+		if objErrors := viewAttributeEntityTypeErrors(ctx, s.Query.RawQuery, s.Attributes, sc.entities); len(objErrors) > 0 {
+			return mdlerrors.NewValidationf("view entity '%s':\n  - %s",
+				s.Name.String(), strings.Join(objErrors, "\n  - "))
+		}
 		// Validate OQL types match declared attribute types
 		if typeErrors := validateViewEntityTypes(ctx, s); len(typeErrors) > 0 {
 			return mdlerrors.NewValidationf("view entity '%s' has type mismatches:\n  - %s",

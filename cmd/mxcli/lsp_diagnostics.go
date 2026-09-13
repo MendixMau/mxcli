@@ -301,6 +301,7 @@ func (s *mdlServer) runSemanticValidation(text string) []protocol.Diagnostic {
 			if viewStmt.Query.RawQuery != "" {
 				violations = append(violations, executor.ValidateOQLSyntax(viewStmt.Query.RawQuery)...)
 				violations = append(violations, executor.ValidateOQLTypes(viewStmt.Query.RawQuery, viewStmt.Attributes)...)
+				violations = append(violations, executor.ValidateViewAttributeDeclarations(viewStmt.Query.RawQuery, viewStmt.Attributes)...)
 			}
 		}
 		if s.widgetRegistry != nil {

@@ -7,7 +7,9 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/mendixlabs/mxcli/mdl/ast"
 	mdlerrors "github.com/mendixlabs/mxcli/mdl/errors"
+	"github.com/mendixlabs/mxcli/mdl/linter"
 	"github.com/mendixlabs/mxcli/model"
 	"github.com/mendixlabs/mxcli/sdk/domainmodel"
 )
@@ -419,4 +421,112 @@ func validateViewAssociationNames(ctx *ExecContext, moduleName, viewEntityName, 
 		seen[lower] = true
 	}
 	return out
+}
+
+// viewAttributeIsObjectRule refuses a view entity attribute that tries to hold
+// an object: one declared for an association column, or typed with an entity.
+const viewAttributeIsObjectRule = "MDL080"
+
+// ValidateViewAttributeDeclarations reports declared attributes that cannot be
+// attributes (ako/view-entity-examples FINDINGS §4), from the script alone.
+//
+// Writing the association column as a declared attribute — `MeterRef:
+// Trends.Meter` or `MeterRef: Trends.Meter.ID` beside `select m.ID as MeterRef`
+// — parses, because a bare qualified name is how MDL spells an enumeration
+// type. It was stored as exactly that, next to the association the column
+// already declares. Measured on 11.14.0: the two-part form is CE1613 "The
+// selected enumeration 'Trends.Meter' no longer exists"; the three-part form
+// makes mx check throw "An error occurred when trying to set the 'Enumeration'
+// property" before it validates anything. And `check -p` could not say so: the
+// column is not an attribute, so it reported "1 columns but 2 attributes" and
+// compared the declaration against the NEXT column's type.
+//
+// Two shapes are decidable without a project: a declared name that is also an
+// association column's alias, and a three-part type name, which no enumeration
+// has. An entity-typed attribute under any other name needs the project to tell
+// an entity from an enumeration — see viewAttributeEntityTypeErrors.
+func ValidateViewAttributeDeclarations(oql string, attrs []ast.ViewAttribute) []linter.Violation {
+	assocByName := map[string]viewAssociationColumn{}
+	for _, c := range viewAssociationColumns(oql) {
+		assocByName[strings.ToLower(c.Name)] = c
+	}
+	var out []linter.Violation
+	for _, a := range attrs {
+		if c, ok := assocByName[strings.ToLower(a.Name)]; ok {
+			out = append(out, viewAttributeViolation(fmt.Sprintf(
+				"attribute '%s' cannot be declared: the select column '%s as %s' already makes %s an "+
+					"association to %s, and an association is not an attribute",
+				a.Name, c.Expr, c.Name, c.Name, c.Entity),
+				fmt.Sprintf("Remove '%s' from the attribute list — the column is the whole declaration", a.Name)))
+			continue
+		}
+		if ref := enumRefOf(a.Type); ref != nil && strings.Contains(ref.Name, ".") {
+			out = append(out, viewAttributeViolation(fmt.Sprintf(
+				"attribute '%s': '%s' is not a type — an attribute cannot hold an object or its id",
+				a.Name, ref.String()),
+				objectAttributeAdvice(a.Name)))
+		}
+	}
+	return out
+}
+
+// viewAttributeEntityTypeErrors reports attributes typed with a name that is an
+// entity rather than an enumeration. It needs the project (or the script's own
+// entities) to tell the two apart, which the parser cannot.
+func viewAttributeEntityTypeErrors(ctx *ExecContext, oql string, attrs []ast.ViewAttribute, scriptEntities map[string]bool) []string {
+	if ctx == nil || !ctx.Connected() {
+		return nil
+	}
+	// An association column's name is already refused by MDL080, whatever its
+	// type; reporting it twice would read as two problems.
+	associationNames := map[string]bool{}
+	for _, c := range viewAssociationColumns(oql) {
+		associationNames[strings.ToLower(c.Name)] = true
+	}
+	var entities map[string]bool
+	var out []string
+	for _, a := range attrs {
+		ref := enumRefOf(a.Type)
+		if ref == nil || ref.Module == "" || strings.Contains(ref.Name, ".") || associationNames[strings.ToLower(a.Name)] {
+			continue
+		}
+		qn := ref.String()
+		if entities == nil {
+			entities = buildEntityQualifiedNames(ctx)
+		}
+		if !scriptEntities[qn] && !entities[qn] {
+			continue
+		}
+		if enumerationExists(ctx, qn) {
+			continue
+		}
+		out = append(out, fmt.Sprintf(
+			"attribute '%s': %s is an entity, not an enumeration — an attribute cannot hold an object "+
+				"(it would be stored as Enumeration(%s), which fails the build with CE1613). %s",
+			a.Name, qn, qn, objectAttributeAdvice(a.Name)))
+	}
+	return out
+}
+
+func enumRefOf(dt ast.DataType) *ast.QualifiedName {
+	if dt.Kind != ast.TypeEnumeration {
+		return nil
+	}
+	return dt.EnumRef
+}
+
+func objectAttributeAdvice(name string) string {
+	return fmt.Sprintf("For an association, select the entity's id under this name and do not declare it: "+
+		"`select m.ID as %s` (m being the entity's alias in the FROM/JOIN). For the id as text, "+
+		"declare '%s: String' and select `cast(m.ID as string) as %s`", name, name, name)
+}
+
+func viewAttributeViolation(msg, suggestion string) linter.Violation {
+	return linter.Violation{
+		RuleID:     viewAttributeIsObjectRule,
+		Severity:   linter.SeverityError,
+		Message:    msg,
+		Location:   linter.Location{DocumentType: "viewentity"},
+		Suggestion: suggestion,
+	}
 }

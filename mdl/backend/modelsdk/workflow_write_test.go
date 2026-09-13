@@ -5,6 +5,8 @@ package modelsdkbackend
 import (
 	"testing"
 
+	"github.com/mendixlabs/mxcli/model"
+	mmpr "github.com/mendixlabs/mxcli/modelsdk/mpr"
 	"github.com/mendixlabs/mxcli/sdk/workflows"
 )
 
@@ -175,5 +177,78 @@ func TestWorkflowSimpleActivities_ReconstructedTyped(t *testing.T) {
 	}
 	if timer.DelayExpression != delay {
 		t.Errorf("timer delay = %q, want %q", timer.DelayExpression, delay)
+	}
+}
+
+// A parallel split path's end-of-path marker must be written AND read back as its
+// typed activity. Read as a GenericWorkflowActivity, DESCRIBE printed it as a
+// "-- [Workflows$EndOfParallelSplitPathActivity]" comment in every split.
+func TestCreateWorkflow_ParallelSplitPathEndsWithMarker(t *testing.T) {
+	proj := copyFixture(t)
+	b := New()
+	if err := b.Connect(proj); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Disconnect() })
+	mod, err := b.GetModuleByName("MyFirstModule")
+	if err != nil || mod == nil {
+		t.Fatalf("GetModuleByName: %v", err)
+	}
+
+	ids := 0
+	newID := func() model.ID { ids++; return model.ID(mmpr.GenerateID()) }
+	call := &workflows.CallMicroflowTask{
+		BaseWorkflowActivity: workflows.BaseWorkflowActivity{Name: "Notify", Caption: "Notify"},
+		Microflow:            "MyFirstModule.ACT_Notify",
+	}
+	split := &workflows.ParallelSplitActivity{BaseWorkflowActivity: workflows.BaseWorkflowActivity{Name: "Split", Caption: "Parallel split"}}
+	split.Outcomes = []*workflows.ParallelSplitOutcome{
+		{Flow: workflows.EndParallelSplitPath(&workflows.Flow{Activities: []workflows.WorkflowActivity{call}}, newID)},
+		{Flow: workflows.EndParallelSplitPath(nil, newID)},
+	}
+	wf := &workflows.Workflow{
+		ContainerID: mod.ID, Name: "ZzSplit", WorkflowName: "Zz Split",
+		Parameter: &workflows.WorkflowParameter{EntityRef: "MyFirstModule.Ctx"},
+		Flow: &workflows.Flow{Activities: []workflows.WorkflowActivity{
+			&workflows.StartWorkflowActivity{BaseWorkflowActivity: workflows.BaseWorkflowActivity{Name: "Start"}},
+			split,
+			&workflows.EndWorkflowActivity{BaseWorkflowActivity: workflows.BaseWorkflowActivity{Name: "End"}},
+		}},
+	}
+	if err := b.CreateWorkflow(wf); err != nil {
+		t.Fatalf("CreateWorkflow: %v", err)
+	}
+
+	b2 := New()
+	if err := b2.Connect(proj); err != nil {
+		t.Fatalf("reconnect: %v", err)
+	}
+	t.Cleanup(func() { _ = b2.Disconnect() })
+	all, err := b2.ListWorkflows()
+	if err != nil {
+		t.Fatalf("ListWorkflows: %v", err)
+	}
+	var gotSplit *workflows.ParallelSplitActivity
+	for _, w := range all {
+		if w.Name != "ZzSplit" || w.Flow == nil {
+			continue
+		}
+		for _, a := range w.Flow.Activities {
+			if s, ok := a.(*workflows.ParallelSplitActivity); ok {
+				gotSplit = s
+			}
+		}
+	}
+	if gotSplit == nil || len(gotSplit.Outcomes) != 2 {
+		t.Fatalf("parallel split with 2 paths not read back: %+v", gotSplit)
+	}
+	for i, oc := range gotSplit.Outcomes {
+		if oc.Flow == nil || len(oc.Flow.Activities) == 0 {
+			t.Fatalf("path %d read back with no activities", i+1)
+		}
+		last := oc.Flow.Activities[len(oc.Flow.Activities)-1]
+		if _, ok := last.(*workflows.EndOfParallelSplitPathActivity); !ok {
+			t.Errorf("path %d: last activity read back as %T, want *workflows.EndOfParallelSplitPathActivity", i+1, last)
+		}
 	}
 }

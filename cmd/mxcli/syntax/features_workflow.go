@@ -180,8 +180,14 @@ func init() {
 			"boundary event", "timer", "timeout", "deadline",
 			"SLA", "escalation",
 		},
-		Syntax:     "-- inline, as a clause of a USER TASK (after OUTCOMES):\nBOUNDARY EVENT [INTERRUPTING | NON INTERRUPTING] TIMER '<duration>' { <activities> }\n\n-- or add one to an existing task:\nALTER WORKFLOW <wf> INSERT BOUNDARY EVENT ON <task> TIMER '<duration>' { <activities> }",
-		Example:    "user task ReviewTask 'Review'\n  page Module.WF_Review\n  outcomes 'Done' { }\n  boundary event timer 'P3D' {\n    call microflow Module.WF_Escalate;\n  };",
+		// The kind is REQUIRED on Mendix 11. A bare `TIMER` writes
+		// Workflows$TimerBoundaryEvent, a type no 11.x runtime has: check and
+		// mxbuild pass, and the runtime refuses to start the application ("Class
+		// 'Workflows$TimerBoundaryEvent' could not be found"). This entry showed
+		// the bare form, with 'P3D' — not a valid timer expression — as its delay.
+		// ako/view-entity-examples FINDINGS §7.
+		Syntax:     "-- inline, as a clause of a USER TASK (after OUTCOMES):\nBOUNDARY EVENT (INTERRUPTING | NON INTERRUPTING) TIMER '<datetime-expression>' { <activities> }\n\n-- or add one to an existing task:\nALTER WORKFLOW <wf> INSERT BOUNDARY EVENT ON <task> (INTERRUPTING | NON INTERRUPTING) TIMER '<datetime-expression>' { <activities> }\n\n-- Name the kind: a bare TIMER is refused on Mendix 11 (MDL-WF07) — it writes a\n-- type the runtime cannot load. The delay is an expression that yields a\n-- DateTime, e.g. 'addDays([%CurrentDateTime%], 3)'. mxcli ends every boundary\n-- path with Mendix's end-of-path marker, so a path may end in a call; use\n-- JUMP TO to return to the task instead.",
+		Example:    "user task ReviewTask 'Review'\n  page Module.WF_Review\n  outcomes 'Done' { }\n  boundary event interrupting timer 'addDays([%CurrentDateTime%], 3)' {\n    call microflow Module.WF_Escalate;\n  };",
 		MinVersion: "10.6.0",
 		SeeAlso:    []string{"workflow.user-task"},
 	})
@@ -209,7 +215,7 @@ func init() {
 		// the wrong kind used to produce a project Mendix could not LOAD
 		// (ako/mxcli#415); it is refused now, but the entry documented only two
 		// of the ops, which is how an author reached for the wrong one.
-		Syntax:  "ALTER WORKFLOW Module.Name SET DISPLAY '<text>';\nALTER WORKFLOW Module.Name SET DUE DATE '<expression>';\nALTER WORKFLOW Module.Name SET OVERVIEW PAGE Module.Page;\nALTER WORKFLOW Module.Name SET ACTIVITY <name> <property>;\nALTER WORKFLOW Module.Name INSERT AFTER <name> <activity>;\nALTER WORKFLOW Module.Name DROP ACTIVITY <name>;\nALTER WORKFLOW Module.Name REPLACE ACTIVITY <name> WITH <activity>;\nALTER WORKFLOW Module.Name INSERT OUTCOME '<name>' ON <user-task> { <activities> };\nALTER WORKFLOW Module.Name DROP OUTCOME '<name>' ON <activity>;\nALTER WORKFLOW Module.Name INSERT CONDITION '<Module.Enum.Value>' ON <decision|call-microflow> { <activities> };\nALTER WORKFLOW Module.Name INSERT PATH ON <parallel-split> { <activities> };\nALTER WORKFLOW Module.Name INSERT BOUNDARY EVENT ON <activity> TIMER '<expression>' { <activities> };",
+		Syntax:  "ALTER WORKFLOW Module.Name SET DISPLAY '<text>';\nALTER WORKFLOW Module.Name SET DUE DATE '<expression>';\nALTER WORKFLOW Module.Name SET OVERVIEW PAGE Module.Page;\nALTER WORKFLOW Module.Name SET ACTIVITY <name> <property>;\nALTER WORKFLOW Module.Name INSERT AFTER <name> <activity>;\nALTER WORKFLOW Module.Name DROP ACTIVITY <name>;\nALTER WORKFLOW Module.Name REPLACE ACTIVITY <name> WITH <activity>;\nALTER WORKFLOW Module.Name INSERT OUTCOME '<name>' ON <user-task> { <activities> };\nALTER WORKFLOW Module.Name DROP OUTCOME '<name>' ON <activity>;\nALTER WORKFLOW Module.Name INSERT CONDITION '<Module.Enum.Value>' ON <decision|call-microflow> { <activities> };\nALTER WORKFLOW Module.Name INSERT PATH ON <parallel-split> { <activities> };\nALTER WORKFLOW Module.Name INSERT BOUNDARY EVENT ON <activity> (INTERRUPTING | NON INTERRUPTING) TIMER '<datetime-expression>' { <activities> };",
 		Example: "ALTER WORKFLOW HR.LeaveApproval SET DUE DATE 'addDays([%CurrentDateTime%], 7)';\nALTER WORKFLOW HR.LeaveApproval INSERT AFTER ReviewTask\n  CALL MICROFLOW HR.NotifyHR;\nALTER WORKFLOW HR.LeaveApproval DROP ACTIVITY ObsoleteStep;\n\n-- The INSERT op has to match the activity kind: an outcome list is typed,\n-- and the wrong one is refused (it would leave a project Mendix cannot open).\nALTER WORKFLOW HR.LeaveApproval INSERT OUTCOME 'Rejected' ON ReviewTask { };\nALTER WORKFLOW HR.LeaveApproval INSERT CONDITION 'HR.Status.Urgent' ON Triage { };\nALTER WORKFLOW HR.LeaveApproval INSERT PATH ON NotifyAll { };",
 		SeeAlso: []string{"workflow.create", "workflow.drop"},
 	})

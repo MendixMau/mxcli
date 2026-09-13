@@ -6,10 +6,14 @@ date: 2026-08-20
 
 # Proposal: Structured description of irreducible microflow graphs
 
-**Status:** Partial — Phase 0 (detector, `MDL-FLOW01`, describe-time warning) is
-shipped; the prevalence scan that gates the rest is
-[measured below](#measured-2026-09-12) and selects Mode 3. Phases 1–2 unscheduled.
-**Date:** 2026-08-20 (scan: 2026-09-12)
+**Status:** Partial — Phase 0 (detector, `MDL-FLOW01`, describe-time warning) and
+**Phase E** (`merge`/`join`, both authoring and DESCRIBE, for error-path rejoins)
+are shipped; the prevalence scan that gates the rest is
+[measured below](#measured-2026-09-12) and selects Mode 3. Mode 2 for the
+*non*-error irreducible graphs — crossed branches with no error handler — is the
+remaining piece: those still describe to flattened MDL with the MDL-FLOW01
+warning. Phases 1–2 otherwise unscheduled.
+**Date:** 2026-08-20 (scan: 2026-09-12; Phase E: 2026-09-13)
 
 `DESCRIBE MICROFLOW` renders a microflow's control flow as nested `if/then/else`.
 That works only for graphs that are *properly nested*. A Mendix microflow is an
@@ -325,7 +329,7 @@ render as ordinary nested `if`s. So **Mode 3 earns its cost**, and Mode 2 is the
 honest fallback for the ~20 % that stay crossed. Scheduling is still a separate
 call; what is settled is that Mode 3 is not speculative work.
 
-Two caveats that matter more than the percentages:
+Three caveats that matter more than the percentages:
 
 - **The shipped lint rule never sees this corpus.** `LintContext.Microflows()`
   filters through `notPlatformModule`, so `mxcli lint` deliberately skips
@@ -339,6 +343,25 @@ Two caveats that matter more than the percentages:
   `RULE`-typed flows (and the 39 nanoflows) in this project, so the rule skips
   them silently. A rule is "a special kind of microflow" and can branch, so this
   is a real gap in the detector's reach, not just in this measurement.
+- **Error-handler rejoins are excluded by construction, and are a separate
+  population needing the same syntax.** `successors()` in
+  `mdl/microflowgraph/structure.go` skips every flow with `IsErrorHandler` before
+  the graph is built, so an error path that rejoins the normal one contributes
+  **zero** to the 5.8 % — not because it is rare, but because the detector cannot
+  see it. Measured across three whole projects (ako/TestApp, CapTrack, RestLab —
+  235 microflows, so **user-written modules included**, unlike the table above):
+  7 microflows carry a true error-handler flow, and **1 of them rejoins the
+  normal path** — `FeedbackModule.SUB_Feedback_SendToServer`, in 3 of 3 projects,
+  always landing on a `Microflows$ExclusiveMerge`. That single microflow is what
+  DESCRIBE flattens into an empty `on error … { }` block, and what produced the
+  CE0709 over-connected end event fixed in #450. The control that the scan
+  discriminates rather than flagging every handler: the other 6 — including one
+  in an app module — terminate on their own end event and are not flagged, and
+  the same scan over the *mxcli-rewritten* copy of one project reports the rejoin
+  landing on an `EndEvent` instead of a merge, which is the #450 defect showing
+  up in the measurement. So the fix here is not "detect more": the syntax an
+  error rejoin needs is Mode 2's `merge`/`join` labels, reached by a different
+  route.
 
 Method and control, since a rule that never runs and a rule that finds nothing
 look identical: the scan was instrumented to report what it actually examined —
@@ -382,6 +405,89 @@ Two deviations from the plan above, both deliberate:
 - **The rule is not registered in `mxcli report`.** That report is a scored
   best-practices grade; the model here is valid and builds cleanly, so docking a
   project's score for an mxcli limitation would be wrong.
+
+Two more from Phase E, where the shipped syntax differs from the Mode 2 sketch
+above:
+
+- **`@position` goes BEFORE `merge <label>;`, not after it.** The sketch writes
+  `merge m1 @position(-200, 173);`. Every other MDL statement takes its
+  annotations on preceding lines, and the builder already moves the layout cursor
+  from `pendingAnnotations` before dispatching — so the prefix form needed no
+  special case and the suffix form would have needed one, in exchange for
+  breaking the pattern a reader has already learned.
+- **Fall-through into a `merge` is allowed, not an error.** The sketch requires
+  every path in a microflow containing any `merge` to end in `join`, `return` or
+  an end event. That was listed in Open Questions as the strict half of a choice,
+  and the permissive alternative is what shipped: `… ; merge m1; …` simply means
+  "and this path also arrives here", which is unambiguous because the inbound
+  edge is explicit in the text order. The rule that IS enforced is the one that
+  was actually a bug: a path that has already ended does not fall through into a
+  following `merge`, which was emitting a duplicate flow into it.
+
+### Phase E — error-handler rejoins
+
+The third caveat above is a separate population with its own phasing, because the
+detector cannot reach it and the failure mode is worse than the one Phase 0
+addresses. Where an irreducible split describes to MDL that is *unfaithful but
+visible* (the reader can see the structure was flattened), an error rejoin
+describes to MDL that is **wrong and indistinguishable from correct**.
+
+**The measurement.** Take `FeedbackModule.SUB_Feedback_SendToServer` and repoint
+its error edge from the tail merge to the merge just before the `AppId` split —
+i.e. from "on error, return empty" to "on error, re-enter the split". Two graphs,
+different behaviour. `DESCRIBE` emits **the same MDL for both**, differing only in
+a `@merge(230, 160)` layout annotation, with no warning; and executing that MDL
+produces the first graph in both cases. So the upstream rejoin is silently
+rewritten into a tail return, `mxcli check` is clean, the project opens and
+mxbuild is green. (The unmutated microflow round-trips correctly — error → merge →
+the same end event as the `else` branch — but by luck: the empty handler falls
+through to the enclosing branch's continuation, which happens to be that end
+event. That is also why #450's post-pass was enough to make it *buildable*.)
+
+**Shipped 2026-09-13.** E0 was subsumed rather than built: once DESCRIBE can
+*spell* the rejoin there is nothing to warn about, so the empty block became
+`join <label>` and the warning was not needed. E1 and E2 landed as described.
+Measured on the two fixtures above: the original and the repointed
+`SUB_Feedback_SendToServer` now describe **differently** (the `merge` declaration
+lands at (230, 160) and (-200, -50) respectively), each round-trips to its own
+graph — the repointed one keeps its loop back into the AppId split — and both are
+0 errors on mxbuild 11.14.0. describe → exec → describe is a fixed point for
+every error-handling form. What is NOT covered: a crossed-branch graph with no
+error handler, which is the general Mode 2 case and still warns.
+
+- **E0 — detect and warn (independently shippable).** Ask, of each custom error
+  handler, whether the node it reaches is reachable from the start over normal
+  edges only. If it is, the handler cannot be spelled: emit the `-- WARNING:` line
+  beside the #923 one, and a lint finding. The reachability query is on a graph
+  the describer already has in hand — `collectErrorHandlerStatements` computes
+  `firstReachableErrorHandlerMerge` today and then silently returns an empty
+  block. This turns a silent rewrite into a named refusal, the same move Phase 0
+  made for irreducible splits, and it is worth doing whether or not Mode 2 ships.
+- **E1 — spell it, as part of Mode 2's Phase 1.** `join <label>` inside an
+  `on error … { }` block, resolving to a `merge <label>` in the enclosing flow.
+  This needs no new syntax — only the scoping statement that the label namespace
+  is per-microflow rather than per-block, which the Mode 2 section should say
+  explicitly. Builder side, `newErrorHandlerFlow` already creates the edge; the
+  change is that its destination comes from label resolution instead of the
+  branch-continuation heuristic. Describe side, emit `join` when the handler's
+  first node is reachable from the start, and declare the merge at its stored
+  position.
+- **E2 — the round-trip test, on the mutated graph.** Describe → exec → describe
+  must be a fixed point *and* must preserve the error edge's destination. The
+  control is the experiment above: against E0/E1-less code the second describe
+  differs from the first in behaviour while matching it in text, which is exactly
+  what no existing test catches. `mergeOverConnectedEndEvents()` (#450) stays as
+  the safety net for hand-written MDL, but becomes a no-op on described output,
+  since a labelled join lands on a named merge and never over-connects.
+
+**What not to do:** include error edges in `successors()`. Post-dominance there
+treats every successor as a branch of a split's condition, which an error edge is
+not; folding them in would move the 5.8 % by reclassifying graphs, not by
+discovering any. Rejoin detection is a separate query over the same graph.
+
+**Recommendation:** do E0 now — it is small and closes a silent-behaviour-change
+class — and fold E1 into Mode 2's Phase 1 rather than scheduling it as its own
+feature.
 
 ## Version Compatibility
 

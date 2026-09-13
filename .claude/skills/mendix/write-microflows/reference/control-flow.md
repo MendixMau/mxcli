@@ -384,3 +384,87 @@ begin
 end;
 /
 ```
+
+### Where the Error Path Goes — `merge` / `join`
+
+`on error` has four forms, and they differ in **where the error path goes**, not
+just in what it does. The difference is invisible in the MDL, so it is worth
+knowing which one you are writing.
+
+| Form | Error path |
+|------|-----------|
+| `on error continue` | No error path at all |
+| `on error [without rollback] { … return/throw }` | Its own path, its own terminator |
+| `on error [without rollback] { }` | **Not a no-op** — falls through to whatever the *enclosing branch* does next |
+| `on error [without rollback] { … join L; }` | Rejoins the normal path at the merge labelled `L` |
+
+The empty form is the one that surprises people. It means "on error, do whatever
+the enclosing branch's continuation does" — which in a branch that returns
+something else is a value nowhere in the text. Prefer `join` when you mean it.
+
+```mdl
+create microflow Module.Post (Payload: String) returns String
+begin
+  declare $Status String = 'sent';
+  $r = call microflow Module.Send(Payload = $Payload) on error without rollback {
+    log warning node 'Module' 'send failed, degrading';
+    set $Status = 'degraded';
+    join recovered;
+  };
+  join recovered;
+
+  merge recovered;
+  return $Status;
+end;
+```
+
+**`merge <label>` declares a join point; `join <label>` sends a path to it.** The
+label exists only in MDL — a Mendix `ExclusiveMerge` stores no name — so it is
+resolved when the microflow is built and never written to the model.
+
+Forward and backward references both resolve, so declaration order is free. A
+backward one is how a **retry loop** is written, with the merge before the
+activity:
+
+```mdl
+merge attempt;
+$r = call microflow Module.Send(Payload = $Payload) on error without rollback {
+  log warning node 'Module' 'retrying';
+  join attempt;
+};
+return $r;
+```
+
+They also cover **crossed branches** — an inner split's branch landing where an
+outer split's branch lands, which no nesting of `if` reproduces:
+
+```mdl
+if $A then
+  if $B then join m1; else join m2; end if;
+else
+  join m1;
+end if;
+
+merge m1;
+log info node 'Module' 'shared by two branches';
+join m2;
+
+merge m2;
+return true;
+```
+
+Rules, all reported by `mxcli check` before anything is written:
+
+| Rule | Refusal |
+|------|---------|
+| MDL-FLOW02 | `join L` with no `merge L`, or a `merge L` nothing joins (Mendix rejects a merge with no inbound path) |
+| MDL-FLOW03 | The same label declared twice |
+| MDL-FLOW04 | `merge` / `join` inside a `loop` or `while` body — a `LoopedActivity` owns its own object collection and a sequence flow cannot leave it, so there is no graph this could build. Use `break` / `continue` and put the merge outside |
+
+A path that has already ended (`return`, `throw`, `join`) does **not** fall
+through into a following `merge`: the merge starts a new path.
+
+`DESCRIBE MICROFLOW` emits `merge` / `join` for an error path that rejoins the
+normal one, so those microflows round-trip. A graph with **crossed branches and
+no error handler** still describes to flattened MDL with the MDL-FLOW01 warning —
+that half is not done, and the warning says not to re-execute it.
