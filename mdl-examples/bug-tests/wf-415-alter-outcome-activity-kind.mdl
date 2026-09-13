@@ -72,4 +72,4 @@ end workflow;
 -- Each op aimed at the activity kind whose list can hold what it writes.
 alter workflow WF415.WF insert outcome 'Rejected' on task1 { };
 alter workflow WF415.WF insert path on split1 { };
-alter workflow WF415.WF insert boundary event on task1 timer '1h' { };
+alter workflow WF415.WF insert boundary event on task1 interrupting timer 'addHours([%CurrentDateTime%], 1)' { };

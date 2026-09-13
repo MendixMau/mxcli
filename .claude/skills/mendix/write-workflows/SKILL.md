@@ -142,6 +142,20 @@ begin
 end workflow;
 ```
 
+- **Name the kind** — `interrupting` or `non interrupting`. A bare `boundary event
+  timer` writes a type no Mendix 11 runtime has: `check` and mxbuild pass, and the
+  runtime then **refuses to start the application** ("Class
+  'Workflows$TimerBoundaryEvent' could not be found"). mxcli refuses the bare form
+  on Mendix 11 (MDL-WF07).
+- **The delay is a DateTime expression**, such as `'addDays([%CurrentDateTime%], 3)'`
+  — not an ISO duration like `'P3D'`.
+- **Every boundary path must end** in a jump, an end, or Mendix's end-of-path
+  marker, and mxcli now appends the marker for you — so a path may end in a
+  `call microflow`, as above. Without it the two kinds fail in different places:
+  an interrupting path is **CE0105** at build, and a non-interrupting one builds
+  cleanly and then stops the runtime from starting ("Expected the flow to end with
+  an end event"). Use `jump to <task>` when the path should return to the task.
+
 ## DROP WORKFLOW
 
 ```sql
@@ -179,7 +193,7 @@ typed, and each op writes exactly one outcome type into it:
 | `insert outcome '<name>' on X { }` | `UserTaskOutcome` | a user task |
 | `insert condition '<Module.Enum.Value>' on X { }` | `…ConditionOutcome` | a decision, a call microflow |
 | `insert path on X { }` | `ParallelSplitOutcome` | a parallel split |
-| `insert boundary event on X timer '<expr>' { }` | a boundary event | user task, call microflow, call workflow, wait for notification |
+| `insert boundary event on X interrupting timer '<expr>' { }` | a boundary event | user task, call microflow, call workflow, wait for notification |
 
 Aim one at the wrong kind and the outcome lands in a list that cannot hold it,
 which is **not** a build error: the project stops **loading**, so Studio Pro will
