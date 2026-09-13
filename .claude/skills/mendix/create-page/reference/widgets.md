@@ -356,8 +356,9 @@ column colActions (caption: 'Actions') {
 |--------|-------------|
 | `datasource: database from Module.Entity` | Direct database query |
 | `datasource: $Variable` | Variable bound (requires DATAVIEW parent with entity) |
-| `datasource: microflow Module.GetData` | Microflow datasource — no `()`, the name alone |
-| `datasource: nanoflow Module.GetData` | Nanoflow datasource (client-side, no server roundtrip) — no `()` |
+| `datasource: microflow Module.GetData` | Microflow datasource with **no parameters** — the name alone |
+| `datasource: microflow Module.GetData($Param)` | Microflow datasource **with** parameters — one argument per parameter, required. Mendix does not auto-map an object in scope, so leaving it out is **CE1571** |
+| `datasource: nanoflow Module.GetData` | Nanoflow datasource (client-side, no server roundtrip) — same rule: the name alone only when it takes no parameters |
 | `datasource: selection widgetName` | Listen to selection from another widget |
 | `datasource: association path` | Retrieve by association from context (ByAssociation) |
 | `datasource: $currentObject/Module.Assoc` | Sugar for `association` — same semantics, reads more naturally |
