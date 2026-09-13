@@ -279,6 +279,12 @@ func mapWorkflowActivity(a workflows.WorkflowActivity) (map[string]any, error) {
 		return map[string]any{"$Type": "Workflows$StartWorkflowActivity", "name": act.Name, "caption": act.Caption}, nil
 	case *workflows.EndWorkflowActivity:
 		return map[string]any{"$Type": "Workflows$EndWorkflowActivity", "name": act.Name, "caption": act.Caption}, nil
+	// The end-of-path markers are sent like End: every parallel split path
+	// carries one, and without it the engine skips the path's contents.
+	case *workflows.EndOfParallelSplitPathActivity:
+		return map[string]any{"$Type": "Workflows$EndOfParallelSplitPathActivity", "name": act.Name, "caption": act.Caption}, nil
+	case *workflows.EndOfBoundaryEventPathActivity:
+		return map[string]any{"$Type": "Workflows$EndOfBoundaryEventPathActivity", "name": act.Name, "caption": act.Caption}, nil
 	case *workflows.CallMicroflowTask:
 		outcomes, err := mapConditionOutcomes(act.Outcomes)
 		if err != nil {
@@ -941,6 +947,12 @@ func (m *mcpWorkflowMutator) InsertPath(activityRef string, atPos int, pathCapti
 		return err
 	}
 	actPath := loc.actPath
+	// End the path with Mendix's marker before dedup names it — without it the
+	// engine skips the path's contents at runtime (workflows.EndParallelSplitPath).
+	// PED assigns element ids itself, so the factory's value is never sent.
+	activities = workflows.EndParallelSplitPath(&workflows.Flow{Activities: activities}, func() model.ID {
+		return ""
+	}).Activities
 	wfnames.Dedup(activities, loc.taken)
 	el := map[string]any{"$Type": "Workflows$ParallelSplitOutcome"}
 	if err := attachSubFlow(el, activities); err != nil {

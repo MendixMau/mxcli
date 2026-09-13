@@ -188,6 +188,17 @@ func workflowSimpleActivityFromGen(el element.Element) workflows.WorkflowActivit
 		a := &workflows.EndWorkflowActivity{}
 		setBase(&a.BaseWorkflowActivity)
 		return a
+	// The two end-of-path markers are real stored activities (every Studio Pro
+	// parallel split path ends with one) and DESCRIBE deliberately omits them.
+	// Read as generic activities they printed as "-- [Workflows$…]" comments.
+	case "Workflows$EndOfParallelSplitPathActivity":
+		a := &workflows.EndOfParallelSplitPathActivity{}
+		setBase(&a.BaseWorkflowActivity)
+		return a
+	case "Workflows$EndOfBoundaryEventPathActivity":
+		a := &workflows.EndOfBoundaryEventPathActivity{}
+		setBase(&a.BaseWorkflowActivity)
+		return a
 	case "Workflows$JumpToActivity":
 		a := &workflows.JumpToActivity{}
 		setBase(&a.BaseWorkflowActivity)

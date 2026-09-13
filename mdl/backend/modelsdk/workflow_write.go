@@ -24,6 +24,7 @@ func init() {
 		"Workflows$JumpToActivity", "Workflows$WaitForTimerActivity",
 		"Workflows$WaitForNotificationActivity", "Workflows$StartWorkflowActivity",
 		"Workflows$EndWorkflowActivity", "Workflows$Annotation",
+		"Workflows$EndOfParallelSplitPathActivity", "Workflows$EndOfBoundaryEventPathActivity",
 		"Workflows$UserTaskOutcome", "Workflows$BooleanConditionOutcome",
 		"Workflows$EnumerationValueConditionOutcome", "Workflows$VoidConditionOutcome",
 		"Workflows$ParallelSplitOutcome",
@@ -81,6 +82,7 @@ func init() {
 	for _, t := range []string{
 		"Workflows$JumpToActivity", "Workflows$WaitForTimerActivity",
 		"Workflows$StartWorkflowActivity", "Workflows$EndWorkflowActivity",
+		"Workflows$EndOfParallelSplitPathActivity", "Workflows$EndOfBoundaryEventPathActivity",
 	} {
 		codec.RegisterTypeDefaults(t, codec.TypeDefaults{NullFields: []string{"Annotation"}})
 	}
@@ -247,6 +249,10 @@ func activityToGen(act workflows.WorkflowActivity) element.Element {
 		return simpleActivityToGen("Workflows$StartWorkflowActivity", &a.BaseWorkflowActivity)
 	case *workflows.EndWorkflowActivity:
 		return simpleActivityToGen("Workflows$EndWorkflowActivity", &a.BaseWorkflowActivity)
+	case *workflows.EndOfParallelSplitPathActivity:
+		return simpleActivityToGen("Workflows$EndOfParallelSplitPathActivity", &a.BaseWorkflowActivity)
+	case *workflows.EndOfBoundaryEventPathActivity:
+		return simpleActivityToGen("Workflows$EndOfBoundaryEventPathActivity", &a.BaseWorkflowActivity)
 	case *workflows.WorkflowAnnotationActivity:
 		return annotationActivityToGen(a)
 	default:
@@ -394,7 +400,8 @@ func parallelSplitToGen(a *workflows.ParallelSplitActivity) element.Element {
 	for _, o := range a.Outcomes {
 		oc := newElem("Workflows$ParallelSplitOutcome", string(o.ID))
 		if o.Flow != nil {
-			addPart(oc, "Flow", flowToGen(o.Flow))
+			flow := flowToGen(o.Flow)
+			addPart(oc, "Flow", flow)
 		}
 		addFreshPersistentID(oc)
 		outcomes = append(outcomes, oc)
