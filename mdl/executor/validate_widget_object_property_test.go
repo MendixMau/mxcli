@@ -206,3 +206,105 @@ func TestOrdinaryArrayKeepsItsAstShape(t *testing.T) {
 			w2.Properties["DesignProperties"])
 	}
 }
+
+// mendixlabs/mxcli#1056. #999's fix keyed on the `[(k: v)]` shape, so it needed
+// at least one parenthesised entry. The reporter of #1056 reached for the EMPTY
+// form instead — `customAllSelected: []` — after the slot syntax their own
+// generated docs showed was rejected by the parser (that half is fixed; the
+// grammar took generic container names in bca5466e). The empty form fell
+// through to the generic `[expr, …]` branch, became a nil []string no writer
+// claims, and reproduced #999 exactly: check clean, exec successful, nothing
+// written — then 3x CE0642 at build time because the slots are required.
+func TestEmptyListProperty_IsReported(t *testing.T) {
+	got := widget27(t, strings.Replace(page27, "%s", `attributes: []`, 1))
+	if len(got) != 1 {
+		t.Fatalf("got %d MDL-WIDGET27 for `attributes: []`, want 1: %+v", len(got), got)
+	}
+	if got[0].Severity != linter.SeverityError {
+		t.Errorf("severity = %v, want error — a warning lets exec write the page "+
+			"with the property discarded, which is the whole defect", got[0].Severity)
+	}
+	if !strings.Contains(got[0].Suggestion, "attribute") {
+		t.Errorf("suggestion must name the container keyword, got %q", got[0].Suggestion)
+	}
+}
+
+// A widgets-typed slot is the same mistake wearing a different type: the
+// property holds CHILD WIDGETS, so no value written in the property list can
+// ever reach storage. This is the exact property from #1056.
+func TestEmptyListOnWidgetSlot_IsReported(t *testing.T) {
+	src := `create page M.P (Title: 'x', Layout: Atlas_Core.Atlas_Default) {
+  pluggablewidget 'com.mendix.widget.web.selectionhelper.SelectionHelper' sh (
+    renderStyle: 'custom', customAllSelected: []
+  )
+}`
+	got := widget27(t, src)
+	if len(got) != 1 {
+		t.Fatalf("got %d MDL-WIDGET27 for `customAllSelected: []`, want 1: %+v", len(got), got)
+	}
+	if !strings.Contains(got[0].Suggestion, "customallselected") {
+		t.Errorf("suggestion must name the slot's container keyword, got %q", got[0].Suggestion)
+	}
+}
+
+// A scalar cannot reach a container-typed property either, and this one is only
+// knowable from the definition — which is why it is reported ONLY when the
+// widget resolves. Without that, `p: 'x'` is the ordinary property form and
+// flagging it would be a guess.
+func TestScalarOnContainerProperty_IsReported(t *testing.T) {
+	src := `create page M.P (Title: 'x', Layout: Atlas_Core.Atlas_Default) {
+  pluggablewidget 'com.mendix.widget.web.selectionhelper.SelectionHelper' sh (
+    renderStyle: 'custom', customAllSelected: 'something'
+  )
+}`
+	got := widget27(t, src)
+	if len(got) != 1 {
+		t.Fatalf("got %d MDL-WIDGET27 for `customAllSelected: 'something'`, want 1: %+v", len(got), got)
+	}
+}
+
+// The bracket form is how MDL writes a conditional expression and a filter's
+// attribute list. Reporting those would break the corpus, so the rule must key
+// on EMPTINESS, never on the brackets.
+func TestNonEmptyBracketValuesAreNotReported(t *testing.T) {
+	for _, prop := range []string{
+		`visible: [$currentObject/Name != '']`,
+		`editable: [true]`,
+	} {
+		if got := widget27(t, strings.Replace(page27, "%s", prop, 1)); len(got) != 0 {
+			t.Errorf("%s: got %d MDL-WIDGET27, want 0: %+v", prop, len(got), got)
+		}
+	}
+	filter := `create page M.P (Title: 'x', Layout: Atlas_Core.Atlas_Default) {
+  datagrid2 dg (DataSource: database, Entity: MyFirstModule.Expense) {
+    column c1 (Attribute: Name) { textfilter tf (attributes: [Name]) }
+  }
+}`
+	if got := widget27(t, filter); len(got) != 0 {
+		t.Errorf("filter attribute list: got %d MDL-WIDGET27, want 0: %+v", len(got), got)
+	}
+}
+
+// The other half of mendixlabs/mxcli#1056: the slot syntax the widget docs
+// generate must PARSE. It did not on the reporter's build (`mismatched input
+// 'customallselected' expecting '}'`), which is why they reached for
+// `customAllSelected: []` at all. bca5466e made generic container names parse;
+// this pins it, so the two halves cannot regress independently — a parser that
+// rejects the right spelling turns MDL-WIDGET27 into a dead end.
+func TestDocumentedSlotSyntaxParses(t *testing.T) {
+	src := `create page M.P (Title: 'x', Layout: Atlas_Core.Atlas_Default) {
+  pluggablewidget 'com.mendix.widget.web.selectionhelper.SelectionHelper' sh (
+    renderStyle: 'custom'
+  ) {
+    customallselected s1 { dynamictext d1 (Content: 'All') }
+    customsomeselected s2 { dynamictext d2 (Content: 'Some') }
+    customnoneselected s3 { dynamictext d3 (Content: 'None') }
+  }
+}`
+	if _, errs := visitor.Build(src); len(errs) > 0 {
+		t.Fatalf("the slot form `mxcli widget docs` emits must parse, got: %v", errs)
+	}
+	if got := widget27(t, src); len(got) != 0 {
+		t.Errorf("the correct form must not be reported, got %d: %+v", len(got), got)
+	}
+}

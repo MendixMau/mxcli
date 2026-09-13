@@ -1,0 +1,42 @@
+-- mendixlabs/mxcli#1056 — a container-typed widget property written as a VALUE.
+--
+-- This file is expected to FAIL `mxcli check` (.fail.mdl). Every statement below
+-- is a spelling that used to pass check, exec successfully, and write nothing.
+--
+-- The reporter arrived here because the slot syntax their own generated widget
+-- docs showed was rejected by the parser. That half is fixed — the grammar takes
+-- generic container names since bca5466e, so `customallselected s1 { … }` now
+-- parses, execs, and produces the same five CustomWidgets$WidgetProperty entries
+-- Studio Pro writes. What remained was that the WRONG spelling stayed silent:
+--
+--   customAllSelected: []   ->  check clean, exec "Created page", 0 properties
+--                               written, then 3x CE0642 at build time because
+--                               the slot is required.
+--
+-- #999 fixed the `[(k: v)]` shape. It keyed on there being at least one
+-- parenthesised entry, so the empty and scalar forms fell through the same hole.
+--
+-- Expected: MDL-WIDGET27 (error) on each of the three widgets below.
+
+-- 1. Empty list on a widgets-typed CHILD SLOT — the reporter's exact form.
+create or replace page BugTest1056.EmptySlot (Title: 'Empty slot', Layout: Atlas_Core.Atlas_Default) {
+  pluggablewidget 'com.mendix.widget.web.selectionhelper.SelectionHelper' sh1 (
+    renderStyle: 'custom',
+    customAllSelected: []
+  )
+}
+
+-- 2. Empty list on an OBJECT LIST. Same hole, reached from the #999 side.
+create or replace page BugTest1056.EmptyList (Title: 'Empty list', Layout: Atlas_Core.Atlas_Default) {
+  htmlelement frame1 (tagName: 'div', attributes: [])
+}
+
+-- 3. A scalar on a child slot. No value in a property list can reach a property
+-- that holds child widgets; this one is only knowable from the definition, so it
+-- is reported when the widget resolves and stays silent without a project.
+create or replace page BugTest1056.ScalarSlot (Title: 'Scalar slot', Layout: Atlas_Core.Atlas_Default) {
+  pluggablewidget 'com.mendix.widget.web.selectionhelper.SelectionHelper' sh2 (
+    renderStyle: 'custom',
+    customAllSelected: 'something'
+  )
+}

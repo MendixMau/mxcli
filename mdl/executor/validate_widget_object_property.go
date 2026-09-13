@@ -74,21 +74,95 @@ func validateObjectEntryProperties(w *ast.WidgetV3, registry *WidgetRegistry, lo
 
 	var out []linter.Violation
 	for _, key := range keys {
-		entries, ok := w.Properties[key].(*ast.ObjectEntryListV3)
-		if !ok || entries == nil {
-			continue
+		value := w.Properties[key]
+		// One violation per property, so the three shapes below are exclusive:
+		// an empty list on a declared container matches two of them.
+		switch {
+		case isObjectEntryList(value):
+			entries, _ := value.(*ast.ObjectEntryListV3)
+			out = append(out, linter.Violation{
+				RuleID:   "MDL-WIDGET27",
+				Severity: linter.SeverityError,
+				Message: fmt.Sprintf(
+					"%s: widget `%s` property `%s` is a repeated entry written as a property value — "+
+						"MDL writes these as %s in the widget body, and a value here is discarded on write",
+					locationPrefix, w.Name, key, objectEntryRemedy(w, registry, key)),
+				Suggestion: objectEntryExample(w, registry, key, entries),
+			})
+		case isEmptyListValue(value):
+			// `p: []`. The generic `[expr, …]` branch of the visitor turns this
+			// into an empty []string that no writer claims, so it is #999's
+			// silent drop reached by a different spelling (mendixlabs/mxcli#1056).
+			// Keyed on EMPTINESS, never on the brackets: `visible: [expr]` and a
+			// filter's `attributes: [Name]` are how MDL spells those properties.
+			out = append(out, linter.Violation{
+				RuleID:   "MDL-WIDGET27",
+				Severity: linter.SeverityError,
+				Message: fmt.Sprintf(
+					"%s: widget `%s` property `%s` is an empty list value, which writes nothing — "+
+						"%s",
+					locationPrefix, w.Name, key, emptyListRemedy(w, registry, key)),
+				Suggestion: objectEntryExample(w, registry, key, nil),
+			})
+		case isDeclaredContainer(w, registry, key):
+			// The definition says this property holds repeated entries or child
+			// widgets, so NO value in the property list can reach storage. Only
+			// knowable with a project; without one `p: 'x'` is the ordinary
+			// property form and flagging it would be a guess.
+			out = append(out, linter.Violation{
+				RuleID:   "MDL-WIDGET27",
+				Severity: linter.SeverityError,
+				Message: fmt.Sprintf(
+					"%s: widget `%s` property `%s` holds %s, not a value — "+
+						"a value here is discarded on write",
+					locationPrefix, w.Name, key, containerNoun(w, registry, key)),
+				Suggestion: objectEntryExample(w, registry, key, nil),
+			})
 		}
-		out = append(out, linter.Violation{
-			RuleID:   "MDL-WIDGET27",
-			Severity: linter.SeverityError,
-			Message: fmt.Sprintf(
-				"%s: widget `%s` property `%s` is a repeated entry written as a property value — "+
-					"MDL writes these as %s in the widget body, and a value here is discarded on write",
-				locationPrefix, w.Name, key, objectEntryRemedy(w, registry, key)),
-			Suggestion: objectEntryExample(w, registry, key, entries),
-		})
 	}
 	return out
+}
+
+func isObjectEntryList(v any) bool {
+	entries, ok := v.(*ast.ObjectEntryListV3)
+	return ok && entries != nil
+}
+
+// isEmptyListValue reports `p: []`. The visitor renders a bracketed value with
+// no elements as an empty []string — the one shape that can produce one.
+func isEmptyListValue(v any) bool {
+	items, ok := v.([]string)
+	return ok && len(items) == 0
+}
+
+// isDeclaredContainer reports whether the widget's definition declares this
+// property as an object list or a child slot. False without a definition, which
+// is what keeps the scalar case project-gated.
+func isDeclaredContainer(w *ast.WidgetV3, registry *WidgetRegistry, propertyKey string) bool {
+	kw, _ := containerKeyword(w, registry, propertyKey)
+	return kw != ""
+}
+
+// containerNoun describes what the property holds, for the message.
+func containerNoun(w *ast.WidgetV3, registry *WidgetRegistry, propertyKey string) string {
+	if _, slot := containerKeyword(w, registry, propertyKey); slot {
+		return "child widgets"
+	}
+	return "repeated entries"
+}
+
+// emptyListRemedy names the container when the definition declares one, and
+// otherwise says only what is certain: the value does not reach storage.
+func emptyListRemedy(w *ast.WidgetV3, registry *WidgetRegistry, propertyKey string) string {
+	kw, slot := containerKeyword(w, registry, propertyKey)
+	switch {
+	case kw != "" && slot:
+		return fmt.Sprintf("`%s` holds child widgets, written as `%s <name> { … }` in the widget body", propertyKey, kw)
+	case kw != "":
+		return fmt.Sprintf("`%s` holds repeated entries, written as `%s <name> (…)` in the widget body", propertyKey, kw)
+	}
+	return "remove it, or — if this property takes repeated entries or child widgets — " +
+		"write them as blocks in the widget body"
 }
 
 // objectEntryRemedy names the container keyword when the widget's definition
@@ -105,28 +179,47 @@ func objectEntryRemedy(w *ast.WidgetV3, registry *WidgetRegistry, propertyKey st
 // objectEntryKeyword resolves the property key to the MDL container keyword the
 // widget declares for it, or "" when it cannot be known.
 func objectEntryKeyword(w *ast.WidgetV3, registry *WidgetRegistry, propertyKey string) string {
+	kw, _ := containerKeyword(w, registry, propertyKey)
+	return kw
+}
+
+// containerKeyword resolves a property key to the MDL container keyword the
+// widget's definition declares for it, and reports whether that container is a
+// CHILD SLOT (holds widgets, written as `kw name { … }`) rather than an object
+// list (holds entries, written as `kw name (…)`). The two spell their remedy
+// differently, so a rule that conflated them would print an example that does
+// not parse. Returns "" when there is no definition to consult.
+func containerKeyword(w *ast.WidgetV3, registry *WidgetRegistry, propertyKey string) (keyword string, isSlot bool) {
 	def := lookupWidgetDef(w, registry)
 	if def == nil {
-		return ""
+		return "", false
 	}
 	for _, ol := range def.ObjectLists {
 		if strings.EqualFold(ol.PropertyKey, propertyKey) {
-			return strings.ToLower(ol.MDLContainer)
+			return strings.ToLower(ol.MDLContainer), false
 		}
 	}
-	return ""
+	for _, cs := range def.ChildSlots {
+		if strings.EqualFold(cs.PropertyKey, propertyKey) {
+			return strings.ToLower(cs.MDLContainer), true
+		}
+	}
+	return "", false
 }
 
 // objectEntryExample rewrites what the author wrote into the form that works, so
 // the fix is a copy rather than a translation exercise. Falls back to naming the
 // discovery command when the keyword is unknown.
 func objectEntryExample(w *ast.WidgetV3, registry *WidgetRegistry, propertyKey string, entries *ast.ObjectEntryListV3) string {
-	kw := objectEntryKeyword(w, registry, propertyKey)
+	kw, slot := containerKeyword(w, registry, propertyKey)
 	if kw == "" {
 		return "move the entries into the widget body as container blocks; " +
 			"`mxcli widget describe <widget> -p <project.mpr>` lists the container keywords"
 	}
-	if len(entries.Entries) == 0 {
+	if slot {
+		return fmt.Sprintf("write `%s %s1 { … }` inside the widget body, holding the child widgets", kw, kw)
+	}
+	if entries == nil || len(entries.Entries) == 0 {
 		return fmt.Sprintf("write `%s %s1 (…)` inside the widget body", kw, kw)
 	}
 	var parts []string
