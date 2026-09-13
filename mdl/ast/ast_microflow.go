@@ -735,6 +735,30 @@ type ContinueStmt struct {
 
 func (s *ContinueStmt) isMicroflowStatement() {}
 
+// MergeStmt represents: MERGE <label>
+//
+// Declares an ExclusiveMerge that other paths reach with JoinStmt. The label is
+// an MDL-only handle — Mendix stores no name on a merge — so it lives no longer
+// than one build or one describe.
+type MergeStmt struct {
+	Label       string
+	Annotations *ActivityAnnotations // Optional @position, @caption, @color, @annotation
+}
+
+func (s *MergeStmt) isMicroflowStatement() {}
+
+// JoinStmt represents: JOIN <label>
+//
+// Ends this path at the merge declared under Label. Forward and backward
+// references both resolve, so a join may precede its merge (crossed branches)
+// or follow it (a retry loop).
+type JoinStmt struct {
+	Label       string
+	Annotations *ActivityAnnotations
+}
+
+func (s *JoinStmt) isMicroflowStatement() {}
+
 // ============================================================================
 // List Operations
 // ============================================================================

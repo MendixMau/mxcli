@@ -92,7 +92,29 @@ func (fb *flowBuilder) buildFlowGraph(stmts []ast.MicroflowStatement, returns *a
 		// previousStmtAnchor so the NEXT iteration can apply it.
 		stmtAnchor := stmtOwnAnchor(stmt)
 
+		// Whether the path is still open, read BEFORE the statement runs. A
+		// `merge` reached after a RETURN or a `join` must not also gain a
+		// fall-through edge from whatever came before — that path already ended,
+		// and wiring it produced a duplicate flow into the merge.
+		pathOpen := !fb.endsWithReturn
+
 		activityID := fb.addStatement(stmt)
+		if fb.takePendingJoin(lastID, pendingCase, fb.previousStmtAnchor) {
+			pendingCase = ""
+			fb.previousStmtAnchor = nil
+			continue
+		}
+		if activityID != "" && !pathOpen {
+			// Resuming after a terminator: this statement starts a new path, so
+			// it gets no inbound edge here. Only a `merge` can legitimately be
+			// reached that way — it is the one construct other paths join.
+			fb.applyPendingAnnotations(activityID)
+			lastID = activityID
+			pendingCase = ""
+			pendingFlowAnchor = nil
+			fb.previousStmtAnchor = stmtAnchor
+			continue
+		}
 		if activityID != "" {
 			fb.applyPendingAnnotations(activityID)
 			// Connect to previous object with horizontal SequenceFlow.
@@ -209,6 +231,12 @@ func (fb *flowBuilder) buildFlowGraph(stmts []ast.MicroflowStatement, returns *a
 	// by unrelated builders in either order, so no single creation site can see
 	// the collision.
 	fb.mergeOverConnectedEndEvents()
+
+	// Named join points last: a `join` may reference a `merge` declared later,
+	// so no edge can be drawn until every statement has been seen. Deliberately
+	// after mergeOverConnectedEndEvents — a join lands on a merge, never on an
+	// end event, so it cannot create the over-connection that pass fixes.
+	fb.resolveJoins()
 
 	return &microflows.MicroflowObjectCollection{
 		BaseElement:     model.BaseElement{ID: model.ID(types.GenerateID())},
@@ -580,6 +608,10 @@ func (fb *flowBuilder) addStatement(stmt ast.MicroflowStatement) model.ID {
 		return fb.addBreakEvent()
 	case *ast.ContinueStmt:
 		return fb.addContinueEvent()
+	case *ast.MergeStmt:
+		return fb.addMergeStatement(s)
+	case *ast.JoinStmt:
+		return fb.addJoinStatement(s)
 	case *ast.LogStmt:
 		return fb.addLogMessageAction(s)
 	case *ast.CreateObjectStmt:

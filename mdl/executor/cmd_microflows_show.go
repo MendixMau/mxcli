@@ -786,7 +786,7 @@ func formatMicroflowActivities(
 	// flowsByOrigin / flowsByDest are threaded into traverseFlow so @anchor
 	// emission is per-call — no package-level globals, safe under concurrent
 	// describe (e.g. captureDescribeParallel).
-	traverseFlow(ctx, startID, activityMap, flowsByOrigin, flowsByDest, splitMergeMap, visited, entityNames, microflowNames, &lines, 0, nil, 0, annotationsByTarget)
+	traverseFlow(ctx, startID, activityMap, flowsByOrigin, flowsByDest, splitMergeMap, visited, entityNames, microflowNames, &lines, 0, nil, 0, annotationsByTarget, labelRejoinMerges(mf.ObjectCollection))
 
 	return lines
 }
@@ -1016,7 +1016,7 @@ func formatMicroflowActivitiesWithSourceMap(
 
 	lines = append(lines, startAnnotationLines(mf.ObjectCollection)...)
 
-	traverseFlow(ctx, startID, activityMap, flowsByOrigin, flowsByDest, splitMergeMap, visited, entityNames, microflowNames, &lines, 0, sourceMap, headerLineCount, annotationsByTarget)
+	traverseFlow(ctx, startID, activityMap, flowsByOrigin, flowsByDest, splitMergeMap, visited, entityNames, microflowNames, &lines, 0, sourceMap, headerLineCount, annotationsByTarget, labelRejoinMerges(mf.ObjectCollection))
 
 	return lines
 }
