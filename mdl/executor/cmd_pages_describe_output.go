@@ -1062,29 +1062,51 @@ func extractButtonIcon(w map[string]any) (name, iconType string, code int) {
 // widgetIconMDL renders the `Icon:` property for a widget, or "" when there is
 // nothing CREATE PAGE can reproduce.
 //
-// Only the icon-collection variant has a form. The clause is a bare qualified
-// name, and the page builder turns any name it sees into a
-// Forms$IconCollectionIcon — so emitting an image icon's name here would not
-// merely fail to round-trip, it would rebuild a different element that happens
-// to be spelled the same. Guessing between polymorphic variants is the failure
-// mode that produces a document mxbuild accepts and Studio Pro cannot open.
+// All three of Mendix's icon elements have a form now. Only the collection one
+// used to, so an image icon came out spelled exactly like a collection
+// reference and re-executed as one (CE1613), and a glyph icon — which has no
+// name at all — came out as nothing and was deleted on replay
+// (mendixlabs/mxcli#1059).
+//
+// The kind word is what rebuilds the same ELEMENT rather than something that
+// merely parses. The bare form stays the collection icon, so existing output
+// still means what it did.
 func widgetIconMDL(w rawWidget) string {
-	if types.MenuIconKindOf(w.IconType) != types.MenuIconCollection || w.Icon == "" {
-		return ""
+	switch types.MenuIconKindOf(w.IconType) {
+	case types.MenuIconGlyph:
+		// The code is the whole identity of a glyph. Without it there is nothing
+		// to emit that would rebuild the same icon, so fall through to the note.
+		if w.IconCode == 0 {
+			return ""
+		}
+		return fmt.Sprintf("Icon: glyph %d", w.IconCode)
+	case types.MenuIconImage:
+		if w.Icon == "" {
+			return ""
+		}
+		return fmt.Sprintf("Icon: image %s", mdlQuote(w.Icon))
+	case types.MenuIconCollection:
+		if w.Icon == "" {
+			return ""
+		}
+		return fmt.Sprintf("Icon: %s", mdlQuote(w.Icon))
 	}
-	return fmt.Sprintf("Icon: %s", mdlQuote(w.Icon))
+	return ""
 }
 
-// widgetIconNote flags an icon DESCRIBE cannot round-trip, so re-running the
-// output loses it visibly rather than silently.
+// widgetIconNote flags an icon DESCRIBE still cannot round-trip, so re-running
+// the output loses it visibly rather than silently.
 //
 // CREATE OR REPLACE PAGE is a full replacement, which is what makes silence
 // expensive: an icon the writer will not emit is an icon the replay DELETES,
-// with an exit 0 and a success message. A glyph icon used to produce no output
-// at all here — neither a clause nor a comment — so the loss was invisible on
-// both sides. Fires on every kind that has no clause, the unrecognised $Type
-// included: reporting a variant this build does not know as "no icon" is how the
-// next one would be dropped in turn.
+// with an exit 0 and a success message.
+//
+// All three icon elements are reproducible now, so this fires only on what is
+// genuinely beyond the language: a stored $Type this build does not know, or a
+// variant whose payload is missing (a glyph with no Code, a named icon with no
+// name) — where emitting a clause would rebuild a DIFFERENT icon rather than the
+// same one. Reporting a variant this build does not recognise as "no icon" is
+// how the next one Mendix adds would be dropped in turn.
 func widgetIconNote(w rawWidget) string {
 	if w.IconType == "" || widgetIconMDL(w) != "" {
 		return ""
@@ -1096,8 +1118,8 @@ func widgetIconNote(w rawWidget) string {
 	if target == "" {
 		target = "(no reference stored)"
 	}
-	return fmt.Sprintf("-- NOT re-executable: icon %s (%s) — mxcli can only author "+
-		"icon-collection icons, so re-running this script would drop it", target, w.IconType)
+	return fmt.Sprintf("-- NOT re-executable: icon %s (%s) — mxcli cannot author this "+
+		"icon element, so re-running this script would drop it", target, w.IconType)
 }
 
 func extractButtonAction(ctx *ExecContext, w map[string]any) string {

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/mendixlabs/mxcli/mdl/ast"
+	"github.com/mendixlabs/mxcli/mdl/types"
 	"github.com/mendixlabs/mxcli/model"
 	"github.com/mendixlabs/mxcli/sdk/pages"
 )
@@ -69,8 +70,8 @@ func TestBuildButtonV3_Icon(t *testing.T) {
 	if btn.Icon == nil {
 		t.Fatal("button Icon is nil — the `icon` property was dropped (#602)")
 	}
-	if btn.Icon.Type != pages.IconTypeIconCollection {
-		t.Errorf("Icon.Type = %q, want IconCollection", btn.Icon.Type)
+	if btn.Icon.Kind != types.MenuIconCollection {
+		t.Errorf("Icon.Kind = %q, want collection", btn.Icon.Kind)
 	}
 	if btn.Icon.Image != "Atlas_Core.Atlas_Filled.pencil" {
 		t.Errorf("Icon.Image = %q, want Atlas_Core.Atlas_Filled.pencil", btn.Icon.Image)

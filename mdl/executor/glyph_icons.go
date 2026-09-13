@@ -21,7 +21,7 @@ type GlyphIcon struct {
 // Both halves come from assets Mendix ships rather than from a hand-written
 // list. The CODES are the private-use range of the cmap in Atlas_Core's
 // glyphicons-halflings-regular.woff — the same table mxbuild resolves against,
-// verified on two full deploy builds (see validateMenuItemGlyphCodes). The NAMES
+// verified on two full deploy builds (see validateGlyphCodes). The NAMES
 // are the `.glyphicon-<name>:before { content: "\eXXX" }` rules in Atlas_Core's
 // bundled Bootstrap stylesheet, which covers all 247 with none left over.
 //

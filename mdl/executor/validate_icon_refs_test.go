@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/mendixlabs/mxcli/mdl/ast"
+	"github.com/mendixlabs/mxcli/mdl/types"
 )
 
 func testIconIndex() *iconIndex {
@@ -15,7 +16,12 @@ func testIconIndex() *iconIndex {
 			"Atlas_Core.Atlas":        {"home": true, "pencil": true, "pencil-write-paper": true},
 			"Atlas_Core.Atlas_Filled": {"home": true, "pencil": true},
 		},
-		order: []string{"Atlas_Core.Atlas", "Atlas_Core.Atlas_Filled"},
+		images: map[string]map[string]bool{
+			"MyModule.Images":        {"logo": true},
+			"DesignSystem.Icons_SVG": {"edit": true},
+		},
+		order:      []string{"Atlas_Core.Atlas", "Atlas_Core.Atlas_Filled"},
+		imageOrder: []string{"DesignSystem.Icons_SVG", "MyModule.Images"},
 	}
 }
 
@@ -56,19 +62,19 @@ func TestIconIndexCheck(t *testing.T) {
 			name:      "not a qualified reference",
 			value:     "pencil",
 			wantErr:   true,
-			wantParts: []string{"not a qualified icon reference", "Module.Collection.IconName"},
+			wantParts: []string{"not a qualified reference", "Module.Collection.Name"},
 		},
 		{
 			name:      "trailing dot",
 			value:     "Atlas_Core.Atlas.",
 			wantErr:   true,
-			wantParts: []string{"not a qualified icon reference"},
+			wantParts: []string{"not a qualified reference"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := idx.check(iconRef{value: tt.value, where: "actionbutton 'btn'"})
+			err := idx.check(iconRef{value: tt.value, kind: types.MenuIconCollection, where: "actionbutton 'btn'"})
 			if !tt.wantErr {
 				if err != nil {
 					t.Fatalf("unexpected error for %q: %v", tt.value, err)
@@ -234,24 +240,102 @@ func TestIconRefsInStatement(t *testing.T) {
 	}
 }
 
-// TestIconPropValue covers the quoting and casing MDL allows — `Icon:` and
-// `icon:` are the same property, and the value may arrive quoted.
-func TestIconPropValue(t *testing.T) {
+// TestIconPropRef covers the quoting and casing MDL allows — `Icon:` and `icon:`
+// are the same property, and the value may arrive quoted — and, since #1059, the
+// two SHAPES the property can hold.
+//
+// The plain-string rows are not legacy trivia. `Icon:` carried a string before
+// the kinds existed and several callers still build a WidgetV3 that way, so a
+// reader handling only the typed shape stops resolving icons entirely — and says
+// nothing about it, because "no reference found" and "no icon" look identical
+// from here.
+func TestIconPropRef(t *testing.T) {
 	tests := []struct {
-		props map[string]any
-		want  string
+		name     string
+		props    map[string]any
+		wantOK   bool
+		wantName string
+		wantKind types.MenuIconKind
 	}{
-		{map[string]any{"Icon": "Atlas_Core.Atlas.home"}, "Atlas_Core.Atlas.home"},
-		{map[string]any{"icon": "Atlas_Core.Atlas.home"}, "Atlas_Core.Atlas.home"},
-		{map[string]any{"ICON": "'Atlas_Core.Atlas.home'"}, "Atlas_Core.Atlas.home"},
-		{map[string]any{"Icon": "  Atlas_Core.Atlas.home  "}, "Atlas_Core.Atlas.home"},
-		{map[string]any{"Caption": "not an icon"}, ""},
-		{map[string]any{"Icon": 42}, ""}, // non-string must not panic
-		{nil, ""},
+		{"string is the collection kind", map[string]any{"Icon": "Atlas_Core.Atlas.home"}, true, "Atlas_Core.Atlas.home", types.MenuIconCollection},
+		{"lowercase key", map[string]any{"icon": "Atlas_Core.Atlas.home"}, true, "Atlas_Core.Atlas.home", types.MenuIconCollection},
+		{"quoted value", map[string]any{"ICON": "'Atlas_Core.Atlas.home'"}, true, "Atlas_Core.Atlas.home", types.MenuIconCollection},
+		{"padded value", map[string]any{"Icon": "  Atlas_Core.Atlas.home  "}, true, "Atlas_Core.Atlas.home", types.MenuIconCollection},
+		{"typed collection", map[string]any{"Icon": &ast.WidgetIcon{Kind: types.MenuIconCollection, Name: "Atlas_Core.Atlas.home"}}, true, "Atlas_Core.Atlas.home", types.MenuIconCollection},
+		{"typed image keeps its kind", map[string]any{"Icon": &ast.WidgetIcon{Kind: types.MenuIconImage, Name: "MyModule.Images.logo"}}, true, "MyModule.Images.logo", types.MenuIconImage},
+		// A glyph names no document, so there is no name to resolve — but it IS
+		// returned, carrying its code, because MDL078 reads glyphs off this same
+		// walk. A private second walk is how that rule came to know about menu
+		// items and not about widgets.
+		{"glyph is walked, with a code and no name", map[string]any{"Icon": &ast.WidgetIcon{Kind: types.MenuIconGlyph, Code: 57377}}, true, "", types.MenuIconGlyph},
+		{"no icon property", map[string]any{"Caption": "not an icon"}, false, "", ""},
+		{"non-string must not panic", map[string]any{"Icon": 42}, false, "", ""},
+		{"nil properties", nil, false, "", ""},
 	}
 	for _, tt := range tests {
-		if got := iconPropValue(tt.props); got != tt.want {
-			t.Errorf("iconPropValue(%v) = %q, want %q", tt.props, got, tt.want)
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := iconPropRef(tt.props)
+			if ok != tt.wantOK {
+				t.Fatalf("ok = %v, want %v (ref %+v)", ok, tt.wantOK, got)
+			}
+			if !ok {
+				return
+			}
+			if got.value != tt.wantName || got.kind != tt.wantKind {
+				t.Errorf("got (%q, %q), want (%q, %q)", got.value, got.kind, tt.wantName, tt.wantKind)
+			}
+		})
+	}
+}
+
+// TestIconIndexCheck_ResolvesEachKindAgainstItsOwnDocument is the rule the kinds
+// exist for. The two named kinds are spelled identically and live in different
+// documents, so resolving one against the other's listing reports a correct
+// reference as a typo — the same conflation as the original bug, pointed the
+// other way.
+func TestIconIndexCheck_ResolvesEachKindAgainstItsOwnDocument(t *testing.T) {
+	idx := testIconIndex()
+
+	if err := idx.check(iconRef{value: "DesignSystem.Icons_SVG.edit", kind: types.MenuIconImage, where: "actionbutton 'btn'"}); err != nil {
+		t.Errorf("a valid image reference was rejected: %v", err)
+	}
+	if err := idx.check(iconRef{value: "Atlas_Core.Atlas.home", kind: types.MenuIconCollection, where: "actionbutton 'btn'"}); err != nil {
+		t.Errorf("a valid collection reference was rejected: %v", err)
+	}
+
+	// Written without `image`, an image collection is not an icon collection —
+	// and this is exactly the mistake #1059 reported, so the message has to name
+	// the remedy rather than leave it looking like a typo.
+	err := idx.check(iconRef{value: "DesignSystem.Icons_SVG.edit", kind: types.MenuIconCollection, where: "actionbutton 'btn'"})
+	if err == nil {
+		t.Fatal("an image reference written as a collection reference was accepted — that is CE1613")
+	}
+	for _, want := range []string{"IS an image collection", "Icon: image", "CE1613"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
 		}
+	}
+
+	// And the reverse.
+	err = idx.check(iconRef{value: "Atlas_Core.Atlas.home", kind: types.MenuIconImage, where: "actionbutton 'btn'"})
+	if err == nil {
+		t.Fatal("a collection reference written as an image reference was accepted")
+	}
+	if !strings.Contains(err.Error(), "IS an icon collection") {
+		t.Errorf("error %q does not name the remedy", err)
+	}
+}
+
+// CONTROL: an empty listing means the backend could not answer, not that the
+// project has none. Reporting every reference as unknown on that basis is a
+// false error blocking a script that builds cleanly — the third state
+// ("could not establish") that the check-vs-mxbuild class turns on.
+func TestIconIndexCheck_EmptyListingResolvesNothing(t *testing.T) {
+	idx := &iconIndex{collections: map[string]map[string]bool{}, images: map[string]map[string]bool{}}
+	if err := idx.check(iconRef{value: "Whatever.Coll.name", kind: types.MenuIconCollection, where: "actionbutton 'btn'"}); err != nil {
+		t.Errorf("an unresolvable listing reported an error: %v", err)
+	}
+	if err := idx.check(iconRef{value: "Whatever.Coll.name", kind: types.MenuIconImage, where: "actionbutton 'btn'"}); err != nil {
+		t.Errorf("an unresolvable image listing reported an error: %v", err)
 	}
 }

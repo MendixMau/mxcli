@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/mendixlabs/mxcli/mdl/ast"
+	"github.com/mendixlabs/mxcli/mdl/visitor"
 	"github.com/mendixlabs/mxcli/model"
 	"github.com/mendixlabs/mxcli/sdk/pages"
 )
@@ -64,40 +65,95 @@ func describeButton(t *testing.T, w map[string]any) string {
 	return buf.String()
 }
 
-// TestDescribeButtonIcon_CollectionRoundTrips is the CONTROL. An icon-collection
-// icon is the one variant mxcli can author, so it must keep emitting a plain
-// `Icon:` clause and no warning — otherwise the fix below would "pass" by
-// flagging everything.
-func TestDescribeButtonIcon_CollectionRoundTrips(t *testing.T) {
-	got := describeButton(t, iconButton("Forms$IconCollectionIcon", "Atlas_Core.Atlas_Filled.pencil", 0))
-	if !strings.Contains(got, "Icon: 'Atlas_Core.Atlas_Filled.pencil'") {
-		t.Errorf("the authorable variant lost its Icon clause:\n%s", got)
-	}
-	if strings.Contains(got, "NOT re-executable") {
-		t.Errorf("an authorable icon was flagged as unauthorable:\n%s", got)
+// TestDescribeButtonIcon_RoundTripsEveryVariant is the whole point: DESCRIBE's
+// output, re-executed, has to rebuild the SAME element — not merely something
+// that parses.
+//
+// That is the assertion the reported bug would have failed. An image icon came
+// out spelled exactly like an icon-collection reference, so it parsed, executed
+// and produced a document whose build said `[CE1613] "The selected custom icon
+// 'DesignSystem.Icons_SVG.edit' no longer exists."` A glyph icon came out as
+// nothing at all and replay deleted it.
+//
+// The round trip runs the real parser and the real page builder, because the
+// defect was that read, emit and write each had a different idea of what an icon
+// is — asserting on any one of them alone is what let them drift.
+func TestDescribeButtonIcon_RoundTripsEveryVariant(t *testing.T) {
+	cases := []struct {
+		name     string
+		stored   map[string]any
+		wantMDL  string
+		wantType string
+		wantName string
+		wantCode int
+	}{{
+		name:     "collection",
+		stored:   iconButton("Forms$IconCollectionIcon", "Atlas_Core.Atlas_Filled.pencil", 0),
+		wantMDL:  "Icon: 'Atlas_Core.Atlas_Filled.pencil'",
+		wantType: "Forms$IconCollectionIcon",
+		wantName: "Atlas_Core.Atlas_Filled.pencil",
+	}, {
+		// The reported case. Same spelling as the row above until the keyword
+		// tells them apart.
+		name:     "image",
+		stored:   iconButton("Forms$ImageIcon", "DesignSystem.Icons_SVG.edit", 0),
+		wantMDL:  "Icon: image 'DesignSystem.Icons_SVG.edit'",
+		wantType: "Forms$ImageIcon",
+		wantName: "DesignSystem.Icons_SVG.edit",
+	}, {
+		// The half that was worse than reported: no name, so nothing to emit,
+		// so silence — and CREATE OR REPLACE PAGE is a full replacement.
+		name:     "glyph",
+		stored:   iconButton("Forms$GlyphIcon", "", 57377),
+		wantMDL:  "Icon: glyph 57377",
+		wantType: "Forms$GlyphIcon",
+		wantCode: 57377,
+	}}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := describeButton(t, tc.stored)
+			if !strings.Contains(out, tc.wantMDL) {
+				t.Fatalf("describe did not emit %q:\n%s", tc.wantMDL, out)
+			}
+			if strings.Contains(out, "NOT re-executable") {
+				t.Errorf("an authorable icon was flagged as unauthorable:\n%s", out)
+			}
+
+			icon := rebuildButtonIcon(t, tc.wantMDL)
+			if icon == nil {
+				t.Fatal("re-executing DESCRIBE's own output produced no icon")
+			}
+			if icon.TypeName != tc.wantType {
+				t.Errorf("replay rebuilt %s, want %s — a silent variant swap",
+					icon.TypeName, tc.wantType)
+			}
+			if icon.Image != tc.wantName {
+				t.Errorf("replay rebuilt Image %q, want %q", icon.Image, tc.wantName)
+			}
+			if icon.Code != tc.wantCode {
+				t.Errorf("replay rebuilt Code %d, want %d", icon.Code, tc.wantCode)
+			}
+		})
 	}
 }
 
-// TestDescribeButtonIcon_ImageIconIsNotEmittedAsACollectionRef is the reported
-// bug. The qualified name must NOT come out as a bare `Icon:` clause: that
-// clause is spelled the same as a collection reference, so re-executing it
-// rebuilds the wrong element.
-func TestDescribeButtonIcon_ImageIconIsNotEmittedAsACollectionRef(t *testing.T) {
-	got := describeButton(t, iconButton("Forms$ImageIcon", "DesignSystem.Icons_SVG.edit", 0))
-	if strings.Contains(got, "Icon: 'DesignSystem.Icons_SVG.edit'") {
-		t.Errorf("an image icon was emitted as an icon-collection reference — "+
-			"re-executing this is CE1613:\n%s", got)
+// rebuildButtonIcon parses one `Icon:` clause inside a real page statement and
+// runs the page builder over it, returning the icon element replay would store.
+func rebuildButtonIcon(t *testing.T, iconClause string) *pages.Icon {
+	t.Helper()
+	src := "create page Mod.P (Title: 'T') {\n  actionbutton btnEdit (Caption: 'Edit', " + iconClause + ")\n}"
+	prog, errs := visitor.Build(src)
+	if len(errs) > 0 {
+		t.Fatalf("DESCRIBE emitted MDL that does not parse (%q): %v", iconClause, errs)
 	}
-	assertIconNote(t, got, "DesignSystem.Icons_SVG.edit", "Forms$ImageIcon")
-}
-
-// TestDescribeButtonIcon_GlyphIconIsFlagged covers the half that was worse than
-// reported: a glyph icon has no qualified name, so DESCRIBE emitted NOTHING —
-// not a clause, not a comment. CREATE OR REPLACE PAGE is a full replacement, so
-// re-running that output deleted the icon with an exit 0 and a success message.
-func TestDescribeButtonIcon_GlyphIconIsFlagged(t *testing.T) {
-	got := describeButton(t, iconButton("Forms$GlyphIcon", "", 57377))
-	assertIconNote(t, got, "57377", "Forms$GlyphIcon")
+	page := prog.Statements[0].(*ast.CreatePageStmtV3)
+	pb := &pageBuilder{widgetScope: map[string]model.ID{}}
+	widget, err := pb.buildWidgetV3(page.Widgets[0])
+	if err != nil {
+		t.Fatalf("building %q: %v", iconClause, err)
+	}
+	return widget.(*pages.ActionButton).Icon
 }
 
 // TestDescribeButtonIcon_UnknownTypeIsFlagged pins the reason the note is keyed
@@ -106,8 +162,8 @@ func TestDescribeButtonIcon_GlyphIconIsFlagged(t *testing.T) {
 // how a future fourth variant would be silently dropped.
 func TestDescribeButtonIcon_UnknownTypeIsFlagged(t *testing.T) {
 	got := describeButton(t, iconButton("Forms$SomeFutureIcon", "Mod.Coll.thing", 0))
-	if strings.Contains(got, "Icon: 'Mod.Coll.thing'") {
-		t.Errorf("an unrecognised icon element was emitted as a collection reference:\n%s", got)
+	if strings.Contains(got, "Icon: 'Mod.Coll.thing'") || strings.Contains(got, "Icon: image") {
+		t.Errorf("an unrecognised icon element was emitted as one of the known kinds:\n%s", got)
 	}
 	assertIconNote(t, got, "Mod.Coll.thing", "Forms$SomeFutureIcon")
 }
@@ -125,32 +181,27 @@ func TestDescribeButtonIcon_NoIconIsSilent(t *testing.T) {
 	}
 }
 
-// TestBuildButtonV3_IconAlwaysBuildsACollectionIcon documents WHY the describer
-// has to decline: the builder has exactly one icon element. Any name reaching
-// `Icon:` is written as a custom-icon reference regardless of what it names, so
-// emitting an image icon's name there is emitting a CE1613.
-//
-// This is the "prove the fix is the cause" control in reverse — it asserts the
-// unchanged write-side behaviour the read-side guard exists to protect against,
-// and it will start failing the day `Icon: image …` is authorable.
-func TestBuildButtonV3_IconAlwaysBuildsACollectionIcon(t *testing.T) {
-	pb := &pageBuilder{widgetScope: map[string]model.ID{}}
-	widget, err := pb.buildWidgetV3(&ast.WidgetV3{
-		Type:       "actionbutton",
-		Name:       "btnEdit",
-		Properties: map[string]any{"Caption": "Edit", "icon": "DesignSystem.Icons_SVG.edit"},
+// TestDescribeButtonIcon_MalformedPayloadIsFlagged covers the other half of what
+// a note is still for. A stored element of a KNOWN kind whose payload is missing
+// — a glyph with no Code, a named icon with no name — cannot be emitted as a
+// clause: there is nothing in it to rebuild the same icon from, and a clause
+// with a guessed payload would rebuild a different one. So it is reported rather
+// than either dropped or invented.
+func TestDescribeButtonIcon_MalformedPayloadIsFlagged(t *testing.T) {
+	t.Run("glyph with no code", func(t *testing.T) {
+		got := describeButton(t, iconButton("Forms$GlyphIcon", "", 0))
+		if strings.Contains(got, "Icon: glyph") {
+			t.Errorf("a glyph with no code was emitted as a clause:\n%s", got)
+		}
+		assertIconNote(t, got, "no reference stored", "Forms$GlyphIcon")
 	})
-	if err != nil {
-		t.Fatalf("buildWidgetV3: %v", err)
-	}
-	btn := widget.(*pages.ActionButton)
-	if btn.Icon == nil {
-		t.Fatal("icon dropped")
-	}
-	if btn.Icon.TypeName != "Forms$IconCollectionIcon" {
-		t.Errorf("Icon.TypeName = %q — the builder gained a second variant, so the "+
-			"describer may now emit a clause for it", btn.Icon.TypeName)
-	}
+	t.Run("image with no name", func(t *testing.T) {
+		got := describeButton(t, iconButton("Forms$ImageIcon", "", 0))
+		if strings.Contains(got, "Icon: image") {
+			t.Errorf("an image icon with no name was emitted as a clause:\n%s", got)
+		}
+		assertIconNote(t, got, "no reference stored", "Forms$ImageIcon")
+	})
 }
 
 func assertIconNote(t *testing.T, got, wantTarget, wantType string) {

@@ -12,6 +12,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **`CATALOG.GRAPH_ANALYSIS_SCOPE` — which reference kinds reach the computed graph.** The two graph families disagree by construction and there was no way to see it from SQL: `GRAPH_MODULE_COUPLING` and friends read every kind straight off `refs`, while the computed pass (communities, cycles, layers, centrality) is restricted to the structural kinds. On a stock 11.14 app that is 110 of 316 edges. One row per kind with its edge count and whether it is in the asset graph; the `IN` list is generated from the filter itself, so the view cannot drift from what it describes.
 
+- **`Icon: image <qn>` and `Icon: glyph <n>` on page widgets** (mendixlabs/mxcli#1059) — Mendix stores three icon elements on a button and MDL could spell one, so the other two were readable and unwritable. DESCRIBE learned to flag them rather than destroy them (see *Fixed*, below); this makes them authorable, so the round trip is lossless rather than merely honest.
+
+  ```sql
+  actionbutton btnEdit (Caption: 'Edit', Action: nothing, Icon: 'Atlas_Core.Atlas_Filled.pencil')
+  actionbutton btnLogo (Caption: 'Logo', Action: nothing, Icon: image MyModule.Images.logo)
+  actionbutton btnHome (Caption: 'Home', Action: nothing, Icon: glyph 57377)
+  ```
+
+  The bare form stays the icon-collection icon, so no existing script changes meaning; a name may also be written unquoted, as every other reference into the model is. The keyword is the whole point: the first two forms are spelled identically and point into **different documents**, so nothing else can separate them. Same vocabulary and same ordering trap as navigation's `icon image` / `icon glyph`, and the shared resolver (`types.MenuIconKind`) rather than a second copy — `pages.Icon` carried its own three-value enum for the same three things, which is precisely the drift that produced the bug.
+
+  `mxcli check --references` now resolves **each kind against its own collection**, which it could not do before: an image reference was checked against the icon collections and reported as a typo. When the kind is wrong it names the remedy — *"`MyFirstModule.Images` IS an image collection — write `Icon: image MyFirstModule.Images.workflow`"* — rather than leaving a correct name looking misspelt. **MDL078** (undefined glyph code) now covers widget glyphs too: it read the statements through its own walk, so the day a widget could carry a glyph every one of them would have passed in silence; both it and the reference check now consume the package's single icon walk.
+
+  The legacy engine wrote `Icon: nil` on every action button unconditionally — a button icon has been authorable since #602 and only the modelsdk engine ever wrote one, so under `--engine legacy` it was dropped on every write, silently, since a null Icon is what an iconless button stores. Both engines now write all three.
+
+  Measured on 11.13.0 against a real project: all three authored, `mx check` 0 errors, `mxbuild --target=deploy` **BUILD SUCCEEDED**, and the three elements on disk with the right `$Type` and payload. The controls are what pin it — the same page with `image` dropped produces exactly `[error] [CE1613] "The selected custom icon 'MyFirstModule.Images.workflow' no longer exists." at Action button 'btnImage'`, and a widget `Icon: glyph 57562` fails the deploy build with `System.InvalidOperationException: Sequence contains no matching element`, naming the **page** (so MDL078's message no longer promises "layout"). Corpus sweep clean at 531 scripts.
+
 ### Fixed
 
 - **An empty graph-analysis table could not be told apart from one that was never computed** (mendixlabs/mxcli#1060). `CATALOG.GRAPH_CYCLES` answered `0 rows` on a project whose `CATALOG.GRAPH_MODULE_COUPLING` listed mutual module pairs, so it read as "no circular dependencies". The two are built by different things: coupling is a plain view over `refs` that any full catalog answers, while the cycles/communities/layers/centrality tables are written only by `REFRESH CATALOG COMMUNITIES` — and those six were in neither `fullOnlyTables` nor `sourceOnlyTables`, so nothing warned.
