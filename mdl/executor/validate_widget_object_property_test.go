@@ -3,6 +3,8 @@
 package executor
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -11,13 +13,41 @@ import (
 	"github.com/mendixlabs/mxcli/mdl/visitor"
 )
 
+// fixtureProjectWithDefs copies the fixture to a temp dir and DERIVES its widget
+// definitions from the tracked `.mpk` files.
+//
+// `testdata/expr-checker/.mxcli/` is gitignored: the `.def.json` files are
+// generated, and a developer who has ever run `mxcli widget docs` against the
+// fixture has them while CI never does. Reading them ambiently makes a test pass
+// locally and fail on the runner — which is exactly how the three tests below
+// first shipped red. Deriving them here depends only on tracked inputs, and the
+// copy keeps the generated files out of the fixture other tests copy.
+func fixtureProjectWithDefs(t *testing.T) string {
+	t.Helper()
+	src := filepath.Dir(fixtureProject(t))
+	dst := t.TempDir()
+	if err := os.CopyFS(dst, os.DirFS(src)); err != nil {
+		t.Fatalf("copy fixture: %v", err)
+	}
+	// Start from no definitions whatever the developer's tree holds, so the
+	// test sees the same inputs here and on the runner.
+	if err := os.RemoveAll(filepath.Join(dst, ".mxcli")); err != nil {
+		t.Fatalf("clear derived definitions: %v", err)
+	}
+	proj := filepath.Join(dst, "minimal.mpr")
+	if _, err := RefreshWidgetDefinitions(proj, true, nil); err != nil {
+		t.Fatalf("derive widget definitions from the tracked .mpk files: %v", err)
+	}
+	return proj
+}
+
 func widget27(t *testing.T, src string) []linter.Violation {
 	t.Helper()
 	prog, errs := visitor.Build(src)
 	if len(errs) > 0 {
 		t.Fatalf("parsing: %v", errs)
 	}
-	registry := LoadWidgetRegistry(fixtureProject(t))
+	registry := LoadWidgetRegistry(fixtureProjectWithDefs(t))
 	if registry == nil {
 		t.Fatal("no registry")
 	}
@@ -57,8 +87,12 @@ func TestObjectEntryProperty_IsReported(t *testing.T) {
 			"page and discard the entries, which is the bug", got[0].Severity)
 	}
 	// The message has to name the container keyword, or it says "wrong" without
-	// saying what right looks like.
-	if !strings.Contains(got[0].Message, "attribute") {
+	// saying what right looks like. Assert the KEYWORD IN ITS REMEDY, not a bare
+	// "attribute": the property is called `attributes`, so a substring check for
+	// "attribute" is satisfied by the property name and passes with no definition
+	// loaded at all — which is how the definition-dependent tests below shipped
+	// green locally and red in CI.
+	if !strings.Contains(got[0].Message, "`attribute <name> (…)` blocks") {
 		t.Errorf("message does not name the container keyword: %q", got[0].Message)
 	}
 	if !strings.Contains(got[0].Message, "attributes") {
