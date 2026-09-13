@@ -1035,6 +1035,12 @@ func (m *mcpWorkflowMutator) InsertBoundaryEvent(activityRef string, atPos int, 
 		return err
 	}
 	actPath := loc.actPath
+	// End the path with Mendix's marker before dedup names it
+	// (workflows.EndBoundaryEventPath). PED assigns ids, so the factory's value
+	// is never sent.
+	activities = workflows.EndBoundaryEventPath(&workflows.Flow{Activities: activities}, func() model.ID {
+		return ""
+	}).Activities
 	wfnames.Dedup(activities, loc.taken)
 	el := boundaryEventElement(eventType, delay)
 	if err := attachSubFlow(el, activities); err != nil {

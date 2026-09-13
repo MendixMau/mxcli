@@ -1465,3 +1465,38 @@ func TestWorkflowMutator_InsertPath_EndsWithMarker(t *testing.T) {
 		}
 	}
 }
+
+// ALTER WORKFLOW … INSERT BOUNDARY EVENT builds the event's flow itself, so it
+// must end the path with Mendix's marker too — an unterminated non-interrupting
+// path builds and then stops the runtime from starting. testWfDeps stamps one
+// $Type on everything, so the assertion is on count and caption.
+func TestWorkflowMutator_InsertBoundaryEvent_EndsWithMarker(t *testing.T) {
+	for name, tc := range map[string]struct {
+		eventType string
+		acts      []workflows.WorkflowActivity
+	}{
+		"interrupting with activities":     {"InterruptingTimer", []workflows.WorkflowActivity{makeTestWorkflowActivity("esc", "Escalate")}},
+		"non-interrupting with activities": {"NonInterruptingTimer", []workflows.WorkflowActivity{makeTestWorkflowActivity("esc", "Escalate")}},
+		"no body":                          {"InterruptingTimer", nil},
+	} {
+		act := makeWfActivity("Workflows$UserTask", "Review", "task1")
+		act = append(act, bson.E{Key: "BoundaryEvents", Value: bson.A{int32(3)}})
+		m := newMutator(makeWorkflowDoc(act))
+		if err := m.InsertBoundaryEvent("Review", 0, tc.eventType, "addHours([%CurrentDateTime%], 1)", tc.acts); err != nil {
+			t.Fatalf("%s: InsertBoundaryEvent: %v", name, err)
+		}
+		actDoc, _ := m.findActivityByCaption("Review", 0)
+		events := bsonnav.DGetArrayElements(bsonnav.DGet(actDoc, "BoundaryEvents"))
+		flow := bsonnav.DGetDoc(events[len(events)-1].(bson.D), "Flow")
+		if flow == nil {
+			t.Fatalf("%s: boundary event has no Flow", name)
+		}
+		items := bsonnav.DGetArrayElements(bsonnav.DGet(flow, "Activities"))
+		if want := len(tc.acts) + 1; len(items) != want {
+			t.Fatalf("%s: flow has %d activities, want %d", name, len(items), want)
+		}
+		if got := bsonnav.DGetString(items[len(items)-1].(bson.D), "Caption"); got != "End of boundary event path" {
+			t.Errorf("%s: last activity caption = %q, want the end-of-path marker", name, got)
+		}
+	}
+}

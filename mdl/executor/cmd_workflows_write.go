@@ -264,6 +264,11 @@ func buildBoundaryEvents(nodes []ast.WorkflowBoundaryEventNode) []*workflows.Bou
 			}
 			event.Flow.ID = model.ID(generateWorkflowUUID())
 		}
+		// A boundary path must end in a jump, an end or Mendix's end-of-path
+		// marker: interrupting is CE0105 without it, and non-interrupting builds
+		// cleanly and then stops the runtime from starting at all — see
+		// workflows.EndBoundaryEventPath.
+		event.Flow = workflows.EndBoundaryEventPath(event.Flow, newWorkflowID)
 		events = append(events, event)
 	}
 	return events

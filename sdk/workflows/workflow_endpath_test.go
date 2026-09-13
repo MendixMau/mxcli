@@ -80,3 +80,35 @@ func TestEndParallelSplitPathLeavesAnEndedPathAlone(t *testing.T) {
 		}
 	}
 }
+
+// A boundary event path has the same rule and a sharper failure: measured on
+// 11.14.0, an unterminated interrupting path is CE0105 at build, and an
+// unterminated NON-interrupting path builds at 0 errors and then stops the
+// runtime from starting ("Expected the flow to end with an end event").
+func TestEndBoundaryEventPath(t *testing.T) {
+	ids := counterIDs()
+
+	f := EndBoundaryEventPath(&Flow{Activities: []WorkflowActivity{&CallMicroflowTask{}}}, ids)
+	if len(f.Activities) != 2 {
+		t.Fatalf("activities = %d, want the call followed by the marker", len(f.Activities))
+	}
+	if _, ok := f.Activities[1].(*EndOfBoundaryEventPathActivity); !ok {
+		t.Fatalf("last activity is %T, want *EndOfBoundaryEventPathActivity", f.Activities[1])
+	}
+
+	empty := EndBoundaryEventPath(nil, ids)
+	if empty == nil || len(empty.Activities) != 1 {
+		t.Fatal("an empty boundary path must become a flow holding only the marker")
+	}
+
+	if again := EndBoundaryEventPath(f, ids); len(again.Activities) != 2 {
+		t.Errorf("not idempotent: %d activities after a second call", len(again.Activities))
+	}
+
+	for name, last := range map[string]WorkflowActivity{"jump": &JumpToActivity{}, "end of workflow": &EndWorkflowActivity{}} {
+		g := EndBoundaryEventPath(&Flow{Activities: []WorkflowActivity{&CallMicroflowTask{}, last}}, ids)
+		if len(g.Activities) != 2 {
+			t.Errorf("%s: a path that already ends must get no marker (CE6692 if one follows it)", name)
+		}
+	}
+}
