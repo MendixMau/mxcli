@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strings"
 
-	mdltypes "github.com/mendixlabs/mxcli/mdl/types"
 	"github.com/mendixlabs/mxcli/mdl/visitor"
 	"github.com/mendixlabs/mxcli/model"
 	"github.com/mendixlabs/mxcli/sdk/microflows"
@@ -790,6 +789,14 @@ func formatAction(
 		if len(a.TemplateParameters) > 0 {
 			result += " objects [" + strings.Join(a.TemplateParameters, ", ") + "]"
 		}
+		// Without this, a describe -> exec round trip turned a BLOCKING message
+		// box into a non-blocking one. The model carried Blocking on both
+		// engines all along; MDL simply had no word for it, which is why the
+		// loss happened in the middle of a path where every other layer was
+		// correct.
+		if a.Blocking {
+			result += " blocking"
+		}
 		return result + ";"
 
 	case *microflows.DownloadFileAction:
@@ -1010,20 +1017,56 @@ func formatWebServiceCallAction(ctx *ExecContext, a *microflows.WebServiceCallAc
 		return prefix + "call web service raw " + mdlQuote(raw) + ";"
 	}
 
-	parts := []string{prefix + "call web service " + formatWebServiceReference(resolveWebServiceReference(ctx, a.ServiceID))}
+	// The service and the two mappings are BY_NAME_REFERENCE properties: what is
+	// stored IS the qualified name, so there is nothing to resolve. See
+	// TestFormatAction_WebServiceCallRendersStoredQualifiedNames for what the
+	// three resolvers that used to stand here actually did.
+	parts := []string{prefix + "call web service " + formatWebServiceReference(string(a.ServiceID))}
 	if a.OperationName != "" {
-		parts = append(parts, "operation "+formatWebServiceReference(a.OperationName))
+		op := "operation " + formatWebServiceReference(a.OperationName)
+		// The arguments carry the stored ParameterPath, but only its last
+		// segment is spelled in MDL — the rest is rebuilt from the operation
+		// document on the way back in.
+		if args := formatWebServiceArguments(a.Arguments); args != "" {
+			op += " (" + args + ")"
+		}
+		parts = append(parts, op)
 	}
 	if a.SendMappingID != "" {
-		parts = append(parts, "send mapping "+formatWebServiceReference(resolveWebServiceMappingReference(ctx, a.SendMappingID, true)))
+		send := "send mapping " + formatWebServiceReference(string(a.SendMappingID))
+		if a.SendMappingVariable != "" {
+			send += " from $" + a.SendMappingVariable
+		}
+		parts = append(parts, send)
 	}
 	if a.ReceiveMappingID != "" {
-		parts = append(parts, "receive mapping "+formatWebServiceReference(resolveWebServiceMappingReference(ctx, a.ReceiveMappingID, false)))
+		parts = append(parts, "receive mapping "+formatWebServiceReference(string(a.ReceiveMappingID)))
 	}
 	if a.TimeoutExpression != "" {
 		parts = append(parts, "timeout "+strings.TrimRight(a.TimeoutExpression, " \t\n\r"))
 	}
 	return strings.Join(parts, "\n") + ";"
+}
+
+// formatWebServiceArguments renders the operation's argument list, or "" when
+// there is nothing MDL can spell.
+//
+// An argument whose Name did not survive the read — a ParameterPath with no
+// "|", which no reference document has — renders nothing at all, and the
+// action falls back to the raw form rather than emitting a list that would
+// write a different path back.
+func formatWebServiceArguments(args []microflows.WebServiceArgument) string {
+	if len(args) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg.Name == "" {
+			return ""
+		}
+		parts = append(parts, arg.Name+" = "+arg.Expression)
+	}
+	return strings.Join(parts, ", ")
 }
 
 func formatWebServiceReference(ref string) string {
@@ -1061,107 +1104,6 @@ func isBareIdentifier(part string) bool {
 		}
 	}
 	return true
-}
-
-func resolveWebServiceReference(ctx *ExecContext, id model.ID) string {
-	raw := string(id)
-	if raw == "" || ctx == nil || ctx.Backend == nil {
-		return raw
-	}
-	units, err := ctx.Backend.ListRawUnitsByType("WebServices$ImportedWebService")
-	if err != nil {
-		return raw
-	}
-	h, err := getHierarchy(ctx)
-	if err != nil {
-		return raw
-	}
-	for _, unit := range units {
-		if unit == nil || unit.ID != id {
-			continue
-		}
-		return qualifiedRawUnitName(h, unit, raw)
-	}
-	return raw
-}
-
-func qualifiedRawUnitName(h *ContainerHierarchy, unit *mdltypes.RawUnit, fallback string) string {
-	name := rawUnitName(unit.Contents)
-	if name == "" {
-		return fallback
-	}
-	if h == nil {
-		return name
-	}
-	if qn := h.GetQualifiedName(unit.ContainerID, name); qn != "." && qn != "" {
-		return qn
-	}
-	return name
-}
-
-func resolveWebServiceMappingReference(ctx *ExecContext, id model.ID, preferExport bool) string {
-	if preferExport {
-		if qn := resolveExportMappingReference(ctx, id); qn != "" {
-			return qn
-		}
-		if qn := resolveImportMappingReference(ctx, id); qn != "" {
-			return qn
-		}
-	} else {
-		if qn := resolveImportMappingReference(ctx, id); qn != "" {
-			return qn
-		}
-		if qn := resolveExportMappingReference(ctx, id); qn != "" {
-			return qn
-		}
-	}
-	return string(id)
-}
-
-func resolveImportMappingReference(ctx *ExecContext, id model.ID) string {
-	if id == "" || ctx == nil || ctx.Backend == nil {
-		return ""
-	}
-	mappings, err := ctx.Backend.ListImportMappings()
-	if err != nil {
-		return ""
-	}
-	for _, mapping := range mappings {
-		if mapping != nil && mapping.ID == id {
-			return qualifiedNameForContainer(ctx, mapping.ContainerID, mapping.Name)
-		}
-	}
-	return ""
-}
-
-func resolveExportMappingReference(ctx *ExecContext, id model.ID) string {
-	if id == "" || ctx == nil || ctx.Backend == nil {
-		return ""
-	}
-	mappings, err := ctx.Backend.ListExportMappings()
-	if err != nil {
-		return ""
-	}
-	for _, mapping := range mappings {
-		if mapping != nil && mapping.ID == id {
-			return qualifiedNameForContainer(ctx, mapping.ContainerID, mapping.Name)
-		}
-	}
-	return ""
-}
-
-func qualifiedNameForContainer(ctx *ExecContext, containerID model.ID, name string) string {
-	if name == "" {
-		return ""
-	}
-	h, err := getHierarchy(ctx)
-	if err != nil || h == nil {
-		return name
-	}
-	if qn := h.GetQualifiedName(containerID, name); qn != "." && qn != "" {
-		return qn
-	}
-	return name
 }
 
 func rawUnitName(contents []byte) string {

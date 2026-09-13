@@ -56,6 +56,12 @@ func ParseMicroflowFromRaw(raw map[string]any, unitID, containerID model.ID) *mi
 	if excluded, ok := raw["Excluded"].(bool); ok {
 		mf.Excluded = excluded
 	}
+	// A security setting: without reading it, a rewrite turned "apply entity
+	// access" OFF, widening what the microflow may read and write with nothing
+	// reporting it.
+	if applyEntityAccess, ok := raw["ApplyEntityAccess"].(bool); ok {
+		mf.ApplyEntityAccess = applyEntityAccess
+	}
 
 	// Parse allowed module roles (BY_NAME references)
 	allowedRoles := extractBsonArray(raw["AllowedModuleRoles"])
@@ -643,6 +649,9 @@ func parseMicroflowActionValue(raw any) microflows.MicroflowAction {
 func parseCreateVariableAction(raw map[string]any) *microflows.CreateVariableAction {
 	action := &microflows.CreateVariableAction{}
 	action.ID = model.ID(extractBsonID(raw["$ID"]))
+	// ErrorHandlingType gates the whole error branch in DESCRIBE, not just a
+	// suffix — see getActionErrorHandlingType (mendixlabs/mxcli#1078).
+	action.ErrorHandlingType = microflows.ErrorHandlingType(extractString(raw["ErrorHandlingType"]))
 	action.VariableName = extractString(raw["VariableName"])
 	action.InitialValue = extractString(raw["InitialValue"])
 
@@ -656,6 +665,9 @@ func parseCreateVariableAction(raw map[string]any) *microflows.CreateVariableAct
 func parseChangeVariableAction(raw map[string]any) *microflows.ChangeVariableAction {
 	action := &microflows.ChangeVariableAction{}
 	action.ID = model.ID(extractBsonID(raw["$ID"]))
+	// ErrorHandlingType gates the whole error branch in DESCRIBE, not just a
+	// suffix — see getActionErrorHandlingType (mendixlabs/mxcli#1078).
+	action.ErrorHandlingType = microflows.ErrorHandlingType(extractString(raw["ErrorHandlingType"]))
 	action.VariableName = extractString(raw["ChangeVariableName"])
 	action.Value = extractString(raw["Value"])
 	return action
@@ -664,6 +676,9 @@ func parseChangeVariableAction(raw map[string]any) *microflows.ChangeVariableAct
 func parseCreateObjectAction(raw map[string]any) *microflows.CreateObjectAction {
 	action := &microflows.CreateObjectAction{}
 	action.ID = model.ID(extractBsonID(raw["$ID"]))
+	// ErrorHandlingType gates the whole error branch in DESCRIBE, not just a
+	// suffix — see getActionErrorHandlingType (mendixlabs/mxcli#1078).
+	action.ErrorHandlingType = microflows.ErrorHandlingType(extractString(raw["ErrorHandlingType"]))
 	// Entity is BY_NAME_REFERENCE - can be string (qualified name) or binary (legacy)
 	if entityStr, ok := raw["Entity"].(string); ok {
 		action.EntityQualifiedName = entityStr
@@ -696,6 +711,9 @@ func parseCreateObjectAction(raw map[string]any) *microflows.CreateObjectAction 
 func parseChangeObjectAction(raw map[string]any) *microflows.ChangeObjectAction {
 	action := &microflows.ChangeObjectAction{}
 	action.ID = model.ID(extractBsonID(raw["$ID"]))
+	// ErrorHandlingType gates the whole error branch in DESCRIBE, not just a
+	// suffix — see getActionErrorHandlingType (mendixlabs/mxcli#1078).
+	action.ErrorHandlingType = microflows.ErrorHandlingType(extractString(raw["ErrorHandlingType"]))
 	action.ChangeVariable = extractString(raw["ChangeVariableName"])
 	action.RefreshInClient = extractBool(raw["RefreshInClient"], false)
 

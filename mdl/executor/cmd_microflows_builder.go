@@ -19,15 +19,22 @@ type flowBuilder struct {
 	objects         []microflows.MicroflowObject
 	flows           []*microflows.SequenceFlow
 	annotationFlows []*microflows.AnnotationFlow
-	posX            int
-	posY            int
-	baseY           int // Base Y position (for returning after ELSE branches)
-	spacing         int
-	returnValue     string // Return value expression for RETURN statement (used by buildFlowGraph final EndEvent)
-	returnType      *ast.MicroflowReturnType
-	endsWithReturn  bool              // True if the flow already ends with EndEvent(s) from RETURN statements
-	lastReturnEndID model.ID          // Last explicit RETURN EndEvent, used as a fallback error-handler target
-	varTypes        map[string]string // Variable name -> entity qualified name (for CHANGE statements)
+
+	// annotationsByLabel resolves `@annotation(id: n1)` back to the Annotation
+	// its first mention created, so a note wired to several activities is ONE
+	// object with several flows — the shape Mendix stores and the shape MDL
+	// could not previously express (#1077). Scoped to this flow build; labels
+	// are not stored in the model.
+	annotationsByLabel map[string]*microflows.Annotation
+	posX               int
+	posY               int
+	baseY              int // Base Y position (for returning after ELSE branches)
+	spacing            int
+	returnValue        string // Return value expression for RETURN statement (used by buildFlowGraph final EndEvent)
+	returnType         *ast.MicroflowReturnType
+	endsWithReturn     bool              // True if the flow already ends with EndEvent(s) from RETURN statements
+	lastReturnEndID    model.ID          // Last explicit RETURN EndEvent, used as a fallback error-handler target
+	varTypes           map[string]string // Variable name -> entity qualified name (for CHANGE statements)
 	// generatedVars holds the output-variable names minted for an unassigned
 	// CREATE. Kept apart from varTypes so a generated name is never referenceable
 	// from the script, while still reserving the name against a second create of
@@ -98,6 +105,14 @@ type flowBuilder struct {
 	errorHandlerTailIsSource bool
 	errorHandlerReturnValue  string
 	pendingErrorHandlers     []pendingErrorHandlerState
+	// labelReg holds the `merge <label>` table and the pending `join` edges.
+	// Shared with the error-handler sub-builder (same object collection) and
+	// deliberately NOT with a loop's sub-builder, whose LoopedActivity owns a
+	// collection a sequence flow may not leave. See builder_merge.go.
+	labelReg *labelRegistry
+	// pendingJoin is the `join` addStatement just saw, waiting for the enclosing
+	// body loop to say which activity the path had reached.
+	pendingJoin *ast.JoinStmt
 }
 
 type flowBuilderVariableState struct {

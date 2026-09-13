@@ -656,6 +656,9 @@ func RunLocal(opts LocalRunOptions) error {
 	var watcher *WebClientWatcher
 	if opts.Watch {
 		fmt.Fprintln(w, "Starting incremental web client bundler...")
+		// A nil watcher is not a failure: on Mendix 11.14+ mxbuild's serve build
+		// writes web/dist itself, so there is no bundler to keep hot. Every
+		// watcher method is nil-safe, so the watch loop needs no branch.
 		watcher, err = StartWebClientWatch(WebClientOptions{DeployDir: opts.DeployDir, MxBuildPath: mxbuildPath, Stdout: w})
 		if err != nil {
 			return fmt.Errorf("starting web client bundler: %w", err)
@@ -1169,12 +1172,25 @@ const sourceSettleWindow = 2
 // returns as soon as the source has been quiet for sourceSettleWindow polls, so
 // an ordinary single-file save costs one extra poll.
 func settleSource(projectPath string, seen time.Time, poll time.Duration, sigCh <-chan os.Signal) time.Time {
+	return settleSourceWith(projectPath, seen, sigCh, func() <-chan time.Time { return time.After(poll) })
+}
+
+// settleSourceWith is settleSource with the poll timer injected, so a test can
+// assert how many polls a quiet source costs rather than how long it took.
+//
+// The distinction is not cosmetic. `tick` is a LOWER bound — time.After
+// guarantees at least the duration and says nothing about the upper one — so a
+// test that bounds elapsed wall-clock as a multiple of it fails on a loaded CI
+// runner with no defect present, which is what this seam exists to stop.
+// Each call must return a freshly-armed channel: the window is "quiet for N
+// consecutive polls", so reusing one channel would collapse the wait.
+func settleSourceWith(projectPath string, seen time.Time, sigCh <-chan os.Signal, tick func() <-chan time.Time) time.Time {
 	quiet := 0
 	for {
 		select {
 		case <-sigCh:
 			return time.Time{}
-		case <-time.After(poll):
+		case <-tick():
 		}
 		now := sourceMTime(projectPath)
 		if now.After(seen) {
@@ -1265,6 +1281,11 @@ func watchAndApply(opts LocalRunOptions, serve *ServeServer, rt *LocalRuntime, w
 				if raw := strings.TrimSpace(string(build.Raw)); raw != "" && raw != build.Message {
 					fmt.Fprintf(opts.Stderr, "    %s\n", raw)
 				}
+				// One failure shape is not the user's model: on Mendix 11.14+ the
+				// first build in a serve process does not leave the deployment in a
+				// state its own incremental build can continue from, so every rebuild
+				// fails on paths inside deployment/ and reads as a corrupt deployment.
+				fmt.Fprint(opts.Stderr, legacyClientBuildHint(opts.DeployDir, build.Message, string(build.Raw)))
 				continue
 			}
 			// If the serve build touched web/ source, wait (briefly) for the

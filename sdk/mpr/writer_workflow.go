@@ -297,6 +297,10 @@ func serializeWorkflowActivity(act workflows.WorkflowActivity) bson.D {
 		return serializeStartWorkflow(a)
 	case *workflows.EndWorkflowActivity:
 		return serializeEndWorkflow(a)
+	case *workflows.EndOfParallelSplitPathActivity:
+		return serializeEndOfPath("Workflows$EndOfParallelSplitPathActivity", &a.BaseWorkflowActivity)
+	case *workflows.EndOfBoundaryEventPathActivity:
+		return serializeEndOfPath("Workflows$EndOfBoundaryEventPathActivity", &a.BaseWorkflowActivity)
 	case *workflows.WorkflowAnnotationActivity:
 		return serializeWorkflowAnnotationActivity(a)
 	default:
@@ -796,6 +800,21 @@ func serializeEndWorkflow(a *workflows.EndWorkflowActivity) bson.D {
 	)
 
 	return doc
+}
+
+// serializeEndOfPath writes the end-of-path marker Mendix stores as the last
+// activity of a parallel split path or a boundary event path. Same shape as
+// serializeEndWorkflow; only the $Type differs.
+func serializeEndOfPath(typeName string, a *workflows.BaseWorkflowActivity) bson.D {
+	doc := bson.D{
+		{Key: "$ID", Value: idToBsonBinary(activityID(a))},
+		{Key: "$Type", Value: typeName},
+	}
+	doc = appendActivityBaseFields(doc, a.Annotation)
+	return append(doc,
+		bson.E{Key: "Caption", Value: a.Caption},
+		bson.E{Key: "Name", Value: a.Name},
+	)
 }
 
 func serializeWorkflowAnnotationActivity(a *workflows.WorkflowAnnotationActivity) bson.D {

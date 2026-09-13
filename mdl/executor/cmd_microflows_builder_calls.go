@@ -77,9 +77,12 @@ func (fb *flowBuilder) addLogMessageAction(s *ast.LogStmt) model.ID {
 		logNodeName = fb.exprToString(s.Node)
 	}
 
+	activityX := fb.posX
+
 	action := &microflows.LogMessageAction{
-		BaseElement:       model.BaseElement{ID: model.ID(types.GenerateID())},
-		ErrorHandlingType: fb.ehType(nil),
+		BaseElement: model.BaseElement{ID: model.ID(types.GenerateID())},
+		// fb.ehType, not explicitErrorHandling — see ehType's doc comment.
+		ErrorHandlingType: fb.ehType(s.ErrorHandling),
 		LogLevel:          logLevel,
 		LogNodeName:       logNodeName,
 		MessageTemplate: &model.Text{
@@ -99,12 +102,16 @@ func (fb *flowBuilder) addLogMessageAction(s *ast.LogStmt) model.ID {
 				Size:        model.Size{Width: ActivityWidth, Height: ActivityHeight},
 			},
 			AutoGenerateCaption: true,
+			ErrorHandlingType:   fb.ehType(s.ErrorHandling),
 		},
 		Action: action,
 	}
 
 	fb.objects = append(fb.objects, activity)
 	fb.posX += fb.spacing
+
+	fb.finishCustomErrorHandler(activity.ID, activityX, s.ErrorHandling, "")
+
 	return activity.ID
 }
 
@@ -537,13 +544,49 @@ func isEmptyJavaActionArgument(expr ast.Expression) bool {
 // addCallWebServiceAction creates a legacy SOAP WebServiceCallAction.
 func (fb *flowBuilder) addCallWebServiceAction(s *ast.CallWebServiceStmt) model.ID {
 	activityX := fb.posX
+	// The same function `mxcli check` runs, so the two cannot drift on what a
+	// valid request body is (MDL-SOAP01).
+	if err := checkWebServiceRequestBodyStmt(s); err != nil {
+		fb.addError("%v", err)
+	}
 	action := &microflows.WebServiceCallAction{
 		BaseElement:       model.BaseElement{ID: model.ID(types.GenerateID())},
 		ErrorHandlingType: convertErrorHandlingType(s.ErrorHandling),
 		ServiceID:         model.ID(s.ServiceID),
-		OperationName:     s.OperationName,
-		SendMappingID:     model.ID(fb.resolveMappingRefForWrite(s.SendMappingID, true)),
-		ReceiveMappingID:  model.ID(fb.resolveMappingRefForWrite(s.ReceiveMappingID, false)),
+		// The WSDL service name, read off the imported service document. Empty
+		// when it cannot be established (a dangling reference, a backend that
+		// cannot list raw units), and the writers then derive it as before.
+		ServiceName:   resolveWebServiceName(fb.backend, s.ServiceID, s.OperationName),
+		OperationName: s.OperationName,
+		// The QUALIFIED NAME, verbatim.
+		//
+		// Both are BY_NAME_REFERENCEs: the stored ImportMappingCall's
+		// ReturnValueMapping is an ImportMappingIdentifier, and Studio Pro
+		// writes "Clients.SoapOrdersImportMapping" there. These used to be
+		// resolved to the mapping's unit `$ID`, which does not merely fail
+		// validation — it makes the project impossible to LOAD. Measured on
+		// 11.14.0 against ako/TestApp (baseline 0 errors): one
+		// `receive mapping Clients.SoapOrdersImportMapping` written by mxcli
+		// and `mx check` stops before validation with
+		// StorageLoadException, "The text 'c2d1682f-…' is not a valid
+		// ImportMappingIdentifier."
+		//
+		// Why it survived is worth more than the fix: the substitution only
+		// happened when the lookup SUCCEEDED, and the only SOAP fixture
+		// (06b-soap-examples.mdl) names mappings that do not exist, on
+		// purpose, to show dangling refs. It took the fallback every time and
+		// passed. The gate was green BECAUSE the fixture was broken — a valid
+		// reference was the one input that triggered the defect, and nothing
+		// tested one.
+		SendMappingID: model.ID(s.SendMappingID),
+		// The variable the export mapping maps FROM. Mendix stores it as
+		// MappingRequestHandling.MappingVariableName, and a send mapping without
+		// one cannot be written — refused above rather than written incomplete.
+		SendMappingVariable: s.SendMappingVariable,
+		ReceiveMappingID:    model.ID(s.ReceiveMappingID),
+		// The entity the receive mapping produces, which types the result
+		// variable. Empty when unresolvable, and the writers keep VoidType.
+		ResultEntity:      resolveImportMappingEntity(fb.backend, s.ReceiveMappingID),
 		OutputVariable:    s.OutputVariable,
 		UseReturnVariable: s.OutputVariable != "",
 	}
@@ -558,6 +601,7 @@ func (fb *flowBuilder) addCallWebServiceAction(s *ast.CallWebServiceStmt) model.
 	if s.Timeout != nil {
 		action.TimeoutExpression = fb.exprToString(s.Timeout)
 	}
+	action.Arguments = fb.webServiceArguments(s)
 
 	activity := &microflows.ActionActivity{
 		BaseActivity: microflows.BaseActivity{
@@ -588,30 +632,56 @@ func (fb *flowBuilder) addCallWebServiceAction(s *ast.CallWebServiceStmt) model.
 	return activity.ID
 }
 
-func (fb *flowBuilder) resolveMappingRefForWrite(ref string, preferExport bool) string {
-	if ref == "" || !strings.Contains(ref, ".") || fb.backend == nil {
-		return ref
+// webServiceArguments binds the statement's arguments to the stored
+// ParameterPath each one needs.
+//
+// The path is derived from the OPERATION document rather than written by the
+// author: Mendix stores
+// `http%3A//www.example.com/:GetOrder|OrderId` where MDL says `OrderId`, and
+// putting that in a script would fail every readability test the language is
+// held to. The same move `send rest request` already makes — it stores each
+// parameter under a qualified key and shows only the last segment.
+//
+// A path that cannot be derived is an ERROR, not a fallback. The other
+// resolvers in this file fall back because their alternative is the value that
+// ships today; there is no shipping value for a path that has never been
+// written, and a fabricated one reproduces CE0178 with different text in it.
+func (fb *flowBuilder) webServiceArguments(s *ast.CallWebServiceStmt) []microflows.WebServiceArgument {
+	if len(s.Arguments) == 0 {
+		return nil
 	}
-	moduleName, name, ok := strings.Cut(ref, ".")
-	if !ok || moduleName == "" || name == "" {
-		return ref
+	element := resolveWebServiceOperationElement(fb.backend, s.ServiceID, s.OperationName)
+	if element == "" {
+		fb.addError("call web service %s: cannot resolve operation %s in the imported "+
+			"service document, so the arguments have no parameter path to bind to.\n"+
+			"  Arguments need the consumed service to be present and to declare the "+
+			"operation — check the name against `describe microflow` on an existing call, "+
+			"or drop the argument list",
+			s.ServiceID, s.OperationName)
+		return nil
 	}
-	if preferExport {
-		if mapping, err := fb.backend.GetExportMappingByQualifiedName(moduleName, name); err == nil && mapping != nil {
-			return string(mapping.ID)
+
+	out := make([]microflows.WebServiceArgument, 0, len(s.Arguments))
+	for _, arg := range s.Arguments {
+		path := webServiceParameterPath(element, arg.Name)
+		if path == "" {
+			fb.addError("call web service %s: cannot build the parameter path for %q "+
+				"from operation element %q — a name containing '%%' is refused because "+
+				"Mendix's escaping of it is unverified",
+				s.ServiceID, arg.Name, element)
+			return nil
 		}
-		if mapping, err := fb.backend.GetImportMappingByQualifiedName(moduleName, name); err == nil && mapping != nil {
-			return string(mapping.ID)
-		}
-	} else {
-		if mapping, err := fb.backend.GetImportMappingByQualifiedName(moduleName, name); err == nil && mapping != nil {
-			return string(mapping.ID)
-		}
-		if mapping, err := fb.backend.GetExportMappingByQualifiedName(moduleName, name); err == nil && mapping != nil {
-			return string(mapping.ID)
-		}
+		out = append(out, microflows.WebServiceArgument{
+			Name:       arg.Name,
+			Path:       path,
+			Expression: fb.exprToString(arg.Value),
+			// Both reference mappings carry true, and Studio Pro's checkbox is
+			// ticked for a parameter that is bound at all — which an argument is,
+			// by being written.
+			Checked: true,
+		})
 	}
-	return ref
+	return out
 }
 
 // resolveExternalActionReturnKind looks up the called OData action in the
@@ -945,9 +1015,12 @@ func (fb *flowBuilder) addShowPageAction(s *ast.ShowPageStmt) model.ID {
 	// Create the action
 	// Use PageName (BY_NAME_REFERENCE) instead of PageID (BY_ID_REFERENCE)
 	// The modern Mendix format uses FormSettings.Form as a qualified name string
+	activityX := fb.posX
+
 	action := &microflows.ShowPageAction{
-		BaseElement:           model.BaseElement{ID: model.ID(types.GenerateID())},
-		ErrorHandlingType:     fb.ehType(nil),
+		BaseElement: model.BaseElement{ID: model.ID(types.GenerateID())},
+		// fb.ehType, not explicitErrorHandling — see ehType's doc comment.
+		ErrorHandlingType:     fb.ehType(s.ErrorHandling),
 		PageName:              pageQN, // BY_NAME_REFERENCE - qualified name string
 		PageSettings:          pageSettings,
 		PageParameterMappings: mappings,
@@ -977,12 +1050,16 @@ func (fb *flowBuilder) addShowPageAction(s *ast.ShowPageStmt) model.ID {
 				Size:        model.Size{Width: ActivityWidth, Height: ActivityHeight},
 			},
 			AutoGenerateCaption: true,
+			ErrorHandlingType:   fb.ehType(s.ErrorHandling),
 		},
 		Action: action,
 	}
 
 	fb.objects = append(fb.objects, activity)
 	fb.posX += fb.spacing
+
+	fb.finishCustomErrorHandler(activity.ID, activityX, s.ErrorHandling, "")
+
 	return activity.ID
 }
 
@@ -1039,12 +1116,16 @@ func (fb *flowBuilder) addShowMessageAction(s *ast.ShowMessageStmt) model.ID {
 		msgType = microflows.MessageTypeInformation
 	}
 
+	activityX := fb.posX
+
 	action := &microflows.ShowMessageAction{
-		BaseElement:        model.BaseElement{ID: model.ID(types.GenerateID())},
-		ErrorHandlingType:  fb.ehType(nil),
+		BaseElement: model.BaseElement{ID: model.ID(types.GenerateID())},
+		// fb.ehType, not explicitErrorHandling — see ehType's doc comment.
+		ErrorHandlingType:  fb.ehType(s.ErrorHandling),
 		Template:           template,
 		Type:               msgType,
 		TemplateParameters: templateParams,
+		Blocking:           s.Blocking,
 	}
 
 	activity := &microflows.ActionActivity{
@@ -1055,12 +1136,16 @@ func (fb *flowBuilder) addShowMessageAction(s *ast.ShowMessageStmt) model.ID {
 				Size:        model.Size{Width: ActivityWidth, Height: ActivityHeight},
 			},
 			AutoGenerateCaption: true,
+			ErrorHandlingType:   fb.ehType(s.ErrorHandling),
 		},
 		Action: action,
 	}
 
 	fb.objects = append(fb.objects, activity)
 	fb.posX += fb.spacing
+
+	fb.finishCustomErrorHandler(activity.ID, activityX, s.ErrorHandling, "")
+
 	return activity.ID
 }
 
@@ -1138,9 +1223,12 @@ func (fb *flowBuilder) addClosePageAction(s *ast.ClosePageStmt) model.ID {
 		numPages = 1
 	}
 
+	activityX := fb.posX
+
 	action := &microflows.ClosePageAction{
-		BaseElement:       model.BaseElement{ID: model.ID(types.GenerateID())},
-		ErrorHandlingType: fb.ehType(nil),
+		BaseElement: model.BaseElement{ID: model.ID(types.GenerateID())},
+		// fb.ehType, not explicitErrorHandling — see ehType's doc comment.
+		ErrorHandlingType: fb.ehType(s.ErrorHandling),
 		NumberOfPages:     numPages,
 	}
 
@@ -1152,12 +1240,16 @@ func (fb *flowBuilder) addClosePageAction(s *ast.ClosePageStmt) model.ID {
 				Size:        model.Size{Width: ActivityWidth, Height: ActivityHeight},
 			},
 			AutoGenerateCaption: true,
+			ErrorHandlingType:   fb.ehType(s.ErrorHandling),
 		},
 		Action: action,
 	}
 
 	fb.objects = append(fb.objects, activity)
 	fb.posX += fb.spacing
+
+	fb.finishCustomErrorHandler(activity.ID, activityX, s.ErrorHandling, "")
+
 	return activity.ID
 }
 
@@ -1254,9 +1346,12 @@ func (fb *flowBuilder) addValidationFeedbackAction(s *ast.ValidationFeedbackStmt
 		varName = varName[1:]
 	}
 
+	activityX := fb.posX
+
 	action := &microflows.ValidationFeedbackAction{
-		BaseElement:        model.BaseElement{ID: model.ID(types.GenerateID())},
-		ErrorHandlingType:  fb.ehType(nil),
+		BaseElement: model.BaseElement{ID: model.ID(types.GenerateID())},
+		// fb.ehType, not explicitErrorHandling — see ehType's doc comment.
+		ErrorHandlingType:  fb.ehType(s.ErrorHandling),
 		ObjectVariable:     varName,
 		AttributeName:      attributeName,
 		AssociationName:    associationName,
@@ -1272,12 +1367,16 @@ func (fb *flowBuilder) addValidationFeedbackAction(s *ast.ValidationFeedbackStmt
 				Size:        model.Size{Width: ActivityWidth, Height: ActivityHeight},
 			},
 			AutoGenerateCaption: true,
+			ErrorHandlingType:   fb.ehType(s.ErrorHandling),
 		},
 		Action: action,
 	}
 
 	fb.objects = append(fb.objects, activity)
 	fb.posX += fb.spacing
+
+	fb.finishCustomErrorHandler(activity.ID, activityX, s.ErrorHandling, "")
+
 	return activity.ID
 }
 

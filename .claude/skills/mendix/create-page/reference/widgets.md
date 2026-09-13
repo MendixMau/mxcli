@@ -103,6 +103,7 @@ describe icon collection Atlas_Core.Atlas_Filled   -- every icon + its reference
 ```
 
 **Action Bindings:**
+- `action: nothing` - Deliberately no action (a decorative button, a card that is not clickable)
 - `action: save_changes` - Save changes to object
 - `action: save_changes close_page` - Save and close page
 - `action: cancel_changes` - Cancel changes
@@ -112,6 +113,11 @@ describe icon collection Atlas_Core.Atlas_Filled   -- every icon + its reference
 - `action: microflow Module.MicroflowName(Param: $value)` - Call microflow with parameters
 - `action: nanoflow Module.NanoflowName` - Call nanoflow (client-side)
 - `action: nanoflow Module.NanoflowName(Param: $value)` - Call nanoflow with parameters
+- `action: nanoflow Module.NanoflowName($Param = $value)` - Also accepted (microflow-style)
+- **Every parameter needs an argument, or an enclosing data container of its
+  type.** A flow called with a parameter nothing fills is **CE1571**; `mxcli
+  check -p` reports it. This is the same on every widget that takes an action,
+  a clickable `container` included.
 - `action: show_page Module.PageName` - Navigate to page
 - `action: show_page Module.PageName(Param: $value)` - Navigate with parameters
 - `action: show_page Module.PageName($Param = $value)` - Also accepted (microflow-style)
@@ -123,6 +129,16 @@ describe icon collection Atlas_Core.Atlas_Filled   -- every icon + its reference
   variable is refused as **MDL-PAGEARG01** — it used to be accepted and silently
   opened the page with the context object anyway. To open a page with something
   else, call a microflow that shows it.
+- **The list above is the whole vocabulary, and a keyword without its argument is
+  not in it.** `action: open_link` with no URL, `action: show_page` with no page,
+  `action: microflow` with no name — each is **MDL-WIDGET28**. Until
+  mendixlabs/mxcli#1062 these were written as a widget with *no action at all*:
+  it rendered, carried its caption, and did nothing, while `mxcli check`, `exec`
+  and mxbuild all reported success, because a no-action widget is legal Mendix.
+  An invented keyword (`action: totally_made_up`) did the same. Use
+  `action: nothing` when a control really is meant to be inert, so a dead one
+  always means a mistake.
+- The same forms serve `onclick:` (an alias of `action:`) and `onchange:`.
 
 **Button Styles:** `default`, `primary`, `success`, `info`, `warning`, `danger`, `inverse`
 - Case-insensitive (`primary` and `Primary` both work).
@@ -340,8 +356,9 @@ column colActions (caption: 'Actions') {
 |--------|-------------|
 | `datasource: database from Module.Entity` | Direct database query |
 | `datasource: $Variable` | Variable bound (requires DATAVIEW parent with entity) |
-| `datasource: microflow Module.GetData` | Microflow datasource — no `()`, the name alone |
-| `datasource: nanoflow Module.GetData` | Nanoflow datasource (client-side, no server roundtrip) — no `()` |
+| `datasource: microflow Module.GetData` | Microflow datasource with **no parameters** — the name alone |
+| `datasource: microflow Module.GetData($Param)` | Microflow datasource **with** parameters — one argument per parameter, required. Mendix does not auto-map an object in scope, so leaving it out is **CE1571** |
+| `datasource: nanoflow Module.GetData` | Nanoflow datasource (client-side, no server roundtrip) — same rule: the name alone only when it takes no parameters |
 | `datasource: selection widgetName` | Listen to selection from another widget |
 | `datasource: association path` | Retrieve by association from context (ByAssociation) |
 | `datasource: $currentObject/Module.Assoc` | Sugar for `association` — same semantics, reads more naturally |
@@ -846,6 +863,42 @@ controlbar controlBar1 {
   actionbutton btnNew (caption: 'New', action: create_object Module.Entity then show_page Module.EditPage, buttonstyle: primary)
 }
 ```
+
+**A control bar is not row-scoped.** It sits above the rows, so the grid's
+current object is not in scope there — an action calling a flow with a parameter
+gets **CE1571** unless you give it an argument, and `$currentObject` is unbound
+(`mxcli check` reports MDL-BUTTON01). The remedy is the grid's **selection**,
+addressed by the widget's own name and available once `selection:` is set:
+
+```sql
+datagrid dgMaterials (
+  datasource: database from Module.Material,
+  selection: single
+) {
+  column colName (attribute: Name, caption: 'Name')
+
+  -- Row-scoped: the grid's row supplies the parameter, no argument needed.
+  column colRow (caption: 'Row') {
+    container cRowUnlink (action: nanoflow Module.ACT_UnLink, class: 'command') {
+      actionbutton btnRowUnlink (caption: 'Unlink')
+    }
+  }
+
+  controlbar controlBar1 {
+    -- Not row-scoped: pass the selection explicitly.
+    container cUnlink (
+      class: 'command',
+      action: nanoflow Module.ACT_UnLink ($Material = $dgMaterials)
+    ) {
+      actionbutton btnUnlink (caption: 'Unlink')
+    }
+  }
+}
+```
+
+A **container** takes an argument list exactly like an `actionbutton` does — the
+two share one action grammar. Reaching for a button because a container "cannot
+pass parameters" changes the rendering for no reason (mendixlabs/mxcli#1082).
 
 ### Charts (Charts.mpk — ColumnChart / BarChart / AreaChart / PieChart)
 

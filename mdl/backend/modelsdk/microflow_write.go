@@ -205,7 +205,9 @@ func microflowToGen(mf *microflows.Microflow, major int) *genMf.Microflow {
 	out.SetExcluded(mf.Excluded)
 	out.SetExportLevel("Hidden")
 	out.SetAllowConcurrentExecution(mf.AllowConcurrentExecution)
-	out.SetApplyEntityAccess(false)
+	// Carried, not hardcoded. This was `false` unconditionally, which silently
+	// turned a microflow's "apply entity access" OFF on every rewrite.
+	out.SetApplyEntityAccess(mf.ApplyEntityAccess)
 	out.SetMarkAsUsed(mf.MarkAsUsed)
 	out.SetConcurrencyErrorMicroflowQualifiedName("")
 	out.SetConcurrencyErrorMessage(genTexts.NewText()) // empty Texts$Text (Items=[3] via default)
@@ -852,6 +854,12 @@ func microflowActionToGen(action microflows.MicroflowAction) element.Element {
 		// "call external action" — Microflows$CallExternalAction. Without this
 		// the activity serialized with no action → CE0008 "No action defined".
 		return callExternalActionToGen(a)
+	case *microflows.WebServiceCallAction:
+		// "call web service" (legacy SOAP) — Microflows$CallWebServiceAction.
+		// Same CE0008 shape as the two cases above, and the reason the legacy
+		// engine was still the documented fallback for SOAP. See
+		// microflow_webservice_write.go.
+		return webServiceCallActionToGen(a)
 	default:
 		return nil // not yet supported (added in later groups)
 	}

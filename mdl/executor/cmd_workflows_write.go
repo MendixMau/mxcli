@@ -264,6 +264,11 @@ func buildBoundaryEvents(nodes []ast.WorkflowBoundaryEventNode) []*workflows.Bou
 			}
 			event.Flow.ID = model.ID(generateWorkflowUUID())
 		}
+		// A boundary path must end in a jump, an end or Mendix's end-of-path
+		// marker: interrupting is CE0105 without it, and non-interrupting builds
+		// cleanly and then stops the runtime from starting at all — see
+		// workflows.EndBoundaryEventPath.
+		event.Flow = workflows.EndBoundaryEventPath(event.Flow, newWorkflowID)
 		events = append(events, event)
 	}
 	return events
@@ -507,6 +512,10 @@ func buildConditionOutcome(n ast.WorkflowConditionOutcomeNode) workflows.Conditi
 	}
 }
 
+// newWorkflowID adapts generateWorkflowUUID to the id factory the workflows
+// package takes.
+func newWorkflowID() model.ID { return model.ID(generateWorkflowUUID()) }
+
 func buildParallelSplit(n *ast.WorkflowParallelSplitNode) *workflows.ParallelSplitActivity {
 	act := &workflows.ParallelSplitActivity{}
 	act.ID = model.ID(generateWorkflowUUID())
@@ -528,6 +537,9 @@ func buildParallelSplit(n *ast.WorkflowParallelSplitNode) *workflows.ParallelSpl
 			}
 			outcome.Flow.ID = model.ID(generateWorkflowUUID())
 		}
+		// Every path ends with Mendix's end-of-path marker, or the engine skips
+		// its contents at runtime — see workflows.EndParallelSplitPath.
+		outcome.Flow = workflows.EndParallelSplitPath(outcome.Flow, newWorkflowID)
 		act.Outcomes = append(act.Outcomes, outcome)
 	}
 
@@ -640,7 +652,11 @@ func deduplicateActivityNamesInFlow(activities []workflows.WorkflowActivity, nam
 		case *workflows.UserTask, *workflows.CallMicroflowTask, *workflows.CallWorkflowActivity,
 			*workflows.ExclusiveSplitActivity, *workflows.ParallelSplitActivity,
 			*workflows.WaitForTimerActivity, *workflows.WaitForNotificationActivity,
-			*workflows.EndWorkflowActivity:
+			*workflows.EndWorkflowActivity,
+			// The end-of-path markers carry names too, and Mendix holds them to the
+			// same uniqueness rule: every path of every split used to be written as
+			// "EndOfParallelSplitPath", which mxbuild refuses as CE0495.
+			*workflows.EndOfParallelSplitPathActivity, *workflows.EndOfBoundaryEventPathActivity:
 			if !jumpPass {
 				act.SetName(uniqueName(act.GetName(), nameCount))
 			}

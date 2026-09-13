@@ -1270,76 +1270,64 @@ func TestGetActionErrorHandlingType_JavaScriptActionCallAction(t *testing.T) {
 	}
 }
 
-func TestFormatAction_WebServiceCallResolvesKnownReferences(t *testing.T) {
-	moduleID := mkID("soap-module")
-	serviceID := mkID("soap-service")
-	sendMappingID := mkID("soap-send")
-	receiveMappingID := mkID("soap-receive")
-	serviceContents, err := bson.Marshal(bson.M{"Name": "OrderService"})
-	if err != nil {
-		t.Fatal(err)
-	}
-
+// TestFormatAction_WebServiceCallRendersStoredQualifiedNames pins that DESCRIBE
+// prints the three names a SOAP call stores, verbatim, and consults nothing.
+//
+// All three are BY_NAME_REFERENCE properties — qualified-name strings, never
+// element ids. Measured on ako/TestApp (11.14.0), Clients.GetOrders stores
+// ImportedService "Clients.OrderSoapClient" and ReturnValueMapping
+// "Clients.SoapOrdersImportMapping"; modelsdk/gen agrees, registering
+// ImportedWebService and ImportMappingCall.Mapping as codec.RefByName.
+//
+// Three resolvers used to sit here turning those strings into qualified names
+// by looking each one up in the project. They could not match on two counts at
+// once — the id compared was already a qualified name, and the unit type asked
+// for ("WebServices$ImportedWebService") is stored as
+// "WebServices$ImportedServiceImpl" — so every call fell through to its
+// fallback, which returned the stored string. The right answer, by accident.
+//
+// The backend below fails the test if it is asked anything: a lookup returning
+// the correct value is indistinguishable from no lookup at all in the output,
+// which is precisely how this survived.
+func TestFormatAction_WebServiceCallRendersStoredQualifiedNames(t *testing.T) {
 	backend := &mock.MockBackend{
 		IsConnectedFunc: func() bool { return true },
 		ListRawUnitsByTypeFunc: func(typePrefix string) ([]*mdltypes.RawUnit, error) {
-			if typePrefix != "WebServices$ImportedWebService" {
-				t.Fatalf("unexpected type prefix %q", typePrefix)
-			}
-			return []*mdltypes.RawUnit{{
-				ID:          serviceID,
-				ContainerID: moduleID,
-				Type:        "WebServices$ImportedWebService",
-				Contents:    serviceContents,
-			}}, nil
+			t.Fatalf("DESCRIBE consulted the project for %q; the stored names are already qualified", typePrefix)
+			return nil, nil
 		},
 		ListExportMappingsFunc: func() ([]*model.ExportMapping, error) {
-			return []*model.ExportMapping{{
-				BaseElement: model.BaseElement{ID: sendMappingID},
-				ContainerID: moduleID,
-				Name:        "OrderRequest",
-			}}, nil
+			t.Fatal("DESCRIBE listed export mappings; the send mapping is stored by qualified name")
+			return nil, nil
 		},
 		ListImportMappingsFunc: func() ([]*model.ImportMapping, error) {
-			return []*model.ImportMapping{{
-				BaseElement: model.BaseElement{ID: receiveMappingID},
-				ContainerID: moduleID,
-				Name:        "OrderResponse",
-			}}, nil
+			t.Fatal("DESCRIBE listed import mappings; the receive mapping is stored by qualified name")
+			return nil, nil
 		},
 	}
-	h := mkHierarchy(&model.Module{BaseElement: model.BaseElement{ID: moduleID}, Name: "SyntheticSOAP"})
-	ctx, _ := newMockCtx(t, withBackend(backend), withHierarchy(h))
+	ctx, _ := newMockCtx(t, withBackend(backend), withHierarchy(mkHierarchy()))
 
 	action := &microflows.WebServiceCallAction{
-		ServiceID:         serviceID,
-		OperationName:     "FetchOrders",
-		SendMappingID:     sendMappingID,
-		ReceiveMappingID:  receiveMappingID,
-		OutputVariable:    "Root",
+		ServiceID:         "Clients.OrderSoapClient",
+		OperationName:     "GetOrder",
+		SendMappingID:     "Clients.SoapOrderExportMapping",
+		ReceiveMappingID:  "Clients.SoapOrdersImportMapping",
+		OutputVariable:    "Orders",
 		UseReturnVariable: true,
 	}
 	got := formatAction(ctx, action, nil, nil)
-	want := "$Root = call web service SyntheticSOAP.OrderService\noperation FetchOrders\nsend mapping SyntheticSOAP.OrderRequest\nreceive mapping SyntheticSOAP.OrderResponse;"
+	want := "$Orders = call web service Clients.OrderSoapClient\noperation GetOrder\n" +
+		"send mapping Clients.SoapOrderExportMapping\nreceive mapping Clients.SoapOrdersImportMapping;"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
 
-func TestFormatAction_WebServiceCallKeepsRawReferencesWhenUnknown(t *testing.T) {
-	backend := &mock.MockBackend{
-		IsConnectedFunc: func() bool { return true },
-		ListRawUnitsByTypeFunc: func(typePrefix string) ([]*mdltypes.RawUnit, error) {
-			return nil, nil
-		},
-		ListExportMappingsFunc: func() ([]*model.ExportMapping, error) {
-			return nil, nil
-		},
-		ListImportMappingsFunc: func() ([]*model.ImportMapping, error) {
-			return nil, nil
-		},
-	}
-	ctx, _ := newMockCtx(t, withBackend(backend), withHierarchy(mkHierarchy()))
+// TestFormatAction_WebServiceCallQuotesNamesThatAreNotIdentifiers — a dangling
+// or malformed reference is still printed, quoted so the line parses back.
+func TestFormatAction_WebServiceCallQuotesNamesThatAreNotIdentifiers(t *testing.T) {
+	ctx, _ := newMockCtx(t, withBackend(&mock.MockBackend{IsConnectedFunc: func() bool { return true }}),
+		withHierarchy(mkHierarchy()))
 
 	action := &microflows.WebServiceCallAction{
 		ServiceID:        "dangling-service-id",
@@ -1370,5 +1358,91 @@ func TestFormatAction_WebServiceCallRaw(t *testing.T) {
 	}, nil, nil)
 	if !strings.HasPrefix(got, "$Root = call web service raw '") {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// TestFormatAction_WebServiceCallArgumentsAndSendMapping — DESCRIBE renders both
+// request-body forms, and renders them so they parse back.
+//
+// The argument list shows only the parameter NAME; the stored ParameterPath
+// ("http%3A//www.example.com/:GetOrder|OrderId") is rebuilt from the operation
+// document on the way back in. Putting the path in the script would fail every
+// readability test the language is held to — and `send rest request` already
+// makes the same move, showing `code` where the model holds Mod.Svc.Op.code.
+func TestFormatAction_WebServiceCallArgumentsAndSendMapping(t *testing.T) {
+	ctx, _ := newMockCtx(t, withBackend(&mock.MockBackend{IsConnectedFunc: func() bool { return true }}),
+		withHierarchy(mkHierarchy()))
+
+	args := formatAction(ctx, &microflows.WebServiceCallAction{
+		ServiceID:     "Clients.OrderSoapClient",
+		OperationName: "GetOrder",
+		Arguments: []microflows.WebServiceArgument{
+			{Name: "OrderId", Path: "http%3A//www.example.com/:GetOrder|OrderId", Expression: "$Customer/OrderId", Checked: true},
+			{Name: "Verbose", Path: "http%3A//www.example.com/:GetOrder|Verbose", Expression: "true", Checked: true},
+		},
+		ReceiveMappingID: "Clients.SoapOrdersImportMapping",
+		OutputVariable:   "Orders",
+	}, nil, nil)
+	want := "$Orders = call web service Clients.OrderSoapClient\n" +
+		"operation GetOrder (OrderId = $Customer/OrderId, Verbose = true)\n" +
+		"receive mapping Clients.SoapOrdersImportMapping;"
+	if args != want {
+		t.Errorf("arguments form:\n got %q\nwant %q", args, want)
+	}
+
+	send := formatAction(ctx, &microflows.WebServiceCallAction{
+		ServiceID:           "Clients.OrderSoapClient",
+		OperationName:       "SaveOrder",
+		SendMappingID:       "Clients.SoapOrderExportMapping",
+		SendMappingVariable: "NewSaveOrder",
+	}, nil, nil)
+	wantSend := "call web service Clients.OrderSoapClient\n" +
+		"operation SaveOrder\n" +
+		"send mapping Clients.SoapOrderExportMapping from $NewSaveOrder;"
+	if send != wantSend {
+		t.Errorf("send mapping form:\n got %q\nwant %q", send, wantSend)
+	}
+}
+
+// TestFormatAction_WebServiceCallArgumentWithoutAName renders no argument list
+// at all rather than a partial one.
+//
+// A ParameterPath with no "|" yields no name on the way in — a shape no
+// reference document carries — and emitting `operation X ( = expr)` would write
+// a DIFFERENT path back. The action keeps the raw fallback instead, which is
+// decided by the reader; this is the belt to that braces.
+func TestFormatAction_WebServiceCallArgumentWithoutAName(t *testing.T) {
+	ctx, _ := newMockCtx(t, withBackend(&mock.MockBackend{IsConnectedFunc: func() bool { return true }}),
+		withHierarchy(mkHierarchy()))
+
+	got := formatAction(ctx, &microflows.WebServiceCallAction{
+		ServiceID:     "M.S",
+		OperationName: "Op",
+		Arguments:     []microflows.WebServiceArgument{{Path: "no-separator", Expression: "1"}},
+	}, nil, nil)
+	if strings.Contains(got, "(") {
+		t.Errorf("emitted a partial argument list: %q", got)
+	}
+}
+
+// TestFormatAction_ShowMessageBlocking — DESCRIBE has to emit `blocking`, or the
+// round trip turns a blocking message box into a non-blocking one.
+//
+// The model carried Blocking on both engines all along; the loss was here, in
+// the one layer that had no word for it.
+func TestFormatAction_ShowMessageBlocking(t *testing.T) {
+	e := newTestExecutor()
+	msg := func(blocking bool) *microflows.ShowMessageAction {
+		return &microflows.ShowMessageAction{
+			Type:     microflows.MessageTypeInformation,
+			Blocking: blocking,
+			Template: &model.Text{Translations: map[string]string{"en_US": "Saved."}},
+		}
+	}
+	if got := e.formatAction(msg(true), nil, nil); got != "show message 'Saved.' type Information blocking;" {
+		t.Errorf("blocking message = %q", got)
+	}
+	if got := e.formatAction(msg(false), nil, nil); got != "show message 'Saved.' type Information;" {
+		t.Errorf("non-blocking message = %q", got)
 	}
 }

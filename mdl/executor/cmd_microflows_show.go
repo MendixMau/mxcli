@@ -246,6 +246,13 @@ func describeMicroflow(ctx *ExecContext, name ast.QualifiedName) error {
 	if targetMf.Excluded {
 		lines = append(lines, "@excluded")
 	}
+	// A SECURITY setting, and only ever narrowing: DESCRIBE has to emit it or
+	// a describe -> rename -> exec copy silently runs with full access. An
+	// absent annotation preserves the stored value on a REWRITE, but a copy
+	// has nothing to preserve from.
+	if targetMf.ApplyEntityAccess {
+		lines = append(lines, "@applyentityaccess")
+	}
 
 	// CREATE MICROFLOW header
 	qualifiedName := name.Module + "." + name.Name
@@ -588,6 +595,13 @@ func renderMicroflowMDL(
 	if mf.Excluded {
 		lines = append(lines, "@excluded")
 	}
+	// A SECURITY setting, and only ever narrowing: DESCRIBE has to emit it or
+	// a describe -> rename -> exec copy silently runs with full access. An
+	// absent annotation preserves the stored value on a REWRITE, but a copy
+	// has nothing to preserve from.
+	if mf.ApplyEntityAccess && flowType == "microflow" {
+		lines = append(lines, "@applyentityaccess")
+	}
 
 	qualifiedName := name.Module + "." + name.Name
 	if len(mf.Parameters) > 0 {
@@ -772,7 +786,7 @@ func formatMicroflowActivities(
 	// flowsByOrigin / flowsByDest are threaded into traverseFlow so @anchor
 	// emission is per-call — no package-level globals, safe under concurrent
 	// describe (e.g. captureDescribeParallel).
-	traverseFlow(ctx, startID, activityMap, flowsByOrigin, flowsByDest, splitMergeMap, visited, entityNames, microflowNames, &lines, 0, nil, 0, annotationsByTarget)
+	traverseFlow(ctx, startID, activityMap, flowsByOrigin, flowsByDest, splitMergeMap, visited, entityNames, microflowNames, &lines, 0, nil, 0, annotationsByTarget, labelRejoinMerges(mf.ObjectCollection))
 
 	return lines
 }
@@ -1002,7 +1016,7 @@ func formatMicroflowActivitiesWithSourceMap(
 
 	lines = append(lines, startAnnotationLines(mf.ObjectCollection)...)
 
-	traverseFlow(ctx, startID, activityMap, flowsByOrigin, flowsByDest, splitMergeMap, visited, entityNames, microflowNames, &lines, 0, sourceMap, headerLineCount, annotationsByTarget)
+	traverseFlow(ctx, startID, activityMap, flowsByOrigin, flowsByDest, splitMergeMap, visited, entityNames, microflowNames, &lines, 0, sourceMap, headerLineCount, annotationsByTarget, labelRejoinMerges(mf.ObjectCollection))
 
 	return lines
 }
@@ -1509,6 +1523,13 @@ func describeRule(ctx *ExecContext, name ast.QualifiedName) error {
 	}
 	if target.Excluded {
 		lines = append(lines, "@excluded")
+	}
+	// A SECURITY setting, and only ever narrowing: DESCRIBE has to emit it or
+	// a describe -> rename -> exec copy silently runs with full access. An
+	// absent annotation preserves the stored value on a REWRITE, but a copy
+	// has nothing to preserve from.
+	if target.ApplyEntityAccess {
+		lines = append(lines, "@applyentityaccess")
 	}
 
 	qualifiedName := name.Module + "." + name.Name

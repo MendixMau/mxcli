@@ -1,0 +1,179 @@
+-- ============================================================================
+-- Microflow error handling — the four shapes, and what each one BUILDS
+-- ============================================================================
+--
+-- `on error` has four forms and they differ in where the error path GOES, not
+-- just in what it does. The graph each one produces is written out beside it,
+-- because the difference is invisible in the MDL and decides the runtime
+-- behaviour.
+--
+-- Covered:
+--   on error continue          — no error path at all
+--   on error [without rollback] { <body> }   — handler with its own path
+--   on error [without rollback] { }          — EMPTY: joins the enclosing
+--                                              branch's continuation
+--   on error [without rollback] { join L; }  — rejoins a NAMED merge
+--
+-- The last one is the reason `merge` / `join` exist. Without them an error path
+-- can only terminate on its own or fall through to whatever the enclosing branch
+-- happened to do next, and any other rejoin is unspellable — DESCRIBE emitted an
+-- empty block for it and a describe → exec round trip silently rewrote the graph.
+--
+-- See .claude/skills/write-microflows.md and
+-- docs/11-proposals/PROPOSAL_structured_microflow_description.md (Phase E).
+-- ============================================================================
+
+create or modify module EhDoc;
+
+create or replace microflow EhDoc.SUB_Post (Payload: String) returns String
+begin
+  @position(100, 100)
+  return 'ok';
+end;
+/
+
+-- ############################################################################
+-- FORM 1 — `on error continue`
+-- ############################################################################
+--
+-- No error path is created at all. The activity's ErrorHandlingType is
+-- "Continue" and the flow carries on as if nothing happened. Use it only when
+-- a failure genuinely does not change what happens next.
+--
+--   start → call →(normal) EndEvent
+
+create or replace microflow EhDoc.Form1_Continue (Payload: String) returns String
+begin
+  $r = call microflow EhDoc.SUB_Post(Payload = $Payload) on error continue;
+  return $r;
+end;
+/
+
+-- ############################################################################
+-- FORM 2 — handler with its own path
+-- ############################################################################
+--
+-- The best-supported shape. The handler body is a path of its own, ending in
+-- its own terminator, and nothing has to be inferred.
+--
+--   call →(ERROR) log → EndEvent «return 'failed'»
+--   call →(normal)      EndEvent «return $r»
+
+create or replace microflow EhDoc.Form2_OwnPath (Payload: String) returns String
+begin
+  $r = call microflow EhDoc.SUB_Post(Payload = $Payload) on error without rollback {
+    log error node 'EhDoc' 'post failed';
+    return 'failed';
+  };
+  return $r;
+end;
+/
+
+-- ############################################################################
+-- FORM 3 — the EMPTY handler. NOT a no-op.
+-- ############################################################################
+--
+-- An empty block means "on error, do whatever the enclosing branch's
+-- continuation does". Here that is the ELSE branch's `return 'empty'` — so a
+-- failed call returns 'empty', which is nowhere in the text.
+--
+--   split →(false)  ExclusiveMerge ─→ EndEvent «return 'empty'»
+--   call  →(ERROR)  ExclusiveMerge ─┘
+--   call  →(normal) EndEvent «return $r»
+--
+-- The ExclusiveMerge is load-bearing: a Mendix end event accepts exactly ONE
+-- inbound sequence flow, and without the merge mxbuild rejects the microflow
+-- with CE0709 "Sequence flow is not accepted by origin or destination". The
+-- merge is inserted by a post-pass over the finished graph, because the two
+-- flows are created by unrelated builders in either order.
+--
+-- Prefer FORM 4 when you mean it. An empty block reads as "ignore the error"
+-- and does not do that.
+
+create or replace microflow EhDoc.Form3_EmptyHandler (Payload: String) returns String
+begin
+  if $Payload != '' then
+    $r = call microflow EhDoc.SUB_Post(Payload = $Payload) on error without rollback { };
+    return $r;
+  else
+    return 'empty';
+  end if;
+end;
+/
+
+-- ############################################################################
+-- FORM 4 — rejoin a named merge with `join`
+-- ############################################################################
+--
+-- `merge <name>` declares a join point; `join <name>` sends a path to it.
+-- Forward and backward references both resolve, so declaration order is free.
+-- This is the only way to say "the error path carries on HERE" when "here" is
+-- not the enclosing branch's own continuation.
+--
+--   call →(ERROR) log → ExclusiveMerge «recovered»
+--   call →(normal)      ExclusiveMerge «recovered»
+--   ExclusiveMerge → change → EndEvent
+
+create or replace microflow EhDoc.Form4_JoinNamedMerge (Payload: String) returns String
+begin
+  declare $Status String = 'sent';
+  $r = call microflow EhDoc.SUB_Post(Payload = $Payload) on error without rollback {
+    log warning node 'EhDoc' 'post failed, degrading';
+    set $Status = 'degraded';
+    join recovered;
+  };
+  join recovered;
+
+  merge recovered;
+  return $Status;
+end;
+/
+
+-- ############################################################################
+-- `merge` / `join` outside error handling
+-- ############################################################################
+--
+-- The same two words describe any graph MDL's nested `if` cannot spell — a
+-- split whose branches do not pair up with a single join point. This is the
+-- irreducible shape from PROPOSAL_structured_microflow_description.md: the
+-- inner split's TRUE branch and the outer split's FALSE branch land on the same
+-- point, which no nesting of `if` reproduces.
+
+create or replace microflow EhDoc.Crossed_Branches () returns Boolean
+begin
+  if 1 = 1 then
+    if 2 = 2 then
+      join m1;
+    else
+      join m2;
+    end if;
+  else
+    join m1;
+  end if;
+
+  merge m1;
+  log info node 'EhDoc' 'shared by two branches';
+  join m2;
+
+  merge m2;
+  return true;
+end;
+/
+
+-- ############################################################################
+-- Backward reference — a retry loop
+-- ############################################################################
+--
+-- `join` resolves backwards too, which makes an error-driven retry expressible:
+-- the merge sits BEFORE the activity, and the handler jumps back to it.
+
+create or replace microflow EhDoc.Backward_Retry (Payload: String) returns String
+begin
+  merge attempt;
+  $r = call microflow EhDoc.SUB_Post(Payload = $Payload) on error without rollback {
+    log warning node 'EhDoc' 'retrying';
+    join attempt;
+  };
+  return $r;
+end;
+/

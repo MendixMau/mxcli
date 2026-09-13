@@ -19,8 +19,14 @@ import (
 
 // scriptContext holds objects defined within a script for reference validation.
 type scriptContext struct {
-	modules      map[string]bool // Modules created in the script
-	entities     map[string]bool // Entities created (Module.Entity)
+	modules  map[string]bool // Modules created in the script
+	entities map[string]bool // Entities created (Module.Entity)
+	// viewEntities is the subset of entities that are VIEW entities. Kept apart
+	// because a view entity is refused where a persistent one is fine (CE6771),
+	// and the endpoint check below skips anything the script creates — so
+	// without this, creating the view entity and the association in one script
+	// (the ordinary shape) walked straight past the rule.
+	viewEntities map[string]bool
 	enumerations map[string]bool // Enumerations created (Module.Enum)
 	microflows   map[string]bool // Microflows created (Module.Microflow)
 	nanoflows    map[string]bool // Nanoflows created (Module.Nanoflow)
@@ -46,6 +52,16 @@ type scriptContext struct {
 	// script-defined flow is what puts an entity into context for the widgets
 	// nested in it.
 	flowParams map[string]*flowSignature // Module.Flow (lower-cased) -> signature
+
+	// Associations and entity attributes declared in the script, for
+	// MDL-XPATH01. Same reason as flowParams above: the overwhelmingly common
+	// shape is ONE script that creates the entity, the association and the
+	// microflow constraining on it, so a rule that could only see a stored
+	// association would fire on the minority case only — and the majority case
+	// is exactly the one that reaches a build half-written.
+	associations  map[string]string          // Association (unqualified) -> Module.Association
+	entityAttrs   map[string]map[string]bool // Module.Entity -> attribute names
+	ambiguousAssc map[string]bool            // names defined in more than one module
 }
 
 // newScriptContext creates a new script context.
@@ -53,6 +69,7 @@ func newScriptContext() *scriptContext {
 	return &scriptContext{
 		modules:      make(map[string]bool),
 		entities:     make(map[string]bool),
+		viewEntities: make(map[string]bool),
 		enumerations: make(map[string]bool),
 		microflows:   make(map[string]bool),
 		nanoflows:    make(map[string]bool),
@@ -64,8 +81,42 @@ func newScriptContext() *scriptContext {
 
 		javaActions:       make(map[string][]string),
 		javaScriptActions: make(map[string][]string),
+		associations:      map[string]string{},
+		entityAttrs:       map[string]map[string]bool{},
+		ambiguousAssc:     map[string]bool{},
 		flowParams:        make(map[string]*flowSignature),
 	}
+}
+
+// recordEntityAttrs stores a script-declared entity's attribute names, for the
+// rules that need to tell an attribute from an association (MDL-XPATH01).
+func (sc *scriptContext) recordEntityAttrs(s *ast.CreateEntityStmt) {
+	attrs := make(map[string]bool, len(s.Attributes))
+	for _, a := range s.Attributes {
+		attrs[a.Name] = true
+	}
+	sc.entityAttrs[s.Name.String()] = attrs
+}
+
+// recordAssociation stores a script-declared association under its UNQUALIFIED
+// name, because that is the spelling an XPath constraint gets wrong. A name
+// declared in two modules is recorded as ambiguous and then dropped by the
+// rule: naming the right spelling is the whole value, and offering one of two
+// would be wrong half the time.
+//
+// Both collectDefinitions and collectSingle call this. They are two parallel
+// switches over the same statement types, so a case added to one and not the
+// other is collected on one path only — which is how this rule first shipped
+// firing against stored associations but not script-declared ones.
+func (sc *scriptContext) recordAssociation(s *ast.CreateAssociationStmt) {
+	if s.Name.Module == "" || s.Name.Name == "" {
+		return
+	}
+	if prev, ok := sc.associations[s.Name.Name]; ok && prev != s.Name.String() {
+		sc.ambiguousAssc[s.Name.Name] = true
+		return
+	}
+	sc.associations[s.Name.Name] = s.Name.String()
 }
 
 // codeActionParamNames returns the declared parameter names of a CREATE JAVA
@@ -79,66 +130,17 @@ func codeActionParamNames(params []ast.JavaActionParam) []string {
 }
 
 // collectDefinitions scans a program and collects all objects that will be created.
+// collectDefinitions records every object a program defines.
+//
+// It is a loop over collectSingle, and deliberately nothing more. The two used
+// to be parallel switch statements over the same statement types, kept in step
+// by hand — and they were not in step: collectSingle had no CreateConstantStmt
+// case, and adding view-entity tracking to one of them left the other silent,
+// so an association to a view entity created by the SAME script walked past the
+// CE6771 rule. One list beats two agreeing lists.
 func (sc *scriptContext) collectDefinitions(prog *ast.Program) {
 	for _, stmt := range prog.Statements {
-		switch s := stmt.(type) {
-		case *ast.CreateModuleStmt:
-			sc.modules[s.Name] = true
-		case *ast.CreateEntityStmt:
-			if s.Name.Module != "" {
-				sc.entities[s.Name.String()] = true
-			}
-		case *ast.CreateViewEntityStmt:
-			if s.Name.Module != "" {
-				sc.entities[s.Name.String()] = true
-			}
-		case *ast.CreateExternalEntityStmt:
-			if s.Name.Module != "" {
-				sc.entities[s.Name.String()] = true
-			}
-		case *ast.CreateEnumerationStmt:
-			if s.Name.Module != "" {
-				sc.enumerations[s.Name.String()] = true
-			}
-		case *ast.CreateConstantStmt:
-			if s.Name.Module != "" {
-				sc.constants[s.Name.String()] = true
-			}
-		case *ast.CreateMicroflowStmt:
-			if s.Name.Module != "" {
-				sc.microflows[s.Name.String()] = true
-				sc.recordFlowParams(s.Name.String(), s.Parameters, s.ReturnType)
-			}
-		case *ast.CreateNanoflowStmt:
-			if s.Name.Module != "" {
-				sc.nanoflows[s.Name.String()] = true
-				sc.recordFlowParams(s.Name.String(), s.Parameters, s.ReturnType)
-			}
-		case *ast.CreatePageStmtV3:
-			if s.Name.Module != "" {
-				sc.pages[s.Name.String()] = true
-			}
-		case *ast.CreateSnippetStmtV3:
-			if s.Name.Module != "" {
-				sc.snippets[s.Name.String()] = true
-			}
-		case *ast.CreateLayoutStmt:
-			if s.Name.Module != "" {
-				sc.layouts[s.Name.String()] = true
-			}
-		case *ast.CreateWorkflowStmt:
-			if s.Name.Module != "" {
-				sc.workflows[s.Name.String()] = true
-			}
-		case *ast.CreateJavaActionStmt:
-			if s.Name.Module != "" {
-				sc.javaActions[s.Name.String()] = codeActionParamNames(s.Parameters)
-			}
-		case *ast.CreateJavaScriptActionStmt:
-			if s.Name.Module != "" {
-				sc.javaScriptActions[s.Name.String()] = codeActionParamNames(s.Parameters)
-			}
-		}
+		sc.collectSingle(stmt)
 	}
 }
 
@@ -150,10 +152,14 @@ func (sc *scriptContext) collectSingle(stmt ast.Statement) {
 	case *ast.CreateEntityStmt:
 		if s.Name.Module != "" {
 			sc.entities[s.Name.String()] = true
+			sc.recordEntityAttrs(s)
 		}
+	case *ast.CreateAssociationStmt:
+		sc.recordAssociation(s)
 	case *ast.CreateViewEntityStmt:
 		if s.Name.Module != "" {
 			sc.entities[s.Name.String()] = true
+			sc.viewEntities[s.Name.String()] = true
 		}
 	case *ast.CreateExternalEntityStmt:
 		if s.Name.Module != "" {
@@ -162,6 +168,10 @@ func (sc *scriptContext) collectSingle(stmt ast.Statement) {
 	case *ast.CreateEnumerationStmt:
 		if s.Name.Module != "" {
 			sc.enumerations[s.Name.String()] = true
+		}
+	case *ast.CreateConstantStmt:
+		if s.Name.Module != "" {
+			sc.constants[s.Name.String()] = true
 		}
 	case *ast.CreateMicroflowStmt:
 		if s.Name.Module != "" {
@@ -489,13 +499,17 @@ func validateWithContext(ctx *ExecContext, stmt ast.Statement, sc *scriptContext
 		// the same script are skipped (a view entity created here is validated on its
 		// own statement). (ledger finding #41)
 		for _, ep := range []ast.QualifiedName{s.Parent, s.Child} {
-			if ep.Module == "" || sc.entities[ep.String()] {
+			if ep.Module == "" {
+				continue
+			}
+			if sc.viewEntities[ep.String()] {
+				return viewEntityAssociationRefusal(s.Name.String(), ep.String())
+			}
+			if sc.entities[ep.String()] {
 				continue
 			}
 			if ent, err := findEntity(ctx, ep.Module, ep.Name); err == nil && isViewEntity(ent) {
-				return mdlerrors.NewValidationf(
-					"cannot create association %s: %s is a view entity — Mendix does not allow associations to or from view entities (CE6771). Use a non-persistent entity with a real reference to the target instead.",
-					s.Name.String(), ep.String())
+				return viewEntityAssociationRefusal(s.Name.String(), ep.String())
 			}
 		}
 	case *ast.CreateImageCollectionStmt:
@@ -587,9 +601,10 @@ func validateWithContext(ctx *ExecContext, stmt ast.Statement, sc *scriptContext
 			return mdlerrors.NewValidationf("page '%s' has context errors:\n  - %s",
 				s.Name.String(), strings.Join(ctxErrors, "\n  - "))
 		}
-		// CE1571: a microflow data source must be given an argument per parameter.
-		if argErrors := validateDataSourceArguments(ctx, s.Parameters, s.Widgets, sc); len(argErrors) > 0 {
-			return mdlerrors.NewValidationf("page '%s' has data source errors:\n  - %s",
+		// CE1571: a microflow call must be given an argument per parameter —
+		// as a data source and as an action alike (mendixlabs/mxcli#1082).
+		if argErrors := validateFlowArguments(ctx, s.Parameters, s.Widgets, sc); len(argErrors) > 0 {
+			return mdlerrors.NewValidationf("page '%s' has argument errors:\n  - %s",
 				s.Name.String(), strings.Join(argErrors, "\n  - "))
 		}
 	case *ast.CreateSnippetStmtV3:
@@ -603,10 +618,10 @@ func validateWithContext(ctx *ExecContext, stmt ast.Statement, sc *scriptContext
 			return mdlerrors.NewValidationf("snippet '%s' has reference errors:\n  - %s",
 				s.Name.String(), strings.Join(refErrors, "\n  - "))
 		}
-		// A snippet takes the same data sources a page does, and CE1571 does not
-		// care which document the widget lives in.
-		if argErrors := validateDataSourceArguments(ctx, s.Parameters, s.Widgets, sc); len(argErrors) > 0 {
-			return mdlerrors.NewValidationf("snippet '%s' has data source errors:\n  - %s",
+		// A snippet takes the same data sources and actions a page does, and
+		// CE1571 does not care which document the widget lives in.
+		if argErrors := validateFlowArguments(ctx, s.Parameters, s.Widgets, sc); len(argErrors) > 0 {
+			return mdlerrors.NewValidationf("snippet '%s' has argument errors:\n  - %s",
 				s.Name.String(), strings.Join(argErrors, "\n  - "))
 		}
 		// Validate snippet context tree (parameter/selection/attribute bindings)
@@ -638,6 +653,19 @@ func validateWithContext(ctx *ExecContext, stmt ast.Statement, sc *scriptContext
 			if _, err := findModule(ctx, s.Name.Module); err != nil {
 				return mdlerrors.NewNotFound("module", s.Name.Module)
 			}
+		}
+		// An `<alias>.ID` column names an association, and the name has to be
+		// free in the module — reported here because the fix is a rename, and a
+		// rename is cheapest before the name spreads (FINDINGS §1).
+		if nameErrors := validateViewAssociationNames(ctx, s.Name.Module, s.Name.Name, s.Query.RawQuery, sc.entities); len(nameErrors) > 0 {
+			return mdlerrors.NewValidationf("view entity '%s':\n  - %s",
+				s.Name.String(), strings.Join(nameErrors, "\n  - "))
+		}
+		// An attribute typed with an entity is refused before the type comparison,
+		// which would line it up against the wrong column (FINDINGS §4).
+		if objErrors := viewAttributeEntityTypeErrors(ctx, s.Query.RawQuery, s.Attributes, sc.entities); len(objErrors) > 0 {
+			return mdlerrors.NewValidationf("view entity '%s':\n  - %s",
+				s.Name.String(), strings.Join(objErrors, "\n  - "))
 		}
 		// Validate OQL types match declared attribute types
 		if typeErrors := validateViewEntityTypes(ctx, s); len(typeErrors) > 0 {
@@ -877,6 +905,7 @@ func validateFlowBodyReferences(ctx *ExecContext, body []ast.MicroflowStatement,
 
 	if len(refs.retrieves) > 0 {
 		errors = append(errors, validateRetrieveConstraints(ctx, refs.retrieves)...)
+		errors = append(errors, validateXPathAssociations(ctx, refs.retrieves, sc)...)
 	}
 
 	return errors

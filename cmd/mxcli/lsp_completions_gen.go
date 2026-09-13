@@ -27,6 +27,7 @@ var mdlGeneratedKeywords = []protocol.CompletionItem{
 	{Label: "RENAME", Kind: protocol.CompletionItemKindKeyword, Detail: "DDL keyword"},
 	{Label: "MOVE", Kind: protocol.CompletionItemKindKeyword, Detail: "DDL keyword"},
 	{Label: "MODIFY", Kind: protocol.CompletionItemKindKeyword, Detail: "DDL keyword"},
+	{Label: "MERGE", Kind: protocol.CompletionItemKindKeyword, Detail: "DDL keyword"},
 	{Label: "ENTITY", Kind: protocol.CompletionItemKindKeyword, Detail: "DDL keyword"},
 	{Label: "PERSISTENT", Kind: protocol.CompletionItemKindKeyword, Detail: "DDL keyword"},
 	{Label: "VIEW", Kind: protocol.CompletionItemKindKeyword, Detail: "DDL keyword"},
@@ -173,6 +174,7 @@ var mdlGeneratedKeywords = []protocol.CompletionItem{
 	{Label: "EMPTY", Kind: protocol.CompletionItemKindKeyword, Detail: "Microflow keyword"},
 	{Label: "OBJECT", Kind: protocol.CompletionItemKindKeyword, Detail: "Microflow keyword"},
 	{Label: "OBJECTS", Kind: protocol.CompletionItemKindKeyword, Detail: "Microflow keyword"},
+	{Label: "BLOCKING", Kind: protocol.CompletionItemKindKeyword, Detail: "Microflow keyword"},
 
 	// Widget keyword
 	{Label: "PAGES", Kind: protocol.CompletionItemKindKeyword, Detail: "Widget keyword"},

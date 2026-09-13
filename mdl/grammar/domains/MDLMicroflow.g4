@@ -201,6 +201,8 @@ microflowStatement
     | annotation* whileStatement SEMICOLON
     | annotation* continueStatement SEMICOLON
     | annotation* breakStatement SEMICOLON
+    | annotation* mergeStatement SEMICOLON
+    | annotation* joinStatement SEMICOLON
     | annotation* returnStatement SEMICOLON
     | annotation* raiseErrorStatement SEMICOLON
     | annotation* logStatement SEMICOLON
@@ -249,7 +251,7 @@ microflowStatement
     ;
 
 declareStatement
-    : DECLARE VARIABLE dataType (EQUALS expression)?
+    : DECLARE VARIABLE dataType (EQUALS expression)? onErrorClause?
     ;
 
 caseStatement
@@ -304,7 +306,7 @@ castObjectStatement
 // rule unguessable — and the parse error named the token, not the missing
 // keyword (mxcli-formula1 findings #13).
 setStatement
-    : SET? (VARIABLE | attributePath) EQUALS expression
+    : SET? (VARIABLE | attributePath) EQUALS expression onErrorClause?
     ;
 
 // $NewProduct = CREATE MfTest.Product (Name = $Name, Code = $Code);
@@ -317,7 +319,7 @@ createObjectStatement
 // CHANGE $Product (Name = $NewName, ModifiedDate = [%CurrentDateTime%]);
 // CHANGE $Product (Name = $NewName) COMMIT WITHOUT EVENTS REFRESH;
 changeObjectStatement
-    : CHANGE VARIABLE (LPAREN memberAssignmentList? RPAREN)? commitClause? REFRESH?
+    : CHANGE VARIABLE (LPAREN memberAssignmentList? RPAREN)? commitClause? REFRESH? onErrorClause?
     ;
 
 // The Commit flag on a create/change activity: Mendix's Microflows$Commit enum.
@@ -411,6 +413,23 @@ breakStatement
     : BREAK
     ;
 
+/**
+ * `merge <label>` declares an ExclusiveMerge that paths can `join`.
+ *
+ * The label exists only in MDL — a Mendix ExclusiveMerge stores no name — so it
+ * is resolved at build time and at describe time, never written to the model.
+ * Forward and backward references both resolve, which is what makes a retry
+ * loop (`merge attempt; … join attempt;`) expressible.
+ */
+mergeStatement
+    : MERGE (IDENTIFIER | QUOTED_IDENTIFIER)
+    ;
+
+/** `join <label>` sends this path to the merge declared under that label. */
+joinStatement
+    : JOIN (IDENTIFIER | QUOTED_IDENTIFIER)
+    ;
+
 returnStatement
     : RETURN expression?
     ;
@@ -421,7 +440,7 @@ raiseErrorStatement
 
 // LOG INFO NODE 'TEST' 'Message'; or LOG INFO 'Message'; or LOG WARNING 'Message' WITH ({1} = $var);
 logStatement
-    : LOG logLevel? (NODE expression)? expression logTemplateParams?
+    : LOG logLevel? (NODE expression)? expression logTemplateParams? onErrorClause?
     ;
 
 logLevel
@@ -474,12 +493,24 @@ callJavaScriptActionStatement
     ;
 
 // Legacy SOAP call.
+//
+// The request body is EITHER the operation's arguments OR an export mapping —
+// Mendix stores one RequestBodyHandling, not two — so writing both is refused
+// by `mxcli check`. The grammar admits both so the refusal can name them.
+//
+// Arguments parenthesise on OPERATION, matching CALL EXTERNAL ACTION: an OData
+// action and a SOAP operation are the same shape of thing, and `operation X` is
+// the callee here (the statement's own target is the service).
+//
+// SEND MAPPING … FROM $var mirrors REST's `body mapping … from $var`. FROM
+// cannot be swallowed by the preceding qualifiedName — that rule only continues
+// across a DOT — which is why the same shape already works there.
 callWebServiceStatement
     : (VARIABLE EQUALS)? CALL WEB SERVICE
       (RAW STRING_LITERAL
       | webServiceReference
-        (OPERATION webServiceReference)?
-        (SEND MAPPING webServiceReference)?
+        (OPERATION webServiceReference (LPAREN callArgumentList? RPAREN)?)?
+        (SEND MAPPING webServiceReference (FROM VARIABLE)?)?
         (RECEIVE MAPPING webServiceReference)?
         (TIMEOUT expression)?)
       onErrorClause?
@@ -587,7 +618,7 @@ callArgument
     ;
 
 showPageStatement
-    : SHOW PAGE qualifiedName (LPAREN showPageArgList? RPAREN)? (FOR VARIABLE)? (WITH memberAssignmentList)?
+    : SHOW PAGE qualifiedName (LPAREN showPageArgList? RPAREN)? (FOR VARIABLE)? (WITH memberAssignmentList)? onErrorClause?
     ;
 
 showPageArgList
@@ -600,7 +631,7 @@ showPageArg
     ;
 
 closePageStatement
-    : CLOSE PAGE
+    : CLOSE PAGE onErrorClause?
     ;
 
 showHomePageStatement
@@ -609,7 +640,7 @@ showHomePageStatement
 
 // SHOW MESSAGE 'Hello {1}' TYPE Information OBJECTS [$Name];
 showMessageStatement
-    : SHOW MESSAGE expression (TYPE identifierOrKeyword)? (OBJECTS LBRACKET expressionList RBRACKET)?
+    : SHOW MESSAGE expression (TYPE identifierOrKeyword)? (OBJECTS LBRACKET expressionList RBRACKET)? BLOCKING? onErrorClause?
     ;
 
 // SYNCHRONIZE ALL;
@@ -635,7 +666,7 @@ throwStatement
 
 // VALIDATION FEEDBACK $Product/Code MESSAGE 'Product code cannot be empty';
 validationFeedbackStatement
-    : VALIDATION FEEDBACK (attributePath | VARIABLE) MESSAGE expression (OBJECTS LBRACKET expressionList RBRACKET)?
+    : VALIDATION FEEDBACK (attributePath | VARIABLE) MESSAGE expression (OBJECTS LBRACKET expressionList RBRACKET)? onErrorClause?
     ;
 
 // =============================================================================

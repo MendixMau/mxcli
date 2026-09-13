@@ -83,7 +83,9 @@ func ValidateProgram(prog *ast.Program, projectPath string) []linter.Violation {
 			violations = append(violations, ValidateWorkflow(wfStmt)...)
 		}
 		// ALTER WORKFLOW … INSERT BRANCH writes the same outcome value, so it
-		// carries the same load-time trap (MDL-WF03).
+		// carries the same load-time trap (MDL-WF03); an ALTER that inserts or
+		// replaces an activity reaches the same build errors as a CREATE body, so
+		// MDL-WF06 is checked over what it introduces.
 		if awfStmt, ok := stmt.(*ast.AlterWorkflowStmt); ok {
 			violations = append(violations, ValidateAlterWorkflow(awfStmt)...)
 		}
@@ -108,6 +110,7 @@ func ValidateProgram(prog *ast.Program, projectPath string) []linter.Violation {
 			if viewStmt.Query.RawQuery != "" {
 				violations = append(violations, ValidateOQLSyntax(viewStmt.Query.RawQuery)...)
 				violations = append(violations, ValidateOQLTypes(viewStmt.Query.RawQuery, viewStmt.Attributes)...)
+				violations = append(violations, ValidateViewAttributeDeclarations(viewStmt.Query.RawQuery, viewStmt.Attributes)...)
 			}
 		}
 	}
@@ -250,6 +253,12 @@ func ValidateProgram(prog *ast.Program, projectPath string) []linter.Violation {
 	// runs here rather than at exec, where the script would already have
 	// passed check.
 	violations = append(violations, ValidateScheduledEvents(prog)...)
+
+	// Flag an annotation written before a CREATE that the document does not
+	// read — a typo, or one on the wrong document kind. The grammar accepts an
+	// annotation on every create statement while only six read one, so these
+	// parsed and did nothing (MDL059, the same rule statements already have).
+	violations = append(violations, ValidateDocumentAnnotations(prog)...)
 
 	return violations
 }

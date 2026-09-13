@@ -62,6 +62,8 @@ create persistent entity Module.Photo (
 | Create with extends | `create persistent entity Module.Name extends Parent.Entity (attrs);` | EXTENDS before `(` |
 | Create with auditing | `create persistent entity Module.Name (attrs, owner: autoowner, ChangedBy: autochangedby, CreatedDate: autocreateddate, ChangedDate: autochangeddate);` | Pseudo-types like AutoNumber |
 | Create view entity | `create view entity Module.Name (attrs) as select ...;` | OQL-backed read-only |
+| View entity clause order | `... as select … from …;` **or** `... as from … group by … select …;` | Both are Mendix OQL and both are checked. The second is what **Studio Pro stores**, so it is what `DESCRIBE ENTITY` emits — describe → edit → exec round-trips. The declared attributes are matched to the select columns **by position**, in either order |
+| View entity → persistent entity | `select t.ID as MyRef, …` in the OQL | Selecting the target's **id** under an alias gives the view entity an **association** named after the alias. It is not an attribute and gets no declaration: the column *is* the declaration, so mxcli creates the member (with the `OqlViewAssociationSource` mxbuild requires — without it, CE6771 + CE6770). A plain `create association` with a view entity at either end is **refused**. The alias must be free in the module, case-insensitively. `cast(t.ID as string) as MyId` is a plain String attribute instead — one query rather than two, no objects in the client |
 | Create external entity | `create external entity Module.Name from odata client Module.Client (...) (attrs);` | From consumed OData |
 | Create external entities | `create [or modify] external entities from Module.Client [into module] [entities (...)];` | Bulk from $metadata |
 | Drop entity | `drop entity Module.Name;` | |
@@ -520,7 +522,14 @@ it is for pages.
 | Call JS action | `$Result = call javascript action Module.Name (Param = $value);` | JavaScript action (nanoflow/microflow) |
 | Call Java action | `$Result = call java action Module.Name (Param = $value);` | Java action (microflow only) |
 | Call web service | `$Result = call web service Module.Service operation OperationName;` | Legacy SOAP; quoted refs are fallback for dangling raw IDs |
+| Call web service (arguments) | `$Result = call web service Module.Service operation GetOrder (OrderId = $Id) receive mapping Module.IMM;` | Binds the operation's parameters, same `(Name = value)` form as every other call. mxcli builds the stored `ParameterPath` from the operation, so the script names only the parameter. Needs the consumed service present — an operation it cannot resolve is refused, not guessed. Without them an operation that takes parameters is **CE0178** |
+| Call web service (send mapping) | `call web service Module.Service operation SaveOrder send mapping Module.EMM from $Order;` | Request body built by an export mapping. `from $var` is **required** — Mendix stores which object is mapped, and without it the call is **CE0369** |
 | Call web service raw | `$Result = call web service raw 'base64-bson';` | Escape hatch for byte-for-byte legacy SOAP round-trip |
+
+> **A call has ONE request body.** Arguments and a send mapping are alternatives —
+> Mendix stores one `RequestBodyHandling` — so a statement asking for both is
+> refused as **MDL-SOAP01** by `mxcli check` and by `exec`, which call the same
+> function.
 | REST call (string) | `$Var = rest call get '<url>' returns string;` | Body as string |
 | REST call (response) | `$Var = rest call get '<url>' returns response;` | `System.HttpResponse` object. There is no specialization form — Mendix does not allow HttpResponse to be specialized (CE1540) |
 | REST call (file document) | `$Var = rest call get '<url>' returns Module.MyFile;` | Stores the body in a file document. Must be a **specialization** of `System.FileDocument` — the base type is rejected as a return type (CE0362 / MDL064) |
@@ -531,17 +540,22 @@ it is for pages.
 | Show page | `show page Module.PageName ($Param = $value);` | Also accepts `(Param: $value)` |
 | Close page | `close page;` | |
 | Download file | `download file $FileDocument [show in browser];` | Streams a `System.FileDocument` |
+| Show message | `show message 'text' [type Information\|Warning\|Error] [objects [$a, $b]] [blocking];` | `blocking` halts the client until the user dismisses it — Studio Pro's checkbox. It goes after `objects` and before `on error`. Without it, a describe → exec round trip turned a blocking message into a non-blocking one (16 microflows measured) |
 | Database connection credentials | `connection string @Mod.Const`, `username @Mod.Const`, `password @Mod.Const` | Constant **references** only. A literal writes an unopenable project — MDL058 |
 | Synchronize (nanoflow only) | `synchronize all;` / `synchronize unsynchronized;` / `synchronize $Obj, $List;` | Offline sync. `unsynchronized` needs Mendix 9.4+. In a microflow this is MDL057 / CE0009 |
 | Validation | `validation feedback $entity/attribute message 'message';` | Requires attribute path + MESSAGE |
 | Log | `log info\|warning\|error [node 'name'] 'message';` | |
+| Apply entity access | `@applyentityaccess` / `@applyentityaccess(false)` before `create microflow` or `create rule` | Runs the flow under the **current user's** entity access rules instead of with full access. A **security** setting and only ever narrowing, so an ABSENT annotation **preserves** what is stored rather than clearing it — the same rule as `@excluded`. Not available on a nanoflow: it runs in the client and Mendix stores no such property |
 | Position | `@position(x, y)` | Canvas position (before activity) |
+| Unknown annotation | — | **MDL059**. An annotation that parses and does nothing loses whatever it was meant to express, so a name the target does not read is refused — on a statement *and* before a `create`. Covers a typo (`@applyentityacces`), an annotation on a document kind that reads none (`@excluded` on a queue), and an activity annotation written at document level. The message names what that document does accept |
 | Parameter position | `@position(x, y)` before a parameter, **inside** the `( … )` list | The only annotation a parameter takes. Omit it and parameters form a row at 200;53, 300;53, …; a parameter off that row is treated as hand-placed, survives a rewrite, and is emitted by DESCRIBE (#993) |
 | Start event | `@start(x, y)` | Canvas position of the start, on the **first** statement. Omit it and the start is placed one spacing unit left of the first activity and MOVES with it on a rewrite; a start that is not at that derived spot is treated as hand-placed, survives a rewrite, and is emitted by DESCRIBE (#951) |
 | Caption | `@caption 'text'` | Custom caption (before activity) |
 | Color | `@color Green` | Background color (before activity) |
-| Annotation | `@annotation 'text'` | Visual note attached to next activity |
-| Free annotation | `@annotation 'text'` before `@position(...)` | Free-floating visual note preserved by order |
+| Annotation | `@annotation 'text'` | Visual note attached to next activity. **Repeatable** — an activity can carry several, and each is its own note |
+| Shared annotation | `@annotation(id: n1, text: 'note')` then `@annotation(id: n1)` | ONE note wired to several activities, which is how Mendix stores it. Without the `id:` the two lines are two separate notes, even with identical text. The id is scoped to the flow being authored and is not stored (#1077) |
+| Annotation geometry | `@annotation(text: 'note', position: (x, y), size: (w, h))` | The note's own place and box on the canvas. Both are omitted whenever they match what a rewrite re-derives — 100px above the activity, stacked 60px per extra note, at 200×50 — so an ordinary note stays on the short form |
+| Free annotation | `@annotation 'text'` before `@position(...)` | Free-floating visual note preserved by order. A free note has no activity to be placed relative to, so DESCRIBE always emits its `position:` |
 | IF | `if condition then ... [else ...] end if;` | |
 | Enum split | `case $Var when Value then ... end case;` | Enumeration decision branches. Bare enum values (never quoted or qualified), one branch per value **including `(empty)`** (MDL056), no `else` (MDL008), no `AS` alias |
 | Type split | `split type $Var when Module.Entity then ... when (empty) then ... end split;` | Runtime specialization branches. Same `when ... then` shape as the enum split. Needs a branch per subtype **and** the base entity (CE0090); `when (empty) then` is the **null-object** flow, not a default, and cannot be omitted (CE0089). Legacy `case Module.Entity` / `else` still parse (MDL065 warns) |
@@ -553,7 +567,8 @@ it is for pages.
 | Execute DB query | `$Result = execute database query Module.Conn.Query;` | 3-part name; supports DYNAMIC, params, CONNECTION override |
 | Import mapping | `[$Var =] import from mapping Module.IMM($SourceVar) [all\|first\|limit <e> [offset <e>]];` | Apply import mapping to string variable. Trailing clause is Studio Pro's Range; omitted = infer from the mapping's root. `first` binds one OBJECT (`limit 1` is a one-element LIST). Mendix rejects `offset` on a non-list mapping (CE6100) |
 | Export mapping | `$Var = export to mapping Module.EMM($EntityVar);` | Apply export mapping to entity, returns string |
-| Error handling | `... on error continue\|rollback\|{ handler };` | Not supported on EXECUTE DATABASE QUERY |
+| Error handling | `... on error continue\|rollback\|{ handler }\|without rollback { handler };` | Goes on the activity that may fail — including `declare`, `set`, `change`, `log`, `show page`, `close page`, `show message` and `validation feedback`, which gained it in mendixlabs/mxcli#1078 so a Studio Pro handler survives DESCRIBE. `on error continue` is refused (MDL076) where Mendix raises CE6035: create, change, commit, log, show page, close page, show message, validation feedback — a custom `{ handler }` is accepted on all of them. The list-operation and aggregate forms of `set` have no error handling at all (MDL077). Not supported on EXECUTE DATABASE QUERY. **In a nanoflow** only `declare` and `set` take a clause at all — `change`, `log`, `show page`, `close page`, `show message` and `validation feedback` are CE6035 there in every form, and are refused. A handler that does not end in `return`/`throw` merges back into the main flow, so a later variable is out of scope on the error path (CE0108) |
+| Named join point | `merge <label>;` / `join <label>;` | Declares an ExclusiveMerge and sends a path to it. The label is MDL-only — a Mendix merge stores no name, so it is resolved at build and at describe time and never written to the model. Forward and backward references both resolve, so `merge attempt; … on error { join attempt; }` is a retry loop. This is how an **error path that rejoins the normal one** is written: without it the only spellings are "terminate" and "fall through to the enclosing branch's continuation", and DESCRIBE emitted an empty `{ }` for anything else — MDL that re-executes to a different graph with nothing reporting it. Also covers **crossed branches**, where an inner split's branch lands where an outer split's branch lands. Refused inside a `loop`/`while` body (MDL-FLOW04): a LoopedActivity owns its own object collection and a sequence flow cannot leave it. An unresolved or unjoined label is MDL-FLOW02; a duplicate declaration MDL-FLOW03. A path that already ended does not fall through into a following `merge` |
 
 **Activity defaults.** An omitted modifier always means Mendix's own default, so a
 bare MDL statement produces the same activity as dragging a fresh one onto the
@@ -635,6 +650,7 @@ Nested folders use `/` separator: `'Parent/Child/Grandchild'`. Missing folders a
 | Disable guest access | `alter project security guest access off;` | Keeps the stored role, so re-enabling needs no `role` clause |
 | Create demo user | `create demo user 'name' password 'pass' [entity Module.Entity] (UserRole, ...);` | |
 | Drop demo user | `drop demo user [if exists] 'name';` | `if exists` makes a cleanup script re-runnable |
+| Update security | `update security [[in] Module];` | Re-syncs access rules with their domain model — Studio Pro's **Update security** button, headless. Repairs **CE0066** "Entity access is out of date", which a model authored elsewhere can carry (a module imported or updated outside Studio Pro). Not needed after mxcli's own writes: every write path reconciles as it writes. Writes nothing when the rules already match, and skips `System` |
 
 ## Workflows
 
@@ -676,6 +692,23 @@ project unopenable in Studio Pro and mxbuild.
 
 **Parameter values in `with (...)` are quoted strings**, not bare variables:
 `call microflow Mod.MF with (Request = '$WorkflowContext')`.
+
+**An enumeration decision also needs an empty outcome.** Mendix generates one
+outcome per enumeration value **plus one for the empty value**, and MxBuild
+compares the stored set against that: anything else is CE6686 ("Regenerate the
+outcomes"). Write it as `'' -> { }` alongside the named values — `check` reports
+a missing one as `MDL-WF06`. It applies to `call microflow` outcomes branching on
+an enumeration return as well, and a required (`not null`) attribute does **not**
+exempt it. Boolean decisions (`true`/`false`) do not take one.
+
+```sql
+  decision '$WorkflowContext/Kind'
+    outcomes
+      'Module.Kind.Standard' -> { }
+      'Module.Kind.Priority' -> { }
+      '' -> { }
+  ;
+```
 
 **Example:**
 ```sql
@@ -1308,14 +1341,18 @@ MDL uses explicit property declarations for pages:
 | Page CSS class / style | `Class: 'css-class', Style: 'css: rule'` | `(Title: 'Home', Class: 'container-fluid bg-light', Style: 'min-height: 100vh')` — the page's Appearance |
 | Page variables | `variables: { $name: type = 'expr' }` | `variables: { $show: boolean = 'true' }` |
 | Repeated widget entries | `<container> <name> ( … )` **in the widget body** | A repeatable property (FileUploader `allowedFileFormats`, HTML Element `attributes`, a chart's `series`) is a block, never a property value. `attributes: [(attributeName: 'x')]` is **MDL-WIDGET27** — it used to check clean, exec, and vanish from storage. `describe widget <name> -p app.mpr` lists the container keywords |
-| Inspect a widget | `describe widget <keyword\|'widget id'>;` | `describe widget combobox;` — properties, enum values, defaults and the editor rules that HIDE properties under some configurations. Works with no project open; with one, reads the installed `.mpk` (version-accurate, and the only place a Marketplace widget appears). Same output as `mxcli widget describe` |
+| Data grid 2 column filter | `column c (attribute: A) { textfilter f }` | **Inside the column's braces.** `column c (…) filter f { … }` is the GALLERY form — the grammar reads it as a column with no body plus a sibling `filter` widget, which the grid has nowhere to put; it used to be dropped on write and is now **MDL-WIDGET30**. A grid-wide filter bar is `controlbar`; a gallery spells that same slot `filter`. Match the filter to the column's type (String → `textfilter`, number → `numberfilter`, DateTime → `datefilter`, Enumeration → `dropdownfilter`, Boolean → none) |
+| Widget with nowhere to go | any widget in a pluggable widget's body | A child matching no container, slot or `template` catch-all is **MDL-WIDGET30** at check time and refused by `exec`. `describe widget <name> -p app.mpr` lists what the parent declares. Needs the parent's definition, so it is silent without `-p` |
+| Inspect a widget | `describe widget <keyword\|'widget id'>;` | `describe widget combobox;` — properties, enum values, defaults and the editor rules that HIDE properties under some configurations. **Body containers** names what the widget's body takes, and for an object list the widgets-typed slots *inside one item* plus the widget types that route into each — that is where `column … { textfilter }` is spelled out. Works with no project open; with one, reads the installed `.mpk` (version-accurate, and the only place a Marketplace widget appears). Same output as `mxcli widget describe` |
 | Widget name | Required after type | `textbox txtName (...)` |
 | Attribute binding | `attribute: AttrName` | `textbox txt (label: 'Name', attribute: Name)` |
 | Variable binding | `datasource: $Var` | `dataview dv (datasource: $Product) { ... }` |
-| Action binding | `action: type` | `actionbutton btn (caption: 'Save', action: save_changes)` |
+| Action binding | `action: type` | `actionbutton btn (caption: 'Save', action: save_changes)` — the forms are a closed set (`mxcli syntax page.action`); anything else is **MDL-WIDGET28** |
+| No action | `action: nothing` | `actionbutton btn (caption: 'Decorative', action: nothing)` — an explicitly inert control. Write it deliberately: an action keyword **short its argument** (`action: open_link` with no URL) is now an error rather than a widget silently written with no action at all |
 | Microflow action | `action: microflow Name(Param: val)` | `action: microflow Mod.ACT_Process(Order: $Order)` |
 | Button icon | `icon: 'Module.IconCollection.IconName'` | `linkbutton btn (caption: 'Edit', action: nothing, icon: 'Atlas_Core.Atlas_Filled.pencil')` — icon-collection icon; MxBuild rejects an unknown name (CE1613) |
-| Clickable container | `onclick: action` (alias of `action:`) | `container card (onclick: microflow Mod.ACT_Open) { ... }` |
+| Clickable container | `onclick: action` (alias of `action:`) | `container card (onclick: microflow Mod.ACT_Open) { ... }` — takes an argument list like a button: `action: nanoflow Mod.ACT_Ship($Order = $dgOrders)` |
+| Action arguments | every parameter needs one | A flow action with an unfilled parameter is **CE1571**. An enclosing data container of its type supplies it; a data grid's **control bar** does not (not row-scoped) — pass the grid's selection, `$dgOrders` |
 | Database source | `datasource: database entity` | `datagrid dg (datasource: database Module.Entity)` |
 | Selection binding | `datasource: selection widget` | `dataview dv (datasource: selection galleryList)` |
 | Association source ("data from context") | `datasource: $currentObject/Module.Assoc` | nested `dataview dvCust (datasource: $currentObject/Order_Customer)` shows the to-one referenced object; a list widget shows the to-many collection |

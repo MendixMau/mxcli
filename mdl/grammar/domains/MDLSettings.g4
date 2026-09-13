@@ -489,6 +489,7 @@ annotationName
     | CAPTION
     | ANNOTATION
     | ANCHOR
+    | MERGE       // @merge(x, y) — the layout hint predates the `merge` keyword
     ;
 
 annotationParams
@@ -508,6 +509,14 @@ annotationParamName
     | TRUE
     | FALSE
     | TAIL        // @anchor(... tail: (...))
+    // @annotation(id: n1, text: '…', position: (x, y), size: (w, h)) — #1077.
+    // `id` and `size` are already IDENTIFIER; these two are lexer keywords, and
+    // a keyword key does NOT fail to parse — annotationParam falls through to
+    // its positional alternative, so the parameter is accepted and silently
+    // means nothing. Anything added here must be listed, not assumed.
+    | POSITION    // the note's own place on the canvas, distinct from the
+                  // @position of the activity it documents
+    | TEXT
     ;
 
 annotationValue
@@ -573,6 +582,7 @@ keyword
     | BREAK | CONTINUE | THROW | RAISE | CASE | WHEN
     | CALL | LOG | TRACE | WITH | FOR | TO | OF | RETURNING | RETURNS
     | NOTHING | EXPRESSION | JAVASCRIPT
+    | MERGE
 
     // Query / SQL
     | SELECT | FROM | WHERE | JOIN | LEFT | RIGHT | INNER | OUTER | FULL | CROSS
@@ -705,7 +715,7 @@ keyword
     | AFTER | BEFORE | DEFINE | FRAGMENT | FRAGMENTS | SLOT
 
     // General-purpose words (only tokens not already listed above)
-    | ACTION | BOTH | CONTEXT | DATA | FORMAT | ITEM | LIST
+    | ACTION | BLOCKING | BOTH | CONTEXT | DATA | FORMAT | ITEM | LIST
     | DEFINITION | IGNORE | MESSAGE | MOD | DIV | MULTIPLE | NONE | OBJECT | OBJECTS
     | OVERRIDABLE | ROOT
     | SINGLE | SQL | TEMPLATE | TEXT | TYPE | VALUE

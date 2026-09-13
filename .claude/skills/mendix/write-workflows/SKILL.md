@@ -142,6 +142,20 @@ begin
 end workflow;
 ```
 
+- **Name the kind** — `interrupting` or `non interrupting`. A bare `boundary event
+  timer` writes a type no Mendix 11 runtime has: `check` and mxbuild pass, and the
+  runtime then **refuses to start the application** ("Class
+  'Workflows$TimerBoundaryEvent' could not be found"). mxcli refuses the bare form
+  on Mendix 11 (MDL-WF07).
+- **The delay is a DateTime expression**, such as `'addDays([%CurrentDateTime%], 3)'`
+  — not an ISO duration like `'P3D'`.
+- **Every boundary path must end** in a jump, an end, or Mendix's end-of-path
+  marker, and mxcli now appends the marker for you — so a path may end in a
+  `call microflow`, as above. Without it the two kinds fail in different places:
+  an interrupting path is **CE0105** at build, and a non-interrupting one builds
+  cleanly and then stops the runtime from starting ("Expected the flow to end with
+  an end event"). Use `jump to <task>` when the path should return to the task.
+
 ## DROP WORKFLOW
 
 ```sql
@@ -170,6 +184,24 @@ Consecutive `set`s may chain in one statement:
 
 See `mdl-examples/doctype-tests/24-workflow-examples.mdl` for the full ALTER
 surface (insert path, drop path, insert condition, boundary events).
+
+**The INSERT op has to match the activity kind.** An activity's outcome list is
+typed, and each op writes exactly one outcome type into it:
+
+| Op | Writes | Only on |
+|----|--------|---------|
+| `insert outcome '<name>' on X { }` | `UserTaskOutcome` | a user task |
+| `insert condition '<Module.Enum.Value>' on X { }` | `…ConditionOutcome` | a decision, a call microflow |
+| `insert path on X { }` | `ParallelSplitOutcome` | a parallel split |
+| `insert boundary event on X interrupting timer '<expr>' { }` | a boundary event | user task, call microflow, call workflow, wait for notification |
+
+Aim one at the wrong kind and the outcome lands in a list that cannot hold it,
+which is **not** a build error: the project stops **loading**, so Studio Pro will
+not open it and `mx check` dies before it validates anything (ako/mxcli#415).
+mxcli refuses all of these now — at `check --references` and at `exec`, which
+call the same function — and the refusal names the op that fits the target. The
+`drop` ops are unaffected: removing a branch cannot write a wrong type, and it
+leaves an ordinary build error (`CE6686`) rather than an unloadable project.
 
 ## DESCRIBE round-trip
 
@@ -297,8 +329,14 @@ documented in `system-module`.
   work. `mxcli check` refuses all three of these as `MDL-WF03`, and `exec`
   refuses to run a script it flags.
 - **An enum decision also needs one `'' -> { }` outcome** for "none of the
-  above" — Studio Pro writes it on every enum decision, and without it the build
-  fails `CE6686`.
+  above": Mendix generates one outcome per enumeration value plus the empty one,
+  and MxBuild compares the stored set against that, so anything else is `CE6686`
+  ("Regenerate the outcomes"). `check` reports a missing one as `MDL-WF06`. It
+  applies equally to a `call microflow` activity branching on an enumeration
+  return, and to a decision introduced by `ALTER WORKFLOW … INSERT AFTER` /
+  `REPLACE ACTIVITY`. A **required (`not null`) attribute does not exempt it** —
+  measured, the empty outcome is still required. Boolean (`true`/`false`)
+  decisions do not take one.
 - **A `with (...)` parameter value is a quoted string**, not a bare variable:
   `with (Request = '$WorkflowContext')`. The unquoted spelling used elsewhere in
   MDL is a syntax error here (it used to crash the binary — ako/mxcli#1023).
