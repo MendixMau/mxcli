@@ -1,0 +1,42 @@
+/**
+ * Do Mendix `and` / `or` short-circuit? Open Question 1 of
+ * PROPOSAL_structured_microflow_description.md, which blocks Mode 3.
+ *
+ * Setup: run 923-short-circuit-semantics.mdl against the project first.
+ *
+ * Tests 1 and 3 are POSITIVE CONTROLS. They force the right operand to be
+ * reached, so they MUST throw. Without them a pass on tests 2 and 4 is
+ * worthless: it would be equally well explained by division by zero being
+ * harmless in Mendix, which would say nothing at all about evaluation order.
+ * The controls are the difference between measuring short-circuiting and
+ * measuring nothing.
+ *
+ * Measured on Mendix 11.14.0 (local runtime, 2026-09-13): all four pass, so
+ * both operators short-circuit.
+ *
+ * @test CONTROL or right operand reached so division by zero throws
+ * @throws
+ */
+$result = call microflow ShortCircuit.MF_ScOr(Guard = false, Zero = 0);
+/
+
+/**
+ * @test or short circuits when the left operand is true
+ * @expect $result = 'taken'
+ */
+$result = call microflow ShortCircuit.MF_ScOr(Guard = true, Zero = 0);
+/
+
+/**
+ * @test CONTROL and right operand reached so division by zero throws
+ * @throws
+ */
+$result = call microflow ShortCircuit.MF_ScAnd(Guard = true, Zero = 0);
+/
+
+/**
+ * @test and short circuits when the left operand is false
+ * @expect $result = 'not taken'
+ */
+$result = call microflow ShortCircuit.MF_ScAnd(Guard = false, Zero = 0);
+/
