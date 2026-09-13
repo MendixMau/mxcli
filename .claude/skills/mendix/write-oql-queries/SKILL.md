@@ -404,6 +404,11 @@ Two rules:
   `as meter` beside an entity called `Meter` fails — name it `MeterRef`.
 - **Reach the target through a join if it is not the FROM entity**, and select
   the id off *that* alias: `join r/Trends.Reading_Meter/Trends.Meter as m … select m.ID as MeterRef`.
+- **Do not declare the id column as an attribute.** `MeterRef: Trends.Meter` (or
+  `Trends.Meter.ID`) in the attribute list parses — a bare qualified name is how
+  MDL spells an enumeration type — and would be stored as an enumeration naming
+  an entity: CE1613 at build, or mx check failing to load the project. mxcli
+  refuses it (MDL080). The attribute list holds only the non-id columns.
 
 **Consider the flat alternative first.** An association costs a second query at
 runtime — the view returns the foreign key, and the client then fetches the

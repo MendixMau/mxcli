@@ -110,6 +110,7 @@ func ValidateProgram(prog *ast.Program, projectPath string) []linter.Violation {
 			if viewStmt.Query.RawQuery != "" {
 				violations = append(violations, ValidateOQLSyntax(viewStmt.Query.RawQuery)...)
 				violations = append(violations, ValidateOQLTypes(viewStmt.Query.RawQuery, viewStmt.Attributes)...)
+				violations = append(violations, ValidateViewAttributeDeclarations(viewStmt.Query.RawQuery, viewStmt.Attributes)...)
 			}
 		}
 	}

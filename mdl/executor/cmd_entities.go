@@ -730,6 +730,20 @@ func execCreateViewEntity(ctx *ExecContext, s *ast.CreateViewEntityStmt) error {
 		}
 	}
 
+	// An attribute that tries to hold an object is refused here as well as by
+	// check, because `exec --no-check` otherwise writes it — as an enumeration
+	// type naming an entity, which fails the build or stops mx check from
+	// loading the project (FINDINGS §4).
+	var objErrors []string
+	for _, v := range ValidateViewAttributeDeclarations(s.Query.RawQuery, s.Attributes) {
+		objErrors = append(objErrors, v.Message+". "+v.Suggestion)
+	}
+	objErrors = append(objErrors, viewAttributeEntityTypeErrors(ctx, s.Query.RawQuery, s.Attributes, nil)...)
+	if len(objErrors) > 0 {
+		return mdlerrors.NewValidationf("view entity '%s':\n  - %s",
+			s.Name.String(), strings.Join(objErrors, "\n  - "))
+	}
+
 	// Find module
 	module, err := findModule(ctx, s.Name.Module)
 	if err != nil {
