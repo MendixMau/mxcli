@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mendixlabs/mxcli/mdl/types"
 	"github.com/mendixlabs/mxcli/model"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -429,11 +430,14 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 		if w.ButtonStyle != "" && w.ButtonStyle != "Default" {
 			props = append(props, fmt.Sprintf("ButtonStyle: %s", w.ButtonStyle))
 		}
-		if w.Icon != "" {
-			props = append(props, fmt.Sprintf("Icon: %s", mdlQuote(w.Icon)))
+		if clause := widgetIconMDL(w); clause != "" {
+			props = append(props, clause)
 		}
 		props = appendAppearanceProps(props, w)
 		formatWidgetProps(ctx.Output, prefix, header, props, "\n")
+		if note := widgetIconNote(w); note != "" {
+			fmt.Fprintf(ctx.Output, "%s%s\n", prefix, note)
+		}
 
 	case "Forms$Text", "Pages$Text":
 		props := []string{}
@@ -1033,19 +1037,67 @@ func extractButtonStyle(ctx *ExecContext, w map[string]any) string {
 	return "Default"
 }
 
-// extractIconRef reads a button's Icon element and returns its icon-collection
-// reference (the `Image` qualified name, e.g. Atlas_Core.Atlas_Filled.pencil),
-// or "" when there is no icon. Currently only Forms$IconCollectionIcon is
-// reconstructed (the modern Atlas icon; issue #602).
-func extractIconRef(w map[string]any) string {
+// extractButtonIcon reads a button's Icon element: the qualified name it points
+// at, the stored $Type, and a glyph icon's Code. All three are needed, and the
+// reason is in the storage (mendixlabs/mxcli#1059):
+//
+//	Forms$IconCollectionIcon{Image} -> CustomIcons$CustomIcon
+//	Forms$ImageIcon{Image}          -> Images$Image   (a DIFFERENT document)
+//	Forms$GlyphIcon{Code}           -> a font code point, with no name at all
+//
+// The two named variants are indistinguishable by their payload, so a reader
+// that returns only `Image` hands the emitter a name it cannot place. That is
+// what made an image icon re-execute as a custom-icon reference and fail the
+// build with CE1613. Returning the $Type is what lets the emitter decline.
+func extractButtonIcon(w map[string]any) (name, iconType string, code int) {
 	icon, ok := w["Icon"].(map[string]any)
 	if !ok {
+		return "", "", 0
+	}
+	iconType, _ = icon["$Type"].(string)
+	name, _ = icon["Image"].(string)
+	return name, iconType, bsonInt(icon["Code"])
+}
+
+// widgetIconMDL renders the `Icon:` property for a widget, or "" when there is
+// nothing CREATE PAGE can reproduce.
+//
+// Only the icon-collection variant has a form. The clause is a bare qualified
+// name, and the page builder turns any name it sees into a
+// Forms$IconCollectionIcon — so emitting an image icon's name here would not
+// merely fail to round-trip, it would rebuild a different element that happens
+// to be spelled the same. Guessing between polymorphic variants is the failure
+// mode that produces a document mxbuild accepts and Studio Pro cannot open.
+func widgetIconMDL(w rawWidget) string {
+	if types.MenuIconKindOf(w.IconType) != types.MenuIconCollection || w.Icon == "" {
 		return ""
 	}
-	if img, ok := icon["Image"].(string); ok {
-		return img
+	return fmt.Sprintf("Icon: %s", mdlQuote(w.Icon))
+}
+
+// widgetIconNote flags an icon DESCRIBE cannot round-trip, so re-running the
+// output loses it visibly rather than silently.
+//
+// CREATE OR REPLACE PAGE is a full replacement, which is what makes silence
+// expensive: an icon the writer will not emit is an icon the replay DELETES,
+// with an exit 0 and a success message. A glyph icon used to produce no output
+// at all here — neither a clause nor a comment — so the loss was invisible on
+// both sides. Fires on every kind that has no clause, the unrecognised $Type
+// included: reporting a variant this build does not know as "no icon" is how the
+// next one would be dropped in turn.
+func widgetIconNote(w rawWidget) string {
+	if w.IconType == "" || widgetIconMDL(w) != "" {
+		return ""
 	}
-	return ""
+	target := w.Icon
+	if target == "" && w.IconCode != 0 {
+		target = fmt.Sprintf("glyph %d", w.IconCode)
+	}
+	if target == "" {
+		target = "(no reference stored)"
+	}
+	return fmt.Sprintf("-- NOT re-executable: icon %s (%s) — mxcli can only author "+
+		"icon-collection icons, so re-running this script would drop it", target, w.IconType)
 }
 
 func extractButtonAction(ctx *ExecContext, w map[string]any) string {

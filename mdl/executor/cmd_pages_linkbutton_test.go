@@ -85,7 +85,16 @@ func TestBuildButtonV3_Icon(t *testing.T) {
 func TestOutputWidgetMDLV3_ButtonIcon(t *testing.T) {
 	var buf bytes.Buffer
 	ctx := &ExecContext{Output: &buf}
-	w := rawWidget{Type: "Forms$ActionButton", Name: "btn", Icon: "Atlas_Core.Atlas_Filled.pencil"}
+	// IconType is load-bearing, not decoration: an icon name alone does not say
+	// which of Mendix's three icon elements holds it, and only the collection one
+	// is authorable (mendixlabs/mxcli#1059). A stored icon always carries a
+	// $Type, so a fixture without one is not a shape describe can encounter.
+	w := rawWidget{
+		Type:     "Forms$ActionButton",
+		Name:     "btn",
+		Icon:     "Atlas_Core.Atlas_Filled.pencil",
+		IconType: "Forms$IconCollectionIcon",
+	}
 	outputWidgetMDLV3(ctx, w, 0)
 	if got := buf.String(); !strings.Contains(got, "Icon: 'Atlas_Core.Atlas_Filled.pencil'") {
 		t.Errorf("output %q does not contain the Icon clause", got)
