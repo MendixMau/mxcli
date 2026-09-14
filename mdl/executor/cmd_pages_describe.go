@@ -595,14 +595,23 @@ type rawDataGridColumn struct {
 
 // rawWidget represents a widget from raw BSON data for MDL output.
 type rawWidget struct {
-	Type            string
-	Name            string
-	Content         string
-	Caption         string
-	RenderMode      string
-	Action          string
-	ButtonStyle     string
-	Icon            string // Icon-collection reference on a button (e.g. Atlas_Core.Atlas_Filled.pencil)
+	Type        string
+	Name        string
+	Content     string
+	Caption     string
+	RenderMode  string
+	Action      string
+	ButtonStyle string
+	// Icon is the qualified name an icon-collection or image icon points at.
+	// Empty for no icon and for a glyph icon, which carries a numeric Code
+	// instead. IconType keeps the storage $Type so the emitter can tell the
+	// three apart — only Forms$IconCollectionIcon is authorable, and the two
+	// named variants are spelled identically, so a reader that keeps the name
+	// without the kind cannot avoid converting one into the other
+	// (mendixlabs/mxcli#1059). Same split as types.NavMenuItem's.
+	Icon            string // e.g. Atlas_Core.Atlas_Filled.pencil
+	IconType        string // storage $Type, "" when the widget carries no icon
+	IconCode        int    // Forms$GlyphIcon's Code — the only identity a glyph icon has
 	Selection       string // For Gallery selection mode (Single, Multi, None)
 	Class           string // CSS class from Appearance
 	Style           string // Inline CSS style from Appearance

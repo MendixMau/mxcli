@@ -2,7 +2,11 @@
 
 package ast
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/mendixlabs/mxcli/mdl/types"
+)
 
 // =============================================================================
 // V3 Page AST Types
@@ -124,6 +128,30 @@ type WidgetV3 struct {
 	// known widget names — inferring it would reintroduce the list this
 	// proposal exists to remove.
 	TypeIsGeneric bool
+}
+
+// WidgetIcon is the value of a widget's `Icon:` property.
+//
+// It is a struct rather than a string because Mendix stores three different
+// icon ELEMENTS and they are not variants of one value: an icon-collection icon
+// and an image icon each hold a qualified name — into an icon collection and an
+// image collection, which are different documents — while a glyph icon holds a
+// numeric character code and no name at all. A single string could express only
+// one of the three, which is how a stored image icon was rewritten as a
+// custom-icon reference and a glyph icon was deleted outright
+// (mendixlabs/mxcli#1059).
+//
+// The vocabulary is types.MenuIconKind, shared with navigation rather than
+// restated: the kinds are Mendix's, not navigation's, and a second copy of the
+// mapping is the drift this fix exists to remove.
+type WidgetIcon struct {
+	// Kind says which of the three elements to write. Never MenuIconNone on a
+	// value the visitor produced — an absent `Icon:` has no WidgetIcon at all.
+	Kind types.MenuIconKind
+	// Name is the qualified name, for the collection and image kinds.
+	Name string
+	// Code is the glyph's numeric character code, set only for MenuIconGlyph.
+	Code int
 }
 
 // ObjectEntryListV3 is `[(k: v, …), …]` written as a widget property VALUE —

@@ -5,6 +5,7 @@ package mpr
 import (
 	"strings"
 
+	"github.com/mendixlabs/mxcli/mdl/types"
 	"github.com/mendixlabs/mxcli/model"
 	"github.com/mendixlabs/mxcli/sdk/pages"
 
@@ -359,7 +360,7 @@ func serializeActionButton(ab *pages.ActionButton) bson.D {
 		{Key: "ButtonStyle", Value: buttonStyle},
 		{Key: "CaptionTemplate", Value: caption}, // Must be CaptionTemplate, not Caption
 		{Key: "ConditionalVisibilitySettings", Value: nil},
-		{Key: "Icon", Value: nil},
+		{Key: "Icon", Value: buildWidgetIconBson(ab.Icon)},
 		{Key: "Name", Value: ab.Name},
 		{Key: "NativeAccessibilitySettings", Value: nil},
 		{Key: "RenderType", Value: renderType},
@@ -371,6 +372,45 @@ func serializeActionButton(ab *pages.ActionButton) bson.D {
 		}},
 	}
 	return doc
+}
+
+// buildWidgetIconBson serializes a widget's icon element, or nil when there is
+// none.
+//
+// This key was hardcoded to nil, so under `--engine legacy` a button's icon was
+// dropped on every write — silently, since a null Icon is what an iconless
+// button stores and nothing downstream could tell the two apart. The icon-
+// collection form has been authorable since #602 and was only ever written by
+// the modelsdk engine.
+//
+// It dispatches on the kind for the same reason buildMenuIconBson does: an
+// icon-collection icon and an image icon are both a qualified name, into
+// different documents, so nothing in the payload distinguishes them and a writer
+// that guesses turns one into the other (mendixlabs/mxcli#1059).
+func buildWidgetIconBson(icon *pages.Icon) interface{} {
+	if icon == nil {
+		return nil
+	}
+	storage := types.MenuIconStorageType(icon.Kind)
+	if storage == "" {
+		return nil
+	}
+	doc := bson.D{
+		{Key: "$ID", Value: idToBsonBinary(generateUUID())},
+		{Key: "$Type", Value: storage},
+	}
+	if icon.Kind == types.MenuIconGlyph {
+		// A glyph with no code identifies no glyph. Emit no icon rather than an
+		// element nobody can see.
+		if icon.Code == 0 {
+			return nil
+		}
+		return append(doc, bson.E{Key: "Code", Value: int32(icon.Code)})
+	}
+	if icon.Image == "" {
+		return nil
+	}
+	return append(doc, bson.E{Key: "Image", Value: icon.Image})
 }
 
 // serializeStaticText serializes a static Text widget.

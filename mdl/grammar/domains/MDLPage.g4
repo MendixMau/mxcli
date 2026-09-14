@@ -480,6 +480,7 @@ widgetPropertyV3
     // what separates them (#956).
     | (IDENTIFIER | keyword) COLON paramListV3        // <Name>Params: [{1} = Attr]
     | BUTTONSTYLE COLON buttonStyleV3                  // ButtonStyle: Primary
+    | ICON COLON widgetIconV3                          // Icon: 'Atlas_Core.Atlas_Filled.pencil' | image Mod.Images.logo | glyph 57377
     | CLASS COLON STRING_LITERAL                       // Class: 'my-class'
     | STYLE COLON STRING_LITERAL                       // Style: 'color: red'
     | DESKTOPWIDTH COLON desktopWidthV3               // DesktopWidth: 6 | AutoFill
@@ -518,6 +519,42 @@ widgetPropertyV3
     | (IDENTIFIER | keyword) COLON actionExprV3
     | IDENTIFIER COLON propertyValueV3                // Generic: any other property
     | keyword COLON propertyValueV3                  // Generic: keyword as property name (for pluggable widgets)
+    ;
+
+
+// Mendix stores three DIFFERENT icon elements on a widget, exactly as it does on
+// a navigation menu item (navMenuIcon in MDLParser.g4), and they are not
+// variants of one value: an icon-collection icon and an image icon each hold a
+// qualified name — into an icon collection and an image collection, which are
+// different documents — while a glyph icon holds a numeric character code and no
+// name at all.
+//
+//   Icon: 'Atlas_Core.Atlas_Filled.pencil'   Forms$IconCollectionIcon
+//   Icon: image MyModule.Images.logo         Forms$ImageIcon
+//   Icon: glyph 57377                        Forms$GlyphIcon
+//
+// Only the first was expressible, so a stored image icon came back out of
+// DESCRIBE spelled like a collection reference and re-executed as one —
+// CE1613 "The selected custom icon … no longer exists" — and a glyph icon was
+// emitted as nothing at all and deleted on replay (mendixlabs/mxcli#1059).
+//
+// The bare form stays the collection icon, so every existing script means what
+// it did. Both the quoted and unquoted spellings are accepted: `Icon:` has
+// carried a quoted string since #602, while a reference into the model is
+// spelled as a qualifiedName everywhere else (ADR-0003). An Atlas icon name
+// carries hyphens, which IDENTIFIER cannot lex, so those segments are
+// double-quoted per segment: image Mod.Images."my-logo".
+//
+// The keyword-led alternatives come FIRST. qualifiedName accepts a keyword as a
+// name segment (identifierOrKeyword), so `image Mod.Images.logo` also matches
+// the bare form with `image` read as the first segment of the name; listing the
+// specific alternatives ahead of the general one is what settles it. Same trap,
+// same remedy, as navMenuIcon.
+widgetIconV3
+    : GLYPH NUMBER_LITERAL
+    | IMAGE (qualifiedName | STRING_LITERAL)
+    | qualifiedName
+    | STRING_LITERAL
     ;
 
 // Filter type values - handle keywords like CONTAINS that are also filter types

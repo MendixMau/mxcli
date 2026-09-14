@@ -1,0 +1,77 @@
+-- ============================================================================
+-- mendixlabs/mxcli#1059 — a widget's three icon ELEMENTS
+-- ============================================================================
+--
+-- Mendix stores three different icon elements on a button, and they are not
+-- three spellings of one value:
+--
+--   Forms$IconCollectionIcon{Image}  -> a CustomIcons$CustomIcon
+--   Forms$ImageIcon{Image}           -> an Images$Image  (a DIFFERENT document)
+--   Forms$GlyphIcon{Code}            -> a font code point, with no name at all
+--
+-- The two named kinds are spelled identically, so only the keyword separates
+-- them. Writing an image reference without `image` stores a custom-icon
+-- reference, and the build says:
+--
+--   [error] [CE1613] "The selected custom icon
+--   'MyFirstModule.Images.workflow' no longer exists." at Action button 'btnImage'
+--
+-- Measured on 11.13.0: this script builds at 0 errors and `mxbuild
+-- --target=deploy` SUCCEEDS, while the same script with `image` dropped from
+-- line "btnImage" produces exactly that CE1613.
+--
+-- `mxcli check --references` now catches it before anything is written, and
+-- names the remedy rather than reporting a correct name as a typo.
+-- ============================================================================
+
+-- MARK: Setup
+
+create or modify image collection IconProbe.Images (
+  image marker from file '../../docs/images/mxcli-cli.png'
+);
+
+-- MARK: The three icon elements
+
+create or replace page IconProbe.AllThreeIcons (
+  Title: 'Icon probe',
+  Layout: Atlas_Core.Atlas_Default
+) {
+  container cMain {
+    -- The bare form is the icon-collection icon. It has meant that since #602
+    -- and still does, so no existing script changes meaning.
+    actionbutton btnCollection (Caption: 'Collection',
+      Action: NOTHING,
+      Icon: 'Atlas_Core.Atlas_Filled.pencil')
+
+    -- `image` points into an IMAGE collection. Same shape of name as the line
+    -- above, different document — this is the one the issue reported.
+    actionbutton btnImage (Caption: 'Image',
+      Action: NOTHING,
+      Icon: image IconProbe.Images.marker)
+
+    -- A glyph carries a code and NO name, which is why one string could never
+    -- express all three. Codes are sparse: MDL078 checks this one against the
+    -- font's own table, because an undefined code fails only at
+    -- `mxbuild --target=deploy`, naming the page rather than the icon.
+    actionbutton btnGlyph (Caption: 'Glyph',
+      Action: NOTHING,
+      Icon: glyph 57377)
+  }
+}
+
+-- A reference into the model may also be written unquoted, as every other
+-- reference is (ADR-0003). Atlas icon names are hyphenated and IDENTIFIER
+-- cannot lex a hyphen, so that segment is double-quoted on its own.
+create or replace page IconProbe.UnquotedIconNames (
+  Title: 'Unquoted icon names',
+  Layout: Atlas_Core.Atlas_Default
+) {
+  container cMain {
+    actionbutton btnBare (Caption: 'Bare',
+      Action: NOTHING,
+      Icon: Atlas_Core.Atlas_Filled.pencil)
+    actionbutton btnHyphenated (Caption: 'Hyphenated',
+      Action: NOTHING,
+      Icon: Atlas_Core.Atlas."align-center")
+  }
+}
