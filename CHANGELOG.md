@@ -6,7 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **`CATALOG.GRAPH_MODULE_CYCLES` — the modules that depend on each other** (mendixlabs/mxcli#1060), plus a `module_cycles()` Starlark builtin for enforcing a no-circular-modules policy. Not a rollup of `GRAPH_CYCLES`: modules reference each other through documents that need form no cycle themselves, which is the ordinary shape and why the document-level table is legitimately empty for a genuinely tangled pair. Computed over **every** reference kind, matching `GRAPH_MODULE_COUPLING` — the table it is read beside — rather than the structural subset the clustering uses; on a blank Mendix app `Administration → Atlas_Core` is a `layout` edge and nothing else, so a module-cycle table on the structural subset would answer "none" for exactly the pair that gets reported. Each row carries `RefKinds`: the kinds on that module's edges **into the rest of the cycle**, not everything it points at.
+
+- **`CATALOG.GRAPH_ANALYSIS_SCOPE` — which reference kinds reach the computed graph.** The two graph families disagree by construction and there was no way to see it from SQL: `GRAPH_MODULE_COUPLING` and friends read every kind straight off `refs`, while the computed pass (communities, cycles, layers, centrality) is restricted to the structural kinds. On a stock 11.14 app that is 110 of 316 edges. One row per kind with its edge count and whether it is in the asset graph; the `IN` list is generated from the filter itself, so the view cannot drift from what it describes.
+
 ### Fixed
+
+- **An empty graph-analysis table could not be told apart from one that was never computed** (mendixlabs/mxcli#1060). `CATALOG.GRAPH_CYCLES` answered `0 rows` on a project whose `CATALOG.GRAPH_MODULE_COUPLING` listed mutual module pairs, so it read as "no circular dependencies". The two are built by different things: coupling is a plain view over `refs` that any full catalog answers, while the cycles/communities/layers/centrality tables are written only by `REFRESH CATALOG COMMUNITIES` — and those six were in neither `fullOnlyTables` nor `sourceOnlyTables`, so nothing warned.
+
+  The mode ladder could not carry the distinction. fast/full/source is a *level*, each containing the one below, which is what lets a rank comparison decide everything; the graph pass is orthogonal, augmenting whichever level is cached. It is now recorded as a flag plus the resolution it ran at. A query against one of the six says `requires refresh catalog communities (not run for this catalog)`; `SHOW CATALOG STATUS` reports `Graph analysis: ✓/✗` separately from the build mode; `DESCRIBE CATALOG.GRAPH_CYCLES` names the command that populates it.
+
+  A full rebuild also dropped the graph tables silently while the recorded mode stayed `full` — measured on a 16-module app: 150 community rows before `refresh catalog full force`, 0 after. It now re-runs the pass at the same resolution instead. A fast build is deliberately not promoted: it never overwrites a full cache, so it has nothing to preserve.
 
 - **A parallel split written from MDL ran every path empty** (reported in ako/view-entity-examples FINDINGS §6). `PARALLEL SPLIT … PATH 1 { … } PATH 2 { … }` passed `mxcli check`, built at 0 errors and round-tripped through `describe`, and at runtime each path ran from the split straight to its end: the activities inside never executed and left **no activity record**. Every gate said the workflow was fine, including the one that reads the model back.
 

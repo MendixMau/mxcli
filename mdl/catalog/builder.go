@@ -4,6 +4,7 @@ package catalog
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -600,6 +601,19 @@ func (b *Builder) Build(progress ProgressFunc) error {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 	tx = nil // Prevent rollback in defer
+
+	// Same flag AddGraphAnalysis writes, for the build-it-in-one-pass route.
+	// Both routes must set it or an empty cycles table stays ambiguous down
+	// whichever one the caller took (mendixlabs/mxcli#1060).
+	if b.communitiesMode {
+		if err := b.catalog.SetMeta(MetaGraphAnalysis, time.Now().Format(time.RFC3339)); err != nil {
+			return err
+		}
+		if err := b.catalog.SetMeta(MetaGraphResolution,
+			strconv.FormatFloat(effectiveResolution(b.resolution), 'g', -1, 64)); err != nil {
+			return err
+		}
+	}
 	b.tx = nil
 
 	return nil

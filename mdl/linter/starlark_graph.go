@@ -135,6 +135,35 @@ func (r *StarlarkRule) builtinCycles(_ *starlark.Thread, _ *starlark.Builtin, ar
 	return starlark.NewList(vals), nil
 }
 
+// module_cycles() -> list of struct{id, size, members (list of module names)}.
+//
+// Separate from cycles(): that one is asset-level over the structural edge
+// kinds, this one is module-level over every kind, matching
+// graph_module_coupling. A "no circular module dependencies" rule wants this —
+// modules reference each other through documents that need form no cycle
+// themselves, so cycles() answers "none" for a genuinely tangled pair
+// (mendixlabs/mxcli#1060).
+func (r *StarlarkRule) builtinModuleCycles(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	rows := r.graphRows(
+		`SELECT CycleId AS id, CycleSize AS size, group_concat(ModuleName) AS members
+		 FROM graph_module_cycles_data GROUP BY CycleId ORDER BY size DESC`)
+	vals := make([]starlark.Value, 0, len(rows))
+	for _, m := range rows {
+		members := []starlark.Value{}
+		if s, ok := m["members"].(string); ok && s != "" {
+			for _, name := range strings.Split(s, ",") {
+				members = append(members, starlark.String(name))
+			}
+		}
+		vals = append(vals, starlarkstruct.FromStringDict(starlark.String("module_cycle"), starlark.StringDict{
+			"id":      anyToStarlark(m["id"]),
+			"size":    anyToStarlark(m["size"]),
+			"members": starlark.NewList(members),
+		}))
+	}
+	return starlark.NewList(vals), nil
+}
+
 // module_dependencies() -> list of struct{source_module, target_module, ref_kind, edges}.
 func (r *StarlarkRule) builtinModuleDependencies(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	rows := r.graphRows(
