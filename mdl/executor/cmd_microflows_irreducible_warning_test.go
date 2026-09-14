@@ -53,7 +53,7 @@ func reporterCollection() *microflows.MicroflowObjectCollection {
 }
 
 func TestIrreducibleGraphWarnings_FlagsTheReporterGraph(t *testing.T) {
-	got := irreducibleGraphWarnings(reporterCollection())
+	got := irreducibleGraphWarnings(reporterCollection(), nil)
 	if len(got) != 1 {
 		t.Fatalf("want 1 warning, got %d: %v", len(got), got)
 	}
@@ -102,10 +102,10 @@ func TestIrreducibleGraphWarnings_SilentOnNestedGraphs(t *testing.T) {
 		},
 	}
 
-	if got := irreducibleGraphWarnings(ifElse); len(got) != 0 {
+	if got := irreducibleGraphWarnings(ifElse, nil); len(got) != 0 {
 		t.Errorf("plain if/else warned: %v", got)
 	}
-	if got := irreducibleGraphWarnings(nil); len(got) != 0 {
+	if got := irreducibleGraphWarnings(nil, nil); len(got) != 0 {
 		t.Errorf("nil collection warned: %v", got)
 	}
 }

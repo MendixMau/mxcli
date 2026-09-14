@@ -1,0 +1,38 @@
+/**
+ * Mode 2 must preserve BEHAVIOUR. MF_Orig is the #923 crossed graph; MF_Mode2 is
+ * what the DEFAULT `describe microflow` emitted for it, executed back — so this
+ * compares the graph against its own faithful description.
+ *
+ * Before Mode 2 that description was `$A and $B`, so the two A=false rows are
+ * the ones the old flattening got wrong. They are the test.
+ *
+ * @test A=true  B=true
+ * @expect $orig = 'ran' and $m2 = 'ran'
+ */
+$orig = call microflow Mode3.MF_Orig(A = true, B = true);
+$m2 = call microflow Mode3.MF_Mode2(A = true, B = true);
+/
+
+/**
+ * @test A=true  B=false
+ * @expect $orig = 'skipped' and $m2 = 'skipped'
+ */
+$orig = call microflow Mode3.MF_Orig(A = true, B = false);
+$m2 = call microflow Mode3.MF_Mode2(A = true, B = false);
+/
+
+/**
+ * @test A=false B=true (old flattening said skipped)
+ * @expect $orig = 'ran' and $m2 = 'ran'
+ */
+$orig = call microflow Mode3.MF_Orig(A = false, B = true);
+$m2 = call microflow Mode3.MF_Mode2(A = false, B = true);
+/
+
+/**
+ * @test A=false B=false (old flattening said skipped)
+ * @expect $orig = 'ran' and $m2 = 'ran'
+ */
+$orig = call microflow Mode3.MF_Orig(A = false, B = false);
+$m2 = call microflow Mode3.MF_Mode2(A = false, B = false);
+/
