@@ -1,0 +1,19 @@
+-- NEGATIVE TEST (.fail.mdl) — EXPECTED to fail `mxcli check` with MDL-WF09.
+--
+-- An activity after `end workflow` in the same block can never run: CE6671
+-- ("An end activity can only be placed at the end of a path") plus CE6689 on
+-- what follows. Measured on mxbuild 11.13.0.
+
+create persistent entity WFEND.Ctx ( Title: string(50) );
+create page WFEND.TaskPage ( title: 'T', layout: Atlas_Core.Atlas_Default, params: { $WorkflowUserTask: System.WorkflowUserTask } ) { };
+
+create workflow WFEND.EndNotLast parameter $Ctx: WFEND.Ctx
+begin
+  user task Review 'Review' page WFEND.TaskPage
+    outcomes
+      'Reject' {
+        end workflow;
+        user task Appeal 'Appeal' page WFEND.TaskPage outcomes 'Yes' { } 'No' { };
+      }
+      'Approve' { };
+end workflow;

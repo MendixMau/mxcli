@@ -31,6 +31,9 @@ func execAlterWorkflow(ctx *ExecContext, s *ast.AlterWorkflowStmt) error {
 	// Same exec-side guard as CREATE WORKFLOW: ALTER had no reference validation
 	// at all, so an inserted activity could name a microflow that exists nowhere
 	// and still be written (issue #943).
+	if err := refuseWorkflowReturn(alterWorkflowAddedActivities(s)); err != nil {
+		return err
+	}
 	if refErrors := validateAlterWorkflowRefs(ctx, s, nil); len(refErrors) > 0 {
 		return mdlerrors.NewValidationf("workflow '%s' has reference errors:\n  - %s",
 			s.Name.String(), strings.Join(refErrors, "\n  - "))
