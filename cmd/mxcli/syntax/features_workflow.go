@@ -32,9 +32,62 @@ func init() {
 			"create workflow", "new workflow", "define workflow",
 			"parameter", "overview page", "due date",
 		},
-		Syntax:  "CREATE [OR MODIFY] WORKFLOW Module.Name\n  [FOLDER 'path']\n  PARAMETER $Context: Module.Entity\n  [OVERVIEW PAGE Module.OverviewPage]\n  [DUE DATE '<expression>']\nBEGIN\n  <activities>\nEND WORKFLOW;",
+		Syntax:  "CREATE [OR MODIFY] WORKFLOW Module.Name\n  [FOLDER 'path']\n  PARAMETER $Context: Module.Entity\n  [OVERVIEW PAGE Module.OverviewPage]\n  [DUE DATE '<expression>']\n  [ON WORKFLOW EVENTS (<type>, ...) MICROFLOW Module.Handler [AS '<description>']]...\n  [ON ANY WORKFLOW EVENT MICROFLOW Module.Handler [AS '<description>']]...\nBEGIN\n  <activities>\nEND WORKFLOW;",
 		Example: "CREATE WORKFLOW Module.ApprovalFlow\n  PARAMETER $Context: Module.Request\n  OVERVIEW PAGE Module.WF_Overview\nBEGIN\n  USER TASK ReviewTask 'Review the request'\n    PAGE Module.ReviewPage\n    OUTCOMES 'Approve' { } 'Reject' { };\nEND WORKFLOW;",
-		SeeAlso: []string{"workflow.user-task", "workflow.decision", "workflow.drop"},
+		SeeAlso: []string{"workflow.user-task", "workflow.event-handlers", "workflow.decision", "workflow.drop"},
+	})
+
+	Register(SyntaxFeature{
+		Path:    "workflow.event-handlers",
+		Summary: "Run a microflow when workflow events happen (task started, workflow completed, ...)",
+		Keywords: []string{
+			"event handler", "workflow event", "on workflow events", "any workflow event",
+			"audit", "on created", "on-created microflow", "WorkflowEvent", "OnWorkflowEvent",
+		},
+		// Every rule below is an mxbuild 11.13.0 measurement. The invented-type row
+		// is the one worth saying out loud: the build does not check type names.
+		Syntax: "-- Workflow header, before BEGIN; repeat for more handlers:\n" +
+			"ON WORKFLOW EVENTS (<type>, ...) MICROFLOW Module.Handler [AS '<description>']\n" +
+			"ON ANY WORKFLOW EVENT MICROFLOW Module.Handler [AS '<description>']\n\n" +
+			"-- The handler microflow takes exactly these three, in any order (else CE6691):\n" +
+			"--   System.WorkflowEvent, System.WorkflowRecord, System.WorkflowActivityRecord\n\n" +
+			"-- Event types (names are checked by mxcli — mxbuild accepts any name,\n" +
+			"-- and a misspelt type never fires; MDL-WF12):\n" +
+			"--   WorkflowCompleted WorkflowInitiated WorkflowRestarted WorkflowFailed WorkflowAborted\n" +
+			"--   WorkflowPaused WorkflowUnpaused WorkflowRetried WorkflowUpdated WorkflowUpgraded\n" +
+			"--   WorkflowConflicted WorkflowResolved WorkflowJumpToOptionApplied\n" +
+			"--   StartEventExecuted EndEventExecuted DecisionExecuted JumpExecuted\n" +
+			"--   ParallelSplitExecuted ParallelMergeExecuted CallWorkflowStarted CallWorkflowEnded\n" +
+			"--   CallMicroflowStarted CallMicroflowEnded WaitForNotificationStarted WaitForNotificationEnded\n" +
+			"--   WaitForTimerStarted WaitForTimerEnded UserTaskStarted MultiUserTaskOutcomeSelected UserTaskEnded\n" +
+			"--   NonInterruptingTimerEventExecuted InterruptingTimerEventExecuted\n" +
+			"--   11.10+: AIAgentTaskStarted AIAgentTaskEnded\n" +
+			"--           NonInterruptingNotificationEventSubProcessStartExecuted\n" +
+			"--           InterruptingNotificationEventSubProcessStartExecuted\n" +
+			"--   11.13+: NotificationStarted NotificationEnded\n" +
+			"--           NonInterruptingNotificationEventExecuted InterruptingNotificationEventExecuted\n" +
+			"--           NonInterruptingTimerEventSubProcessStartExecuted InterruptingTimerEventSubProcessStartExecuted\n\n" +
+			"-- ANY WORKFLOW EVENT stores every type the project's Mendix version has (Studio Pro\n" +
+			"-- stores the list, not a flag), so it needs Mendix 11.6+; name the types before that.\n\n" +
+			"-- A user task's on-created microflow (see workflow.user-task) takes exactly\n" +
+			"-- System.WorkflowUserTask and the context entity, in either order (else CE6683),\n" +
+			"-- and returns nothing (else CE5012).",
+		Example: "CREATE MICROFLOW HR.ACT_AuditTask (\n" +
+			"  $WorkflowEvent: System.WorkflowEvent,\n" +
+			"  $WorkflowRecord: System.WorkflowRecord,\n" +
+			"  $WorkflowActivityRecord: System.WorkflowActivityRecord\n" +
+			") BEGIN END;\n\n" +
+			"CREATE WORKFLOW HR.LeaveApproval\n" +
+			"  PARAMETER $Request: HR.LeaveRequest\n" +
+			"  ON WORKFLOW EVENTS (UserTaskStarted, UserTaskEnded) MICROFLOW HR.ACT_AuditTask AS 'Task audit'\n" +
+			"  ON ANY WORKFLOW EVENT MICROFLOW HR.ACT_LogEvent AS 'OnAnyEvent'\n" +
+			"BEGIN\n" +
+			"  USER TASK Review 'Review the request'\n" +
+			"    PAGE HR.ReviewPage\n" +
+			"    ON CREATED MICROFLOW HR.ACT_AssignReviewer\n" +
+			"    OUTCOMES 'Approve' { } 'Reject' { };\n" +
+			"END WORKFLOW;",
+		SeeAlso: []string{"workflow.create", "workflow.user-task"},
 	})
 
 	Register(SyntaxFeature{
@@ -52,6 +105,7 @@ func init() {
 		Syntax: "[MULTI] USER TASK <name> '<caption>'\n" +
 			"  PAGE Module.TaskPage\n" +
 			"  [TARGETING [USERS | GROUPS] MICROFLOW Module.MF | TARGETING [USERS | GROUPS] XPATH '<xpath>']\n" +
+			"  [ON CREATED MICROFLOW Module.MF]  -- (System.WorkflowUserTask, <context entity>), returns nothing\n" +
 			"  [ENTITY Module.Entity]\n" +
 			"  [DUE DATE '<expression>']\n" +
 			"  [DESCRIPTION '<text>']\n" +
@@ -112,6 +166,7 @@ func init() {
 		Syntax: "MULTI USER TASK <name> '<caption>'\n" +
 			"  PAGE Module.TaskPage\n" +
 			"  [TARGETING [USERS | GROUPS] MICROFLOW Module.MF | TARGETING [USERS | GROUPS] XPATH '<xpath>']\n" +
+			"  [ON CREATED MICROFLOW Module.MF]  -- (System.WorkflowUserTask, <context entity>), returns nothing\n" +
 			"  [ENTITY Module.Entity]\n" +
 			"  [DUE DATE '<expression>']\n" +
 			"  [DESCRIPTION '<text>']\n" +

@@ -29,6 +29,9 @@ type Workflow struct {
 	// Context parameter
 	Parameter *WorkflowParameter `json:"parameter,omitempty"`
 
+	// EventHandlers are the workflow's OnWorkflowEvent handlers, in stored order.
+	EventHandlers []*WorkflowEventHandler `json:"eventHandlers,omitempty"`
+
 	// Flow contains the workflow activities
 	Flow *Flow `json:"flow,omitempty"`
 }
@@ -41,6 +44,16 @@ func (w *Workflow) GetName() string {
 // GetContainerID returns the ID of the containing folder/module.
 func (w *Workflow) GetContainerID() model.ID {
 	return w.ContainerID
+}
+
+// WorkflowEventHandler is a Workflows$WorkflowEventHandler: a microflow the
+// runtime calls for each of the listed workflow event types.
+type WorkflowEventHandler struct {
+	model.BaseElement
+	Description   string   `json:"description,omitempty"`   // how Studio Pro names the handler
+	Documentation string   `json:"documentation,omitempty"` // not authorable from MDL; carried
+	EventTypes    []string `json:"eventTypes,omitempty"`    // WorkflowEventType values, stored order
+	Microflow     string   `json:"microflow,omitempty"`     // qualified name of the handler microflow
 }
 
 // WorkflowParameter represents the context parameter of a workflow.

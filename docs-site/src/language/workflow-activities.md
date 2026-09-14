@@ -10,6 +10,7 @@ A user task pauses the workflow until a user completes it. Each outcome resumes 
 USER TASK <name> '<caption>'
   [PAGE <Module>.<Page>]
   [TARGETING MICROFLOW <Module>.<Microflow>]
+  [ON CREATED MICROFLOW <Module>.<Microflow>]
   OUTCOMES '<outcome>' { <activities> } ['<outcome>' { <activities> }] ...;
 ```
 
@@ -19,6 +20,7 @@ USER TASK <name> '<caption>'
 | `<caption>` | Display label shown to users |
 | `PAGE` | The page opened when the user acts on the task |
 | `TARGETING MICROFLOW` | Microflow that determines which users see the task |
+| `ON CREATED MICROFLOW` | Microflow run when the task is created — for example to assign it. It takes exactly `System.WorkflowUserTask` and the workflow's context entity, in either order (else CE6683), and returns nothing (else CE5012) |
 | `OUTCOMES` | Named outcomes, each with a block of follow-up activities |
 
 Example:
@@ -27,11 +29,12 @@ Example:
 USER TASK ReviewTask 'Review the request'
   PAGE Approval.ReviewPage
   TARGETING MICROFLOW Approval.ACT_GetReviewers
+  ON CREATED MICROFLOW Approval.ACT_AssignReviewer
   OUTCOMES 'Approve' {
     CALL MICROFLOW Approval.ACT_Approve;
   } 'Reject' {
     CALL MICROFLOW Approval.ACT_Reject;
-    END;
+    END WORKFLOW;
   };
 ```
 

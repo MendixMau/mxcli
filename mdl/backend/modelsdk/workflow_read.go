@@ -54,9 +54,32 @@ func (b *Backend) ListWorkflows() ([]*workflows.Workflow, error) {
 		if f, ok := g.Flow().(*genWf.Flow); ok && f != nil {
 			w.Flow = workflowFlowFromGen(f)
 		}
+		w.EventHandlers = workflowEventHandlersFromGen(g.OnWorkflowEventItems())
 		out = append(out, w)
 	}
 	return out, nil
+}
+
+// workflowEventHandlersFromGen converts a workflow's OnWorkflowEvent handlers.
+func workflowEventHandlersFromGen(items []element.Element) []*workflows.WorkflowEventHandler {
+	var out []*workflows.WorkflowEventHandler
+	for _, el := range items {
+		h, ok := el.(*genWf.WorkflowEventHandler)
+		if !ok || h == nil {
+			continue
+		}
+		wh := &workflows.WorkflowEventHandler{
+			Description:   h.Description(),
+			Documentation: h.Documentation(),
+			EventTypes:    append([]string(nil), h.EventTypesItems()...),
+		}
+		wh.ID = model.ID(h.ID())
+		if mh, ok := h.MicroflowEventHandler().(*genWf.MicroflowEventHandler); ok && mh != nil {
+			wh.Microflow = mh.MicroflowQualifiedName()
+		}
+		out = append(out, wh)
+	}
+	return out
 }
 
 // workflowFlowFromGen converts a gen Flow to the semantic Flow.

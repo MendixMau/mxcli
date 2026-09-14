@@ -76,6 +76,23 @@ func (b *Builder) ExitCreateWorkflowStatement(ctx *parser.CreateWorkflowStatemen
 		stmt.DueDate = unquoteString(tok.GetText())
 	}
 
+	// Workflow event handlers: each clause carries its own qualified name, so
+	// they do not shift the header's name indices above.
+	for _, hc := range ctx.AllWorkflowEventHandlerClause() {
+		h := hc.(*parser.WorkflowEventHandlerClauseContext)
+		node := ast.WorkflowEventHandlerNode{AnyEvent: h.ANY() != nil}
+		if qn := h.QualifiedName(); qn != nil {
+			node.Microflow = buildQualifiedName(qn)
+		}
+		for _, id := range h.AllIDENTIFIER() {
+			node.EventTypes = append(node.EventTypes, id.GetText())
+		}
+		if s := h.STRING_LITERAL(); s != nil {
+			node.Description = unquoteString(s.GetText())
+		}
+		stmt.EventHandlers = append(stmt.EventHandlers, node)
+	}
+
 	// Parse CREATE OR MODIFY
 	createStmt := findParentCreateStatement(ctx)
 	if createStmt != nil {
@@ -515,7 +532,17 @@ func buildWorkflowUserTask(ctx parser.IWorkflowUserTaskStmtContext) *ast.Workflo
 	// Determine if group targeting (TARGETING GROUPS vs TARGETING [USERS])
 	isGroupTargeting := len(utCtx.AllGROUPS()) > 0
 
-	if utCtx.MICROFLOW() != nil && nameIdx < len(names) {
+	// MICROFLOW appears in both TARGETING … MICROFLOW and ON CREATED MICROFLOW,
+	// so targeting is present when a MICROFLOW token is left over after the
+	// on-created one. Qualified names come in clause order: page, targeting,
+	// on-created, entity.
+	onCreated := utCtx.CREATED() != nil
+	targetingMicroflows := len(utCtx.AllMICROFLOW())
+	if onCreated {
+		targetingMicroflows--
+	}
+
+	if targetingMicroflows > 0 && nameIdx < len(names) {
 		if isGroupTargeting {
 			node.Targeting.Kind = "group_microflow"
 		} else {
@@ -534,6 +561,11 @@ func buildWorkflowUserTask(ctx parser.IWorkflowUserTaskStmtContext) *ast.Workflo
 		}
 		node.Targeting.XPath = unquoteString(allStrings[stringIdx].GetText())
 		stringIdx++
+	}
+
+	if onCreated && nameIdx < len(names) {
+		node.OnCreated = buildQualifiedName(names[nameIdx])
+		nameIdx++
 	}
 
 	if utCtx.ENTITY() != nil && nameIdx < len(names) {

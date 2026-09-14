@@ -11,6 +11,8 @@ import (
 	"github.com/mendixlabs/mxcli/mdl/ast"
 	mdlerrors "github.com/mendixlabs/mxcli/mdl/errors"
 	"github.com/mendixlabs/mxcli/model"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // checkNoDroppedWorkflowConstructs refuses a CREATE OR REPLACE/MODIFY WORKFLOW
@@ -42,10 +44,10 @@ func checkNoDroppedWorkflowConstructs(ctx *ExecContext, workflowID model.ID, qua
 		// path reports its own errors.
 		return nil
 	}
+	raw = plainRawUnit(raw)
 
 	// Constructs MDL cannot express at all. A rebuild writes the default for
-	// each — measured on ako/TestApp (11.14.0): an on-created microflow becomes
-	// NoEvent, workflow event handlers an empty list, a completion rule
+	// each — measured on ako/TestApp (11.14.0): a completion rule becomes
 	// Consensus on the first outcome, and describe shows an AI agent task only as
 	// a comment — so a rewrite loses them without a word. Refused outright, like
 	// an event sub-process, and every reason is listed at once.
@@ -60,6 +62,28 @@ func checkNoDroppedWorkflowConstructs(ctx *ExecContext, workflowID model.ID, qua
 				"  Edit the workflow in Studio Pro, or use ALTER WORKFLOW to change one activity at a time — ALTER edits "+
 				"the stored document and keeps what it does not touch.",
 			qualifiedName, strings.Join(cannotExpress, "\n  - ")))
+	}
+
+	// Handlers MDL can now state, but a statement written before it could (or
+	// from an older describe) does not: the rewrite writes what the statement
+	// says, so an unstated handler is deleted and an unstated on-created
+	// microflow reset to none. Counted, like boundary events below, because a
+	// handler has no name to match on and a task may be renamed.
+	if stored := rawEventHandlers(raw); len(stored) > len(stmt.EventHandlers) {
+		return mdlerrors.NewUnsupported(fmt.Sprintf(
+			"workflow %s has %d stored workflow event handler(s) but this statement declares %d — rewriting it would "+
+				"delete the difference:\n  - %s\n"+
+				"  Restate them (`on workflow events (…) microflow … as '…'`), which `describe workflow %s` now emits, "+
+				"or use ALTER WORKFLOW to change one activity at a time.",
+			qualifiedName, len(stored), len(stmt.EventHandlers), strings.Join(stored, "\n  - "), qualifiedName))
+	}
+	if stored, authored := rawOnCreatedMicroflows(raw), countAuthoredOnCreated(stmt.Activities); len(stored) > authored {
+		return mdlerrors.NewUnsupported(fmt.Sprintf(
+			"workflow %s has %d user task(s) with an on-created microflow but this statement declares %d — rewriting "+
+				"it would reset the difference to none:\n  - %s\n"+
+				"  Restate them (`on created microflow …`), which `describe workflow %s` now emits, or use ALTER "+
+				"WORKFLOW to change one activity at a time.",
+			qualifiedName, len(stored), authored, strings.Join(stored, "\n  - "), qualifiedName))
 	}
 
 	// Ends inside branches. MDL could not state one until `end workflow`, and
@@ -176,17 +200,24 @@ func countAuthoredBoundaryEvents(activities []ast.WorkflowActivityNode) int {
 }
 
 // studioProOnlyWorkflowState lists what a stored workflow holds that a rebuild
-// from MDL would reset: workflow event handlers, AI agent tasks, and per activity
-// an on-created microflow or a completion rule other than the one mxcli writes.
+// from MDL would reset: AI agent tasks, a workflow event handler subscribed to no
+// event types (the grammar has no empty list), and per activity a completion rule
+// other than the one mxcli writes.
 func studioProOnlyWorkflowState(raw map[string]any) []string {
 	var out []string
 	for _, h := range rawList(raw["OnWorkflowEvent"]) {
-		if hm, ok := h.(map[string]any); ok {
-			microflow := ""
-			if mh, ok := hm["MicroflowEventHandler"].(map[string]any); ok {
-				microflow, _ = mh["Microflow"].(string)
+		hm, ok := h.(map[string]any)
+		if !ok {
+			continue
+		}
+		types := 0
+		for _, t := range rawList(hm["EventTypes"]) {
+			if _, ok := t.(string); ok {
+				types++
 			}
-			out = append(out, fmt.Sprintf("a workflow event handler running %s, which it would delete", orUnnamed(microflow)))
+		}
+		if types == 0 {
+			out = append(out, fmt.Sprintf("workflow event handler %s subscribes to no event types, which MDL cannot state", rawHandlerLabel(hm)))
 		}
 	}
 	walkRawDocs(raw, func(d map[string]any) {
@@ -205,12 +236,6 @@ func studioProOnlyWorkflowState(raw map[string]any) []string {
 func rawActivityState(d map[string]any) []string {
 	var out []string
 	name, _ := d["Name"].(string)
-	if ev, ok := d["OnCreatedEvent"].(map[string]any); ok {
-		if t, _ := ev["$Type"].(string); t == "Workflows$MicroflowBasedEvent" {
-			microflow, _ := ev["Microflow"].(string)
-			out = append(out, fmt.Sprintf("user task '%s' runs on-created microflow %s, which it would reset to none", name, orUnnamed(microflow)))
-		}
-	}
 	cc, ok := d["CompletionCriteria"].(map[string]any)
 	if !ok {
 		return out
@@ -265,6 +290,7 @@ func validateAlterReplaceKeepsStudioProState(ctx *ExecContext, s *ast.AlterWorkf
 	if err != nil || raw == nil {
 		return nil
 	}
+	raw = plainRawUnit(raw)
 	var errs []string
 	for _, o := range replaces {
 		act := resolveStoredActivity(wf.Flow, o.ActivityRef, o.AtPosition)
@@ -275,16 +301,129 @@ func validateAlterReplaceKeepsStudioProState(ctx *ExecContext, s *ast.AlterWorkf
 		walkRawDocs(raw, func(d map[string]any) {
 			if n, _ := d["Name"].(string); n != "" && n == act.GetName() {
 				reasons = append(reasons, rawActivityState(d)...)
+				if mf := rawOnCreatedMicroflow(d); mf != "" && !restatesOnCreated(o.NewActivity) {
+					reasons = append(reasons, fmt.Sprintf(
+						"it runs on-created microflow %s, which the replacement does not restate (add `on created microflow %s`)", mf, mf))
+				}
 			}
 		})
 		if len(reasons) > 0 {
 			errs = append(errs, fmt.Sprintf(
-				"replace activity '%s' is refused: the activity is rebuilt from the statement, and MDL cannot express what it "+
+				"replace activity '%s' is refused: the activity is rebuilt from the statement, and the statement does not carry what it "+
 					"holds — %s. Change it with SET ACTIVITY, which edits it in place, or in Studio Pro.",
 				o.ActivityRef, strings.Join(reasons, "; ")))
 		}
 	}
 	return errs
+}
+
+// rawEventHandlers labels each stored workflow event handler.
+func rawEventHandlers(raw map[string]any) []string {
+	var out []string
+	for _, h := range rawList(raw["OnWorkflowEvent"]) {
+		if hm, ok := h.(map[string]any); ok {
+			out = append(out, rawHandlerLabel(hm))
+		}
+	}
+	return out
+}
+
+func rawHandlerLabel(h map[string]any) string {
+	microflow := ""
+	if mh, ok := h["MicroflowEventHandler"].(map[string]any); ok {
+		microflow, _ = mh["Microflow"].(string)
+	}
+	if d, _ := h["Description"].(string); d != "" {
+		return fmt.Sprintf("'%s' (microflow %s)", d, orUnnamed(microflow))
+	}
+	return "running microflow " + orUnnamed(microflow)
+}
+
+// rawOnCreatedMicroflows labels each stored user task that runs an on-created
+// microflow.
+func rawOnCreatedMicroflows(raw map[string]any) []string {
+	var out []string
+	walkRawDocs(raw, func(d map[string]any) {
+		if mf := rawOnCreatedMicroflow(d); mf != "" {
+			name, _ := d["Name"].(string)
+			out = append(out, fmt.Sprintf("user task '%s' runs %s", name, mf))
+		}
+	})
+	return out
+}
+
+// rawOnCreatedMicroflow returns the microflow a stored activity's OnCreatedEvent
+// runs, "" for NoEvent or none.
+func rawOnCreatedMicroflow(d map[string]any) string {
+	ev, ok := d["OnCreatedEvent"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	if t, _ := ev["$Type"].(string); t != "Workflows$MicroflowBasedEvent" {
+		return ""
+	}
+	mf, _ := ev["Microflow"].(string)
+	return orUnnamed(mf)
+}
+
+func countAuthoredOnCreated(activities []ast.WorkflowActivityNode) int {
+	n := 0
+	walkWorkflowActivities(activities, func(act ast.WorkflowActivityNode) {
+		if restatesOnCreated(act) {
+			n++
+		}
+	})
+	return n
+}
+
+func restatesOnCreated(act ast.WorkflowActivityNode) bool {
+	t, ok := act.(*ast.WorkflowUserTaskNode)
+	return ok && t.OnCreated.Module != ""
+}
+
+// plainRawUnit returns a copy of a stored unit with every array and document in
+// the plain []any / map[string]any shape the guards in this file walk.
+//
+// The legacy engine decodes a unit's arrays as primitive.A — measured on a
+// workflow it wrote: OnWorkflowEvent and Flow.Activities both — and a type switch
+// on []any does not match that named type. So on the legacy engine every guard
+// here saw no list at all, and allowed each rewrite it exists to refuse (stored
+// handlers, on-created microflows, boundary events, nested Ends, AI agent tasks,
+// completion rules), while the modelsdk engine, which already returns plain
+// slices, refused them. Normalised here rather than in the backend, because
+// other raw consumers (catalog, linter) assert the primitive types.
+func plainRawUnit(raw map[string]any) map[string]any {
+	out, _ := plainRawValue(raw).(map[string]any)
+	return out
+}
+
+func plainRawValue(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		m := make(map[string]any, len(t))
+		for k, e := range t {
+			m[k] = plainRawValue(e)
+		}
+		return m
+	case primitive.M:
+		return plainRawValue(map[string]any(t))
+	case primitive.D:
+		m := make(map[string]any, len(t))
+		for _, e := range t {
+			m[e.Key] = plainRawValue(e.Value)
+		}
+		return m
+	case []any:
+		l := make([]any, len(t))
+		for i, e := range t {
+			l[i] = plainRawValue(e)
+		}
+		return l
+	case primitive.A:
+		return plainRawValue([]any(t))
+	default:
+		return v
+	}
 }
 
 // walkRawDocs visits every sub-document of a raw unit, keys in sorted order so

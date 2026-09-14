@@ -23,8 +23,20 @@ type CreateWorkflowStmt struct {
 	OverviewPage QualifiedName // qualified name of overview page
 	DueDate      string        // due date expression
 
+	// Workflow event handlers, in statement order.
+	EventHandlers []WorkflowEventHandlerNode
+
 	// Activities
 	Activities []WorkflowActivityNode
+}
+
+// WorkflowEventHandlerNode is one `on workflow events (…) microflow M as '…'` or
+// `on any workflow event microflow M as '…'` header clause.
+type WorkflowEventHandlerNode struct {
+	AnyEvent    bool          // `on any workflow event`: every type the project version knows
+	EventTypes  []string      // the named types, as written; empty when AnyEvent
+	Microflow   QualifiedName // the handler microflow
+	Description string        // from AS 'text'
 }
 
 func (s *CreateWorkflowStmt) isStatement() {}
@@ -47,6 +59,7 @@ type WorkflowUserTaskNode struct {
 	Caption         string // display caption
 	Page            QualifiedName
 	Targeting       WorkflowTargetingNode
+	OnCreated       QualifiedName // ON CREATED MICROFLOW: runs when the task is created
 	Entity          QualifiedName // user task entity
 	DueDate         string        // DUE DATE expression
 	Outcomes        []WorkflowUserTaskOutcomeNode

@@ -572,3 +572,50 @@ alter workflow WFTest.EndInBranches
   insert outcome 'Withdraw' on FinalCheck {
     end workflow comment 'Withdrawn';
   };
+
+-- ############################################################################
+-- PART F: HANDLERS — on-created microflows and workflow event handlers
+-- ############################################################################
+--
+-- `on created microflow` runs when a user task is created; it takes the task
+-- and the context object, in either order, and returns nothing (CE6683,
+-- CE5012). A header `on workflow events (…) microflow …` handler runs for each
+-- listed event and takes System.WorkflowEvent, System.WorkflowRecord and
+-- System.WorkflowActivityRecord, in any order (CE6691). `on any workflow event`
+-- stores every event type the project's Mendix version has, which is what
+-- Studio Pro stores when every box is ticked. Measured on mxbuild 11.13.0;
+-- see docs/11-proposals/PROPOSAL_workflow_studio_pro_constructs.md.
+
+create microflow WFTest.ACT_TaskCreated (
+  $OrderContext: WFTest.OrderContext,
+  $WorkflowUserTask: System.WorkflowUserTask
+)
+begin
+end;
+/
+
+create microflow WFTest.ACT_AuditWorkflowEvent (
+  $WorkflowEvent: System.WorkflowEvent,
+  $WorkflowRecord: System.WorkflowRecord,
+  $WorkflowActivityRecord: System.WorkflowActivityRecord
+)
+begin
+end;
+/
+
+create workflow WFTest.WithHandlers
+  parameter $OrderContext: WFTest.OrderContext
+  on workflow events (UserTaskStarted, UserTaskEnded) microflow WFTest.ACT_AuditWorkflowEvent as 'Task audit'
+  on any workflow event microflow WFTest.ACT_AuditWorkflowEvent as 'OnAnyEvent'
+begin
+  user task Review 'Review the order'
+    page WFTest.TaskPage
+    on created microflow WFTest.ACT_TaskCreated
+    outcomes 'Approve' { } 'Reject' { };
+
+  multi user task Vote 'Vote on the order'
+    page WFTest.TaskPage
+    on created microflow WFTest.ACT_TaskCreated
+    outcomes 'Yes' { } 'No' { };
+end workflow;
+/
