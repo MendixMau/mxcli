@@ -317,6 +317,23 @@ documented in `system-module`.
 
 - A user task needs a **task page** to be useful; without one Mendix flags the
   task (`CE1834`). Bind the page to `System.WorkflowUserTask`.
+- **The task page takes the TASK, not the workflow's context object.** It must
+  declare a `System.WorkflowUserTask` parameter: a page with no parameters is
+  `CE7410`, a page whose parameters are all something else (the usual mistake:
+  the context entity) is `CE7412`. Other parameters may sit alongside the task
+  one — that builds clean. Multi-user tasks follow the same rule.
+- **A targeting microflow takes exactly two parameters: `System.Workflow` and
+  the workflow's context entity**, in either order. One parameter, none, or a
+  third is `CE6677`. The context parameter may be typed to a *generalization* of
+  the context entity, not a specialization. `targeting groups microflow` takes
+  the same two and returns a list of `System.WorkflowGroup`; users targeting
+  returns a list of `System.User`.
+- `mxcli check --references` reports both signatures **before anything is
+  written**, for pages and microflows in the project or created earlier in the
+  same script (measured on Mendix 11.13; not applied to older projects). `exec`
+  refuses the workflow statement itself, so the workflow is never written — but
+  the statements before it in the script already are. Run `check --references`
+  first. Plain `mxcli check` without a project cannot see these.
 - A user task / decision with a single outcome and no activity can trip
   `CE1876` — give each branch a body or a distinct outcome.
 - **An enum decision's outcome must be `Module.Enumeration.Value`.** Mendix
