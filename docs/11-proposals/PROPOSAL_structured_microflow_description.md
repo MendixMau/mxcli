@@ -6,22 +6,21 @@ date: 2026-08-20
 
 # Proposal: Structured description of irreducible microflow graphs
 
-**Status:** Partial — Phase 0 (detector, `MDL-FLOW01`, describe-time warning),
-**Phase E** (`merge`/`join`, both authoring and DESCRIBE, for error-path rejoins)
-and **Mode 3** (`DESCRIBE … NORMALIZED`, opt-in guard folding for recombinable
-graphs) are shipped; the prevalence scan that gates the rest is
-[measured below](#measured-2026-09-12) and selects Mode 3, which the scan called
-the class most irreducible graphs fall into.
+**Status:** Implemented for every class the proposal set out to cover.
+Phase 0 (detector, `MDL-FLOW01`), **Phase E** (`merge`/`join` for error-path
+rejoins), **Mode 2** (faithful DEFAULT rendering of a crossed graph, using the
+same `merge`/`join` vocabulary) and **Mode 3** (`DESCRIBE … NORMALIZED`, opt-in
+guard folding) are all shipped.
 
-**Mode 2 for the *non*-error irreducible graphs remains the open piece.** Mode 3
-covers them only when the caller opts in *and* the region folds; the DEFAULT
-rendering of a crossed graph is still flattened MDL with the MDL-FLOW01 warning,
-and an interleaved graph has no faithful rendering at all. Phases 1–2 otherwise
-unscheduled. One
-[known limitation](#known-limitation-a-merge-outside-both-described-forms-is-dropped)
-is open but now reported: a merge that is neither an error rejoin nor an
-`if`/`else` join is dropped by a describe → exec round trip, and DESCRIBE warns.
-**Date:** 2026-08-20 (scan: 2026-09-12; Phase E, the runtime measurements and Mode 3: 2026-09-13)
+What remains unfaithful is the **interleaved** class only — branches overlapping
+at more than one entry, where nesting requires a duplicated activity or an
+invented boolean (Böhm–Jacopini) and no faithful rendering exists. Those keep
+MDL-FLOW01, which is now a true statement about them rather than a blanket one.
+One [known limitation](#known-limitation-a-merge-outside-both-described-forms-is-dropped)
+is open but reported: a merge that is neither an error rejoin, an `if`/`else`
+join, nor a crossed entry is dropped by a describe → exec round trip, and
+DESCRIBE warns.
+**Date:** 2026-08-20 (scan: 2026-09-12; Phase E, the runtime measurements and Mode 3: 2026-09-13; Mode 2: 2026-09-14)
 
 `DESCRIBE MICROFLOW` renders a microflow's control flow as nested `if/then/else`.
 That works only for graphs that are *properly nested*. A Mendix microflow is an
@@ -151,7 +150,45 @@ common case.
 Properly nested graphs describe exactly as they do today. No change, no new
 syntax, no regression in readability for the ~all case.
 
-### Mode 2 — faithful, with named merges (default for irreducible graphs)
+### Mode 2 — faithful, with named merges (default for irreducible graphs) — SHIPPED 2026-09-14
+
+Implementation notes, where they differ from the sketch below:
+
+- **Fall-through is permitted in the language but never RELIED ON by the
+  emitter.** The proposal wanted fall-through into a `merge` banned outright;
+  Phase E shipped the permissive alternative. Mode 2 gets the same safety by
+  labelling the split's **post-dominator** as well as the shared entry, so every
+  branch ends in an explicit `join`. Without that, an empty branch (split2's
+  false arm in the reporter's graph) falls into the shared merge instead of past
+  it — silently describing a different graph, which is the exact failure Mode 2
+  exists to end.
+- **A crossed merge is emitted the OPPOSITE way from an error-rejoin merge**, and
+  the label alone does not say which: a rejoin is *declared* where the traversal
+  meets it, a crossed merge is *joined* by each branch and declared once
+  afterwards. Hence `mergeLabels` carries a crossed set beside the names.
+- **A `join` is emitted on every arrival, before the `visited` guard.** Arriving
+  more than once is what "crossed" means; letting the guard swallow the second
+  branch's join leaves that path falling off the end of the description.
+- **MDL-FLOW01 is retired per decision, on the strength of what was EMITTED**,
+  not of what was labelled. Those differ: an inheritance split has its own
+  traversal that walks through a labelled merge without emitting a join, so the
+  label goes unused and the reader still gets the nested rendering. Suppressing
+  on the label alone retired the warning on `Administration.ManageMyAccount`,
+  whose description is byte-identical with and without Mode 2 — measured, and
+  the reason the warnings are now computed after the body rather than before it.
+  (That microflow's MDL-FLOW01 is a pre-existing false positive in the
+  classifier — its shared entry is the split's own join, reached because some
+  branches return early. Left alone here rather than silenced by an unrelated
+  mechanism.)
+- **Regression control**: 16 of 18 microflows in a blank 11.14 app plus
+  FeedbackModule and Administration describe **byte-identically** to before; the
+  two that change are the two genuinely crossed ones. Both round-trip with their
+  merge `$ID`s intact, converge after one step, and a re-exec is elided
+  (`Unchanged`). Behaviour verified on a **real runtime** across the complete
+  truth table — the two `$A = false` rows are the ones the old flattening got
+  wrong (`mdl-examples/bug-tests/923-crossed-branches{,.test}.mdl`).
+
+The original sketch:
 
 A merge becomes a first-class **statement** rather than an inferred annotation,
 and branches `join` it. Both words are Mendix's own vocabulary for the concept,

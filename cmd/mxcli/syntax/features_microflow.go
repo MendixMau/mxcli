@@ -227,6 +227,13 @@ func init() {
 			"--   2. Crossed branches: an inner split's branch landing where an outer\n" +
 			"--      split's branch lands. No nesting of IF reproduces that.\n" +
 			"--\n" +
+			"-- DESCRIBE emits both forms itself, so these are words you will READ as\n" +
+			"-- often as write. A crossed graph now describes faithfully by default --\n" +
+			"-- every branch ends in JOIN and the shared part follows as MERGE sections\n" +
+			"-- -- and the old MDL-FLOW01 'must not be re-executed' warning is gone with\n" +
+			"-- it. See microflow.normalized-describe for the opt-in alternative that\n" +
+			"-- folds the guards instead of naming the merges.\n" +
+			"--\n" +
 			"-- Rules, all reported by `mxcli check`:\n" +
 			"--   MDL-FLOW02  JOIN with no MERGE of that label, or a MERGE nothing joins\n" +
 			"--   MDL-FLOW03  the same label declared twice\n" +

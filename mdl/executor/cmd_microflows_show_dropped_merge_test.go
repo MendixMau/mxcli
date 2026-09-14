@@ -88,8 +88,8 @@ func TestDroppedMergeWarnings_LabelledRejoinIsNotFlagged(t *testing.T) {
 	f.edge("merge", "end", false)
 
 	labels := labelRejoinMerges(f.col)
-	if len(labels) != 1 {
-		t.Fatalf("fixture is wrong: expected the rejoin to be labelled, got %d labels", len(labels))
+	if labels.len() != 1 {
+		t.Fatalf("fixture is wrong: expected the rejoin to be labelled, got %d labels", labels.len())
 	}
 	if got := droppedMergeWarnings(nil, f.col, labels); len(got) != 0 {
 		t.Errorf("flagged a merge that DESCRIBE emits as `merge <label>`: %v", got)

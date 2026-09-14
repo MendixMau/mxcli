@@ -29,18 +29,37 @@ import (
 	"github.com/mendixlabs/mxcli/sdk/microflows"
 )
 
-// mergeLabels maps an ExclusiveMerge to the label DESCRIBE will give it.
-// Nil is the ordinary case and every lookup on it is a miss, so callers need no
-// nil check.
-type mergeLabels map[model.ID]string
+// mergeLabels maps an ExclusiveMerge to the label DESCRIBE will give it, and
+// records which of those merges are CROSSED.
+//
+// The zero value is the ordinary case and every lookup on it is a miss, so
+// callers need no nil check.
+//
+// The crossed set is carried here rather than threaded as a second parameter
+// because the label alone does not say how a merge is emitted, and the two
+// emissions are opposites:
+//
+//   - a rejoin merge is DECLARED where the traversal meets it, because the
+//     normal path owns it and only an error handler needs to name it;
+//   - a crossed merge is reached by two or more branches of the same split, so
+//     each branch ends in `join <label>` and the declaration is emitted once,
+//     after the branches close.
+type mergeLabels struct {
+	byID    map[model.ID]string
+	crossed map[model.ID]bool
+}
 
 func (m mergeLabels) of(id model.ID) (string, bool) {
-	if m == nil {
-		return "", false
-	}
-	l, ok := m[id]
+	l, ok := m.byID[id]
 	return l, ok
 }
+
+// isCrossed reports whether a branch reaching this merge must `join` it rather
+// than fall into it.
+func (m mergeLabels) isCrossed(id model.ID) bool { return m.crossed[id] }
+
+// len is the number of labelled merges, for tests and for the empty check.
+func (m mergeLabels) len() int { return len(m.byID) }
 
 // labelRejoinMerges finds the merges that an error handler reaches and that the
 // normal path also reaches — the ones a nested description cannot spell — and
@@ -52,7 +71,7 @@ func (m mergeLabels) of(id model.ID) (string, bool) {
 // because the handler has to say "carry on where the main path is".
 func labelRejoinMerges(col *microflows.MicroflowObjectCollection) mergeLabels {
 	if col == nil {
-		return nil
+		return mergeLabels{}
 	}
 
 	objects := map[model.ID]microflows.MicroflowObject{}
@@ -80,7 +99,7 @@ func labelRejoinMerges(col *microflows.MicroflowObjectCollection) mergeLabels {
 		normalSucc[f.OriginID] = append(normalSucc[f.OriginID], f.DestinationID)
 	}
 	if len(errorFlows) == 0 {
-		return nil
+		return mergeLabels{}
 	}
 
 	reachable := map[model.ID]bool{}
@@ -106,7 +125,7 @@ func labelRejoinMerges(col *microflows.MicroflowObjectCollection) mergeLabels {
 		}
 	}
 	if len(needsLabel) == 0 {
-		return nil
+		return mergeLabels{}
 	}
 
 	// Label in position order so the same graph always describes the same way —
@@ -127,9 +146,9 @@ func labelRejoinMerges(col *microflows.MicroflowObjectCollection) mergeLabels {
 		return ids[i] < ids[j]
 	})
 
-	out := make(mergeLabels, len(ids))
+	out := mergeLabels{byID: make(map[model.ID]string, len(ids))}
 	for i, id := range ids {
-		out[id] = fmt.Sprintf("rejoin%d", i+1)
+		out.byID[id] = fmt.Sprintf("rejoin%d", i+1)
 	}
 	return out
 }
