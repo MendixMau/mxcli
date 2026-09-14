@@ -1,0 +1,87 @@
+-- A user task hands work to two documents — its task page and its targeting
+-- microflow — and both have a signature the platform enforces. `check
+-- --references` resolved them by name only, so a wrong signature passed check,
+-- was written by exec, and surfaced as a native build error. Reported by a team
+-- building workflows from MDL, among the reasons "a green CLI check is not
+-- evidence for workflows".
+--
+-- ============================================================================
+-- The rules, measured on 11.13.0 (one user task per shape, verdict = the
+-- literal `mx check` line)
+-- ============================================================================
+--
+-- Task page:
+--   no parameters                                   CE7410
+--   parameters, none typed System.WorkflowUserTask  CE7412 (multi-user task too)
+--   System.WorkflowUserTask plus an extra parameter 0 errors
+--
+-- Targeting microflow (users and groups alike):
+--   (System.Workflow, Ctx)                          0 errors
+--   (Ctx, System.Workflow)                          0 errors  <- order is free
+--   (System.Workflow) / () / (+ a third)            CE6677    <- exactly two
+--   (System.Workflow, <generalization of Ctx>)      0 errors
+--   (System.Workflow, <specialization of Ctx>)      CE6677
+--
+-- `check --references` now reports the CE rows before anything is written.
+-- exec refuses the workflow statement itself, so the workflow is never
+-- written; statements before it in the script already are.
+--
+-- This script is the POSITIVE half: every shape in it is one a plausible
+-- reading of the error text would refuse, and every one builds at 0 errors.
+-- They are the false refusals the check must not make — exec refuses a script
+-- with a check error, so a wrong refusal here would block a valid workflow.
+-- A negative fixture cannot live here: `make check-mdl` runs without a
+-- project, and this check needs one. The CE rows are covered by
+-- mdl/executor/validate_workflow_task_signature_test.go.
+
+create module WFSIG;
+
+create persistent entity WFSIG.Request ( Title: string(50) );
+/
+
+create persistent entity WFSIG.UrgentRequest extends WFSIG.Request ( Reason: string(200) );
+/
+
+-- A task page may take parameters besides the task.
+create page WFSIG.ReviewPage (
+  title: 'Review',
+  layout: Atlas_Core.Atlas_Default,
+  params: { $WorkflowUserTask: System.WorkflowUserTask, $Request: WFSIG.Request }
+) {
+  layoutgrid g1 { row r1 { column c1 (desktopwidth: 12) { dynamictext t1 (content: 'Review') } } }
+}
+/
+
+-- Parameters in the reverse order, and typed to a GENERALIZATION of the
+-- workflow's context entity (the workflow below runs on UrgentRequest).
+create microflow WFSIG.ACT_GetReviewers ( $Request: WFSIG.Request, $Workflow: System.Workflow )
+returns list of System.User as $Reviewers
+begin
+  @position(200,200) retrieve $Reviewers from System.User;
+  @position(400,200) return $Reviewers;
+end;
+/
+
+-- Groups targeting takes the same two parameters.
+create microflow WFSIG.ACT_GetReviewGroups ( $Workflow: System.Workflow, $Request: WFSIG.UrgentRequest )
+returns list of System.WorkflowGroup as $Groups
+begin
+  @position(200,200) retrieve $Groups from System.WorkflowGroup;
+  @position(400,200) return $Groups;
+end;
+/
+
+create workflow WFSIG.UrgentReview
+  parameter $Request: WFSIG.UrgentRequest
+begin
+  user task Review 'Review the request'
+    page WFSIG.ReviewPage
+    targeting microflow WFSIG.ACT_GetReviewers
+    outcomes 'Approve' { } 'Reject' { };
+
+  multi user task Assess 'Assess the request'
+    page WFSIG.ReviewPage
+    targeting groups microflow WFSIG.ACT_GetReviewGroups
+    outcomes 'Approve' { } 'Reject' { };
+end workflow;
+/

@@ -53,6 +53,14 @@ type scriptContext struct {
 	// nested in it.
 	flowParams map[string]*flowSignature // Module.Flow (lower-cased) -> signature
 
+	// Pages created in the script, mapped to their parameters' entity names, and
+	// entities created in the script, mapped to their generalization. Both for
+	// the workflow task signature checks, for the same reason as flowParams: the
+	// task page, the targeting microflow, the context entity and the workflow are
+	// ordinarily one script.
+	pageParams            map[string][]string // Module.Page (lower-cased) -> parameter entities
+	entityGeneralizations map[string]string   // Module.Entity (lower-cased) -> generalization, "" for none
+
 	// Associations and entity attributes declared in the script, for
 	// MDL-XPATH01. Same reason as flowParams above: the overwhelmingly common
 	// shape is ONE script that creates the entity, the association and the
@@ -85,6 +93,9 @@ func newScriptContext() *scriptContext {
 		entityAttrs:       map[string]map[string]bool{},
 		ambiguousAssc:     map[string]bool{},
 		flowParams:        make(map[string]*flowSignature),
+
+		pageParams:            make(map[string][]string),
+		entityGeneralizations: make(map[string]string),
 	}
 }
 
@@ -153,6 +164,7 @@ func (sc *scriptContext) collectSingle(stmt ast.Statement) {
 		if s.Name.Module != "" {
 			sc.entities[s.Name.String()] = true
 			sc.recordEntityAttrs(s)
+			sc.recordEntityGeneralization(s)
 		}
 	case *ast.CreateAssociationStmt:
 		sc.recordAssociation(s)
@@ -186,6 +198,7 @@ func (sc *scriptContext) collectSingle(stmt ast.Statement) {
 	case *ast.CreatePageStmtV3:
 		if s.Name.Module != "" {
 			sc.pages[s.Name.String()] = true
+			sc.recordPageParams(s.Name.String(), s.Parameters)
 		}
 	case *ast.CreateSnippetStmtV3:
 		if s.Name.Module != "" {
