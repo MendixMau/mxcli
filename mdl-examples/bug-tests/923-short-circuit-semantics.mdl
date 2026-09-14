@@ -1,0 +1,52 @@
+-- ============================================================================
+-- Do Mendix `and` / `or` short-circuit? Measured, not reasoned about.
+-- ============================================================================
+--
+-- Open Question 1 of PROPOSAL_structured_microflow_description.md. Mode 3 of
+-- that proposal folds the guards of nested exclusive splits into one condition
+-- -- `c1 and c2` on nested splits becomes `not(c1) or c2` -- which is only
+-- semantics-preserving if the right operand is NOT evaluated once the left has
+-- decided the result. Mendix's reference guide documents both operators
+-- WITHOUT stating whether they short-circuit, so the question could not be
+-- settled from the docs.
+--
+-- The probe is integer division by zero in the right operand: the only
+-- observable an expression can have is whether it throws, since Mendix
+-- expressions are pure and cannot carry a side effect.
+--
+-- Both operands read microflow PARAMETERS rather than literals. That is
+-- deliberate: `1 div 0` written literally could be folded at build time, and a
+-- folded expression would measure mxbuild's constant folding instead of the
+-- runtime's evaluation order.
+--
+-- Run it:
+--   mxcli exec mdl-examples/bug-tests/923-short-circuit-semantics.mdl -p app.mpr
+--   mxcli test mdl-examples/bug-tests/923-short-circuit-semantics.test.mdl \
+--     -p app.mpr --local
+--
+-- Result (Mendix 11.14.0, local runtime, 2026-09-13): BOTH short-circuit.
+-- The two CONTROL tests in the .test.mdl are what make that a measurement
+-- rather than an assumption -- see the header there.
+
+create module ShortCircuit;
+/
+
+create or replace microflow ShortCircuit.MF_ScOr (Guard: Boolean, Zero: Integer) returns String
+begin
+  if $Guard or (1 div $Zero > 0) then
+    return 'taken';
+  else
+    return 'not taken';
+  end if;
+end;
+/
+
+create or replace microflow ShortCircuit.MF_ScAnd (Guard: Boolean, Zero: Integer) returns String
+begin
+  if $Guard and (1 div $Zero > 0) then
+    return 'taken';
+  else
+    return 'not taken';
+  end if;
+end;
+/

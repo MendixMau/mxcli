@@ -41,7 +41,7 @@ func glyphStmt(code int) *ast.AlterNavigationStmt {
 }
 
 func TestMDL078_ReportsACodeTheFontDoesNotDefine(t *testing.T) {
-	v := validateMenuItemGlyphCodes(glyphStmt(57562))
+	v := validateGlyphCodes(glyphStmt(57562))
 	if len(v) != 1 {
 		t.Fatalf("got %d violations, want 1 — this code breaks the deploy and every "+
 			"static gate passes it", len(v))
@@ -67,7 +67,7 @@ func TestMDL078_SilentOnCodesTheFontDefines(t *testing.T) {
 		63743, // 0xF8FF — the outlier at the end of the private use area
 		57440, // 0xE060 — a single-code run, the shape a range check gets wrong
 	} {
-		if v := validateMenuItemGlyphCodes(glyphStmt(code)); len(v) != 0 {
+		if v := validateGlyphCodes(glyphStmt(code)); len(v) != 0 {
 			t.Errorf("glyph %d was reported but the font defines it: %s", code, v[0].Message)
 		}
 	}
@@ -82,7 +82,7 @@ func TestMDL078_ReportsCodesInsideTheGaps(t *testing.T) {
 		57750, // 0xE196 — inside the 0xE190-0xE199 gap
 		57800, // 0xE1C8 — between the 0xE1xx and 0xE2xx blocks
 	} {
-		if v := validateMenuItemGlyphCodes(glyphStmt(code)); len(v) != 1 {
+		if v := validateGlyphCodes(glyphStmt(code)); len(v) != 1 {
 			t.Errorf("glyph %d was accepted, but it falls in a gap the font does not fill", code)
 		}
 	}
@@ -95,12 +95,12 @@ func TestMDL078_IgnoresNonGlyphIcons(t *testing.T) {
 	for _, kind := range []types.MenuIconKind{types.MenuIconNone, types.MenuIconCollection} {
 		stmt := glyphStmt(57562)
 		stmt.MenuItems[0].IconKind = kind
-		if v := validateMenuItemGlyphCodes(stmt); len(v) != 0 {
+		if v := validateGlyphCodes(stmt); len(v) != 0 {
 			t.Errorf("icon kind %v was reported by the glyph rule: %s", kind, v[0].Message)
 		}
 	}
 	// ...and neither is a statement of another type.
-	if v := validateMenuItemGlyphCodes(&ast.CreateEntityStmt{}); len(v) != 0 {
+	if v := validateGlyphCodes(&ast.CreateEntityStmt{}); len(v) != 0 {
 		t.Errorf("a non-navigation statement was reported: %+v", v)
 	}
 }
@@ -121,7 +121,7 @@ func TestMDL078_WalksSubItems(t *testing.T) {
 			}},
 		}},
 	}
-	v := validateMenuItemGlyphCodes(stmt)
+	v := validateGlyphCodes(stmt)
 	if len(v) != 1 || !strings.Contains(v[0].Message, "Nested") {
 		t.Errorf("a sub-item's bad glyph was missed: %+v", v)
 	}
@@ -169,5 +169,42 @@ func TestGlyphIconsMatchTheFont(t *testing.T) {
 	}
 	if g, _ := LookupGlyph(57895); len(g.Aliases) != 2 {
 		t.Errorf("bitcoin lost its aliases: %+v — `show glyphs like 'btc'` then finds nothing", g)
+	}
+}
+
+// TestMDL078_ReachesAWidgetGlyph is the reason this rule stopped walking the
+// statements itself.
+//
+// A glyph on a page widget fails the build exactly as a glyph on a menu item
+// does — mxbuild resolves both through the same GlyphFont.GetClass — but the
+// rule enumerated navigation and menu statements only, so the day
+// `Icon: glyph <n>` became authorable on a widget (mendixlabs/mxcli#1059) every
+// widget glyph would have passed in silence. It now reads the package's single
+// icon walk, so a statement kind that walk learns about, this rule learns about.
+func TestMDL078_ReachesAWidgetGlyph(t *testing.T) {
+	btn := func(name string, code int) *ast.WidgetV3 {
+		return &ast.WidgetV3{Type: "ACTIONBUTTON", Name: name, Properties: map[string]any{
+			"Icon": &ast.WidgetIcon{Kind: types.MenuIconGlyph, Code: code},
+		}}
+	}
+	stmt := &ast.CreatePageStmtV3{Widgets: []*ast.WidgetV3{
+		btn("btnGood", 57377), // in the font
+		{Type: "CONTAINER", Name: "c1", Children: []*ast.WidgetV3{
+			btn("btnBad", 57562), // past the font's end
+		}},
+	}}
+
+	v := validateGlyphCodes(stmt)
+	if len(v) != 1 {
+		t.Fatalf("got %d violations, want exactly 1 (the nested bad code): %+v", len(v), v)
+	}
+	if !strings.Contains(v[0].Message, "btnBad") {
+		t.Errorf("the violation does not name the widget: %q", v[0].Message)
+	}
+	if !strings.Contains(v[0].Message, "57562") {
+		t.Errorf("the violation does not name the code: %q", v[0].Message)
+	}
+	if v[0].RuleID != "MDL078" {
+		t.Errorf("RuleID = %q, want MDL078", v[0].RuleID)
 	}
 }

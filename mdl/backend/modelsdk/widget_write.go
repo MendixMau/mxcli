@@ -8,6 +8,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 
+	"github.com/mendixlabs/mxcli/mdl/types"
 	"github.com/mendixlabs/mxcli/model"
 	"github.com/mendixlabs/mxcli/modelsdk/codec"
 	"github.com/mendixlabs/mxcli/modelsdk/element"
@@ -430,8 +431,13 @@ func widgetToGen(w pages.Widget) (element.Element, error) {
 		// Pro's loader rejects a ClientTemplate here with a type-cast error.
 		g.SetTooltip(captionToGen(x.Tooltip))
 		// Icon (issue #602): overrides the null-Icon TypeDefault when set.
+		// iconToGen returns nil for an icon that identifies nothing, and that nil
+		// must not be handed to SetIcon — a typed nil there is an Icon property
+		// holding a broken element rather than the null the TypeDefault gives.
 		if x.Icon != nil {
-			g.SetIcon(iconToGen(x.Icon))
+			if icon := iconToGen(x.Icon); icon != nil {
+				g.SetIcon(icon)
+			}
 		}
 		act, err := clientActionToGen(x.Action)
 		if err != nil {
@@ -997,12 +1003,44 @@ func noActionGen() element.Element {
 	return a
 }
 
-// iconToGen builds a widget Icon element. Currently supports the modern
-// icon-collection icon (Atlas icons): Forms$IconCollectionIcon{Image: QN},
-// verified against a Studio-Pro-authored button (issue #602). It has no typed
-// gen struct, so it is built as a raw element (like the workflow simple activities).
+// iconToGen builds a widget Icon element — one of Mendix's three, dispatched on
+// the kind rather than inferred from the payload.
+//
+//	Forms$IconCollectionIcon{Image: QN} -> a CustomIcons$CustomIcon
+//	Forms$ImageIcon{Image: QN}          -> an Images$Image (a DIFFERENT document)
+//	Forms$GlyphIcon{Code: int}          -> a font code point, with no name
+//
+// This emitted the first unconditionally, which was fine while it was also the
+// only one anyone could author and wrong the moment DESCRIBE started reading
+// real projects: a stored image icon round-tripped into a custom-icon reference
+// and failed the build with CE1613 (mendixlabs/mxcli#1059). The two named kinds
+// are indistinguishable by payload, so nothing but the carried kind can tell
+// them apart.
+//
+// Verified against a Studio-Pro-authored button (issue #602). None has a typed
+// gen struct, so they are built as raw elements (like the workflow simple
+// activities).
 func iconToGen(ic *pages.Icon) element.Element {
-	e := newElem("Forms$IconCollectionIcon", "")
+	storage := types.MenuIconStorageType(ic.Kind)
+	if storage == "" {
+		// A kind this build does not know. Emitting SOME icon would be guessing
+		// between variants, which is the failure that produces a document
+		// Studio Pro cannot open; the builder refuses such an icon before here.
+		return nil
+	}
+	e := newElem(storage, "")
+	if ic.Kind == types.MenuIconGlyph {
+		// A glyph with no code identifies no glyph. Emit no icon rather than an
+		// element nobody can see.
+		if ic.Code == 0 {
+			return nil
+		}
+		addInt32(e, "Code", int32(ic.Code))
+		return e
+	}
+	if ic.Image == "" {
+		return nil
+	}
 	addStr(e, "Image", ic.Image)
 	return e
 }

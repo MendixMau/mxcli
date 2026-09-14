@@ -13,6 +13,7 @@ import (
 
 	"github.com/mendixlabs/mxcli/mdl/ast"
 	"github.com/mendixlabs/mxcli/mdl/grammar/parser"
+	"github.com/mendixlabs/mxcli/mdl/types"
 )
 
 // parseQualifiedName converts a string like "Module.Name" to ast.QualifiedName.
@@ -718,6 +719,14 @@ func parseWidgetPropertyV3(ctx parser.IWidgetPropertyV3Context, widget *ast.Widg
 	if propCtx.CAPTIONPARAMS() != nil {
 		if plCtx := propCtx.ParamListV3(); plCtx != nil {
 			widget.Properties["CaptionParams"] = buildParamListV3(plCtx)
+		}
+		return
+	}
+
+	// Icon: 'Mod.Coll.name' | image Mod.Images.logo | glyph 57377
+	if propCtx.ICON() != nil {
+		if icon := buildWidgetIconV3(propCtx.WidgetIconV3()); icon != nil {
+			widget.Properties["Icon"] = icon
 		}
 		return
 	}
@@ -1883,4 +1892,57 @@ func buildObjectEntryListV3(ctx parser.IObjectEntryListV3Context) *ast.ObjectEnt
 		out.Entries = append(out.Entries, entry)
 	}
 	return out
+}
+
+// buildWidgetIconV3 reads a widget's `Icon:` value onto a typed WidgetIcon.
+//
+// Mendix stores three different icon ELEMENTS, not three spellings of one value,
+// so the KIND is recorded and the writer emits the matching $Type. Collapsing
+// them onto one string is what made describe -> exec rewrite an image icon as a
+// custom-icon reference (CE1613) and delete a glyph icon outright
+// (mendixlabs/mxcli#1059).
+//
+// The bare form is the collection icon, which keeps every existing script
+// meaning exactly what it did. Both spellings of a name are accepted — quoted,
+// as `Icon:` has taken since #602, and bare, as every other reference into the
+// model is written.
+func buildWidgetIconV3(ctx parser.IWidgetIconV3Context) *ast.WidgetIcon {
+	if ctx == nil {
+		return nil
+	}
+	c, ok := ctx.(*parser.WidgetIconV3Context)
+	if !ok {
+		return nil
+	}
+	icon := &ast.WidgetIcon{}
+	switch {
+	case c.GLYPH() != nil:
+		icon.Kind = types.MenuIconGlyph
+		if n := c.NUMBER_LITERAL(); n != nil {
+			// A glyph code is a character code: whole, and small. A fractional or
+			// unparseable literal leaves the code at zero rather than guessing,
+			// and the builder refuses to write a glyph without one.
+			if v, err := strconv.Atoi(n.GetText()); err == nil {
+				icon.Code = v
+			}
+		}
+	case c.IMAGE() != nil:
+		icon.Kind = types.MenuIconImage
+		icon.Name = widgetIconName(c)
+	default:
+		icon.Kind = types.MenuIconCollection
+		icon.Name = widgetIconName(c)
+	}
+	return icon
+}
+
+// widgetIconName reads the qualified name out of whichever spelling was used.
+func widgetIconName(c *parser.WidgetIconV3Context) string {
+	if qn := c.QualifiedName(); qn != nil {
+		return buildQualifiedName(qn).String()
+	}
+	if str := c.STRING_LITERAL(); str != nil {
+		return unquoteString(str.GetText())
+	}
+	return ""
 }

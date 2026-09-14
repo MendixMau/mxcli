@@ -5,6 +5,7 @@ package pages
 import (
 	"strings"
 
+	"github.com/mendixlabs/mxcli/mdl/types"
 	"github.com/mendixlabs/mxcli/model"
 )
 
@@ -75,26 +76,32 @@ const (
 )
 
 // Icon represents a widget icon (e.g. on an action/link button).
+//
+// Mendix has three icon ELEMENTS and they are not variants of one value: an
+// icon-collection icon and an image icon each hold a qualified name — into an
+// icon collection and an image collection, which are different documents —
+// while a glyph icon holds a numeric character code and no name at all. Kind
+// says which, and the writers dispatch on it rather than inferring from the
+// payload: the two named kinds are indistinguishable by their payload, so a
+// writer that guesses produces a document mxbuild accepts and Studio Pro
+// cannot open (mendixlabs/mxcli#1059).
+//
+// The vocabulary is types.MenuIconKind — Mendix's kinds, not navigation's —
+// shared rather than restated. This type carried its own three-value enum until
+// the page and navigation paths were found to disagree about the same three
+// things, which is exactly the drift a second copy invites.
 type Icon struct {
 	model.BaseElement
-	Type IconType `json:"type"`
-	// Image is the qualified name of the referenced icon/image for
-	// IconCollection and Image icons, e.g. "Atlas_Core.Atlas_Filled.pencil".
-	Image   string   `json:"image,omitempty"`
+	Kind types.MenuIconKind `json:"kind"`
+	// Image is the qualified name of the referenced icon/image for the
+	// collection and image kinds, e.g. "Atlas_Core.Atlas_Filled.pencil".
+	Image string `json:"image,omitempty"`
+	// Code is the glyph's numeric character code, set only for MenuIconGlyph.
+	// It is the ONLY thing identifying a glyph icon.
+	Code    int      `json:"code,omitempty"`
 	Name    string   `json:"name,omitempty"`    // glyph name (legacy Glyph icons)
 	ImageID model.ID `json:"imageId,omitempty"` // legacy image id
 }
-
-// IconType represents the type of icon.
-type IconType string
-
-const (
-	IconTypeGlyph IconType = "Glyph"
-	IconTypeImage IconType = "Image"
-	// IconTypeIconCollection is the modern Atlas icon: a by-name reference into
-	// an icon collection (serialized as Forms$IconCollectionIcon).
-	IconTypeIconCollection IconType = "IconCollection"
-)
 
 // DropDownButton represents a dropdown button.
 type DropDownButton struct {

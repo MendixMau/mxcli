@@ -6,6 +6,7 @@ package catalog
 import (
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -174,6 +175,8 @@ func (c *Catalog) Tables() []string {
 		"CATALOG.COMMUNITIES",
 		"CATALOG.COMMUNITY_SUMMARY",
 		"CATALOG.GRAPH_CYCLES",
+		"CATALOG.GRAPH_MODULE_CYCLES",
+		"CATALOG.GRAPH_ANALYSIS_SCOPE",
 		"CATALOG.GRAPH_LAYERS",
 		"CATALOG.GRAPH_CENTRALITY",
 		"CATALOG.GRAPH_MODULE_DEPENDENCIES",
@@ -280,6 +283,21 @@ const (
 	MetaBuildMode     = "build_mode"
 	MetaBuildTime     = "build_time"
 	MetaBuildDuration = "build_duration"
+
+	// MetaGraphAnalysis records that AddGraphAnalysis has run against this
+	// catalog, and MetaGraphResolution the Leiden resolution it used.
+	//
+	// Deliberately NOT another build mode. fast/full/source is a LEVEL — each
+	// contains the one below, so a rank comparison decides everything. The graph
+	// pass is orthogonal: it augments whatever level is there (that is the whole
+	// point of AddGraphAnalysis being additive), so folding it into the rank
+	// would make "source" and "full+graph" incomparable. It is a flag.
+	//
+	// Without it an un-run graph pass is indistinguishable from a graph with
+	// nothing in it: the tables are empty either way, and the recorded mode still
+	// says "full" (mendixlabs/mxcli#1060).
+	MetaGraphAnalysis   = "graph_analysis"
+	MetaGraphResolution = "graph_resolution"
 )
 
 // CacheInfo contains information about the cached catalog.
@@ -292,6 +310,11 @@ type CacheInfo struct {
 	BuildDuration time.Duration
 	IsValid       bool
 	InvalidReason string
+
+	// GraphAnalysis reports whether the communities/cycles/layers/centrality
+	// pass has run against this catalog, and at which resolution.
+	GraphAnalysis   bool
+	GraphResolution float64
 }
 
 // NewFromFile opens a catalog from a persisted SQLite file.
@@ -406,6 +429,7 @@ func (c *Catalog) migrateIfSchemaMismatch() error {
 	for _, key := range []string{
 		MetaMprPath, MetaMprModTime, MetaMendixVersion,
 		MetaBuildMode, MetaBuildTime, MetaBuildDuration,
+		MetaGraphAnalysis, MetaGraphResolution,
 	} {
 		if _, err := c.db.Exec(`DELETE FROM catalog_meta WHERE Key = ?`, key); err != nil {
 			return fmt.Errorf("clearing cache-info key %s: %w", key, err)
@@ -592,6 +616,12 @@ func (c *Catalog) GetCacheInfo() (*CacheInfo, error) {
 	}
 	if durationStr, _ := c.GetMeta(MetaBuildDuration); durationStr != "" {
 		info.BuildDuration, _ = time.ParseDuration(durationStr)
+	}
+	if v, _ := c.GetMeta(MetaGraphAnalysis); v != "" {
+		info.GraphAnalysis = true
+	}
+	if v, _ := c.GetMeta(MetaGraphResolution); v != "" {
+		info.GraphResolution, _ = strconv.ParseFloat(v, 64)
 	}
 
 	return info, nil

@@ -55,7 +55,8 @@ populates these catalog objects (and fills the `PageRank`/`Betweenness` columns 
 |--------|----------|
 | `CATALOG.communities` | community id per asset |
 | `CATALOG.community_summary` | per-community size, dominant-module label, members |
-| `CATALOG.graph_cycles` | assets in a dependency cycle |
+| `CATALOG.graph_cycles` | **assets** in a dependency cycle (structural kinds only) |
+| `CATALOG.graph_module_cycles` | **modules** in a dependency cycle (every kind) |
 | `CATALOG.graph_layers` | topological layer sequence number per asset |
 | `CATALOG.graph_centrality` | PageRank / betweenness per asset |
 | `CATALOG.graph_module_dependencies` | directed module→module edges (kind + count) |
@@ -63,6 +64,75 @@ populates these catalog objects (and fills the `PageRank`/`Betweenness` columns 
 
 The `resolution` knob selects granularity: high γ → fine **candidate modules**;
 low γ → coarse **candidate apps**.
+
+### Two cycle tables, two questions
+
+`graph_cycles` and `graph_module_cycles` are not a detail view and a rollup of
+each other. Modules A and B are in a cycle when A references B *and* B references
+A — through any documents, which need form no cycle between themselves. That is
+the ordinary shape, so `graph_cycles` is legitimately empty for a genuinely
+tangled pair of modules. Reading it as "no circular dependencies" while
+`graph_module_coupling` listed both directions is
+[mendixlabs/mxcli#1060](https://github.com/mendixlabs/mxcli/issues/1060).
+
+They also read different edges, on purpose:
+
+| | edge set | asks |
+|---|---|---|
+| `graph_cycles` | structural kinds only | which documents are tangled together |
+| `graph_module_cycles` | every kind, like `graph_module_coupling` | which modules cannot be extracted independently |
+
+The asset graph excludes navigational kinds (`layout`, `show_page`,
+`datasource`, `widget`, `sync`, …) because they blur community and layer
+clustering. A module cycle is a different claim: a page bound to a layout in
+another module really is a dependency of that module, and on a blank Mendix app
+`Administration → Atlas_Core` is a `layout` edge and nothing else. A module-cycle
+table on the structural subset would answer "none" for exactly the pair that gets
+reported.
+
+`graph_analysis_scope` makes the split answerable instead of buried in source —
+one row per reference kind with its edge count and whether it reaches the asset
+graph:
+
+```sql
+select * from CATALOG.graph_analysis_scope order by InAssetGraph, Edges desc;
+```
+
+On a stock 11.14 app that is 110 of 316 edges outside it. Each
+`graph_module_cycles` row also carries `RefKinds` — the kinds on that module's
+edges *into the rest of the cycle*, so you know which reference to go and break.
+
+```sql
+select ModuleName, CycleSize, RefKinds from CATALOG.graph_module_cycles
+  order by CycleSize desc, ModuleName;
+```
+
+### If one of these is empty
+
+Empty means one of two very different things, and they used to look identical.
+The tables above are filled by the pass, not by a build mode — so a catalog built
+with `refresh catalog full` has all of them empty while `graph_module_coupling`,
+a plain view over `refs`, answers normally. That asymmetry was
+[mendixlabs/mxcli#1060](https://github.com/mendixlabs/mxcli/issues/1060).
+
+A query now says which case you are in:
+
+```
+Warning: CATALOG.GRAPH_CYCLES requires refresh catalog communities (not run for this catalog)
+```
+
+No warning and no rows means the pass ran and genuinely found nothing.
+`show catalog status` reports the same thing up front:
+
+```
+Graph analysis: ✓ Available (resolution 1)
+Graph analysis: ✗ Not run (use refresh catalog communities)
+```
+
+The pass is **not** a build mode — it augments whatever mode is cached, so
+`Build mode: full` says nothing about it. A later `refresh catalog full` used to
+drop these tables silently; it now re-runs the pass at the same resolution, so the
+graph survives a rebuild. To drop back, delete `.mxcli/catalog.db` and refresh.
 
 ### SHOW commands
 
@@ -77,7 +147,8 @@ show community members of Sales.Order              -- its co-clustered assets
 **Spaghetti → layered / modular app.**
 
 ```sql
-select * from CATALOG.graph_cycles;                       -- the tangles to break
+select * from CATALOG.graph_cycles;                       -- tangled documents
+select * from CATALOG.graph_module_cycles;                -- tangled modules
 select Layer, AssetName from CATALOG.graph_layers
   order by Layer;                                          -- dependency depth
 show communities;                                          -- cleaner module groupings
@@ -108,7 +179,7 @@ mxcli ships the *facts*, not an opinion. Teams enforce their own layering /
 allowed-dependency / no-cycle / coupling-budget policies via Starlark lint rules,
 using these builtins (which read the graph tables):
 
-`community_of`, `layer_of`, `cycles`, `module_dependencies`, `centrality`,
+`community_of`, `layer_of`, `cycles`, `module_cycles`, `module_dependencies`, `centrality`,
 `god_nodes`, `integration_surface`, `refs_from`.
 
 ```python

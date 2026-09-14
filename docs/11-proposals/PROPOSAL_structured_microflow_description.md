@@ -6,14 +6,22 @@ date: 2026-08-20
 
 # Proposal: Structured description of irreducible microflow graphs
 
-**Status:** Partial — Phase 0 (detector, `MDL-FLOW01`, describe-time warning) and
+**Status:** Partial — Phase 0 (detector, `MDL-FLOW01`, describe-time warning),
 **Phase E** (`merge`/`join`, both authoring and DESCRIBE, for error-path rejoins)
-are shipped; the prevalence scan that gates the rest is
-[measured below](#measured-2026-09-12) and selects Mode 3. Mode 2 for the
-*non*-error irreducible graphs — crossed branches with no error handler — is the
-remaining piece: those still describe to flattened MDL with the MDL-FLOW01
-warning. Phases 1–2 otherwise unscheduled.
-**Date:** 2026-08-20 (scan: 2026-09-12; Phase E: 2026-09-13)
+and **Mode 3** (`DESCRIBE … NORMALIZED`, opt-in guard folding for recombinable
+graphs) are shipped; the prevalence scan that gates the rest is
+[measured below](#measured-2026-09-12) and selects Mode 3, which the scan called
+the class most irreducible graphs fall into.
+
+**Mode 2 for the *non*-error irreducible graphs remains the open piece.** Mode 3
+covers them only when the caller opts in *and* the region folds; the DEFAULT
+rendering of a crossed graph is still flattened MDL with the MDL-FLOW01 warning,
+and an interleaved graph has no faithful rendering at all. Phases 1–2 otherwise
+unscheduled. One
+[known limitation](#known-limitation-a-merge-outside-both-described-forms-is-dropped)
+is open but now reported: a merge that is neither an error rejoin nor an
+`if`/`else` join is dropped by a describe → exec round trip, and DESCRIBE warns.
+**Date:** 2026-08-20 (scan: 2026-09-12; Phase E, the runtime measurements and Mode 3: 2026-09-13)
 
 `DESCRIBE MICROFLOW` renders a microflow's control flow as nested `if/then/else`.
 That works only for graphs that are *properly nested*. A Mendix microflow is an
@@ -183,7 +191,35 @@ Properties:
   `check` error, not a guess. (See Open Questions — the permissive alternative is
   viable and cheaper for hand-authors.)
 
-### Mode 3 — normalized (opt-in)
+### Mode 3 — normalized (opt-in) — SHIPPED 2026-09-13
+
+Implementation notes, where they differ from the sketch below:
+
+- **It is not a second describer.** `normalizeCollection` rewrites a *copy* of
+  the graph into the equivalent properly-nested one and hands that to the
+  existing describer, so Mode 3 inherits every activity renderer, annotation and
+  layout rule and cannot drift from Mode 1.
+- **The folded split keeps its identity** — same `$ID`, position and annotations
+  — but its stored `Caption` is cleared: it labels the *original* guard, and
+  leaving it puts a second, wrong condition in the more prominent place.
+- **The entry merge is spliced out.** After folding it has one predecessor and
+  one successor, and describe → exec would delete it anyway; removing it in the
+  transform makes Mode 3's output describe exactly the graph re-executing it
+  builds.
+- **Refusals are per-decision and explained**, and the rest of the microflow
+  still renders: an activity in the region (would move a side effect), a
+  rule-based decision (a rule call cannot go inside an expression), and
+  interleaved branches.
+- **Verified behaviourally, not just algebraically.** `microflownorm`'s
+  simplifier is checked against truth tables over 3000 generated formulas (with
+  a deliberately broken rewrite rule as the control), and the whole pipeline
+  against a **real runtime**: the original graph and the microflow rebuilt from
+  its normalized description return the same value for all four inputs
+  (`mdl-examples/bug-tests/923-normalized-describe{,.test}.mdl`). The two
+  `$A = false` rows are exactly the ones the flattened Mode 1 rendering gets
+  wrong.
+
+The original sketch:
 
 Recombine guards into an equivalent nested form. For the reporter's graph,
 `¬c1 ∨ (c1 ∧ c2)` simplifies to `¬c1 ∨ c2` and the whole microflow collapses to:
@@ -513,26 +549,96 @@ every supported version; this is a describe/parse-side concern. No entry in
 - **`mx check`** — every generated form at 0 errors.
 - **Runtime (Phase 2 only)** — the short-circuit question above, settled by
   booting an app and observing whether an erroring right operand is evaluated.
-- **Fixtures** — `mdl-examples/bug-tests/923-irreducible-microflow-graph.mdl`.
+  **Done** (2026-09-13): both operators short-circuit. Any such runtime probe
+  needs the positive control that forces the right operand to be reached —
+  otherwise a pass is explained just as well by the probe never throwing.
+- **Fixtures** — `mdl-examples/bug-tests/923-irreducible-microflow-graph.mdl`;
+  `923-short-circuit-semantics{,.test}.mdl` (shipped).
 
 ## Open Questions
 
-1. **Short-circuit semantics of `and`/`or`** — undocumented; blocks Mode 3. Settle
-   on a runtime before designing further.
-2. **Fall-through into a `merge`** — this proposal requires an explicit terminator.
-   The permissive alternative (fall-through means an implicit `join` to the next
-   declared merge) is friendlier to hand-authors and shorter to read, at the cost
-   of ambiguity in exactly the construct that exists to remove ambiguity.
-3. **`normalized` as an MDL modifier vs a CLI flag.** The modifier keeps it in the
-   language and works in the REPL; a flag keeps a rendering option out of the
-   grammar. No existing `DESCRIBE` modifier sets precedent.
-4. **`canon.TransplantIDs` on unnamed merges** — measure whether merge `$ID`s
-   survive a describe → exec round-trip, or whether positional matching churns
-   them. Affects whether Phase 1 output is genuinely idempotent.
-5. **Verb choice** — `join <name>` vs `goto <name>`. `join` matches Mendix's own
-   vocabulary and ADR-0003; `goto` is more immediately obvious to a developer and
-   was the reporter's own instinct in the issue discussion.
-6. **Loops.** This proposal addresses acyclic split/merge structure. Retry loops
-   (issue #281) already make the flow graph cyclic and are handled by separate
-   pass-through logic; whether the detector needs to exclude back-edges explicitly
-   is unverified.
+None outstanding.
+
+### Settled
+
+- **`normalized` as an MDL modifier vs a CLI flag** (was Q3) — shipped as the
+  **modifier**, `DESCRIBE MICROFLOW Module.Name NORMALIZED`. It keeps the option
+  in the language, so it works in the REPL and in a script, and it is what this
+  proposal's own examples were written as. `NORMALIZED` is registered in
+  `keyword` as well as the lexer, so an element called "normalized" still
+  parses — the same treatment `MERGE` needed.
+
+- **Short-circuit semantics of `and`/`or`** (was Q1, blocked Mode 3) — **both
+  short-circuit**, so folding a guard does not introduce an evaluation the
+  original avoided and **Mode 3 is unblocked**. Measured on Mendix 11.14.0 on a
+  local runtime, 2026-09-13; fixtures
+  `mdl-examples/bug-tests/923-short-circuit-semantics{,.test}.mdl`.
+
+  The probe is integer division by zero in the right operand — the only
+  observable an expression can have, Mendix expressions being pure. What makes
+  it a measurement rather than an assumption is the pair of **positive
+  controls**: two tests that force the right operand to be reached and therefore
+  must throw. Without them, the short-circuit tests passing is equally well
+  explained by `1 div 0` being harmless, which would say nothing about
+  evaluation order. Both operands read microflow *parameters*, not literals, so
+  mxbuild cannot constant-fold the expression and turn the measurement into one
+  of its own folding.
+
+  This removes the restriction the proposal contemplated ("if `or` turns out to
+  be eager, Mode 3 is restricted to conditions proven total, or dropped"). The
+  *purity and ordering* precondition is untouched and still applies: the region
+  being folded must contain only splits and merges.
+
+- **Fall-through into a `merge`** (was Q2) — settled **permissive** when Phase E
+  shipped: a path that has already ended (`return`, `throw`, `join`) does not
+  fall through into a following `merge`, but an ordinary path does. The
+  ambiguity the strict form guarded against turned out to sit elsewhere — a
+  *terminated* path emitting a duplicate edge into a following merge — and that
+  is what is enforced.
+
+- **`canon.TransplantIDs` on unnamed merges** (was Q4) — **IDs survive**;
+  positional matching does not churn them, and Phase E's output is genuinely
+  idempotent. Measured 2026-09-13 on Mendix 11.14.0 four ways, each stronger
+  than the last: re-exec of identical MDL (write elided, `Unchanged
+  microflow`); a **forced write** under `MXCLI_ALWAYS_WRITE=1` (`Replaced` — so
+  elision is bypassed and the transplant is what preserves the IDs); a
+  describe → exec round trip; and an edit inserting an activity *before* the
+  merges, shifting every position. The forced-write run is the load-bearing one:
+  without it a passing test only shows the write was skipped.
+
+- **Verb choice** (was Q5) — `join`, shipped in Phase E.
+
+- **Loops** (was Q6) — a retry loop is expressible as a **backward `join`** to a
+  `merge` declared earlier, which is what Phase E's forward-and-backward label
+  resolution is for. `merge`/`join` inside a `loop`/`while` *body* is refused
+  (MDL-FLOW04): a `LoopedActivity` owns its own object collection and a sequence
+  flow cannot leave it, so there is no graph to build.
+
+## Known limitation: a merge outside both described forms is dropped
+
+`labelRejoinMerges` labels only the merges an error handler reaches *and* the
+normal path also reaches. Every other merge is left to the nested describer,
+which represents an `if`/`else` join implicitly and **walks straight through a
+merge with a single incoming path without representing it at all**. Such a merge
+is therefore deleted by a describe → exec round trip, silently — no
+`MDL-FLOW01`, no warning on exec, just `Replaced microflow` one node lighter.
+
+Measured 2026-09-13: a microflow authored with two merges (one a 2-input error
+rejoin, one a 1-input pass-through) describes to **one** `merge`, and executing
+that output leaves the model with one. The ordinary `if`/`else` merge is
+unaffected and round-trips with its `$ID` intact and the write elided.
+
+This predates `merge`/`join` — `DESCRIBE` never emitted merges before, so a
+Studio Pro-authored 1-input merge has always been dropped — but Phase E makes it
+reachable from MDL, so a user can now write `MERGE done;` and have their own
+syntax disappear on the next round trip. It is behaviourally harmless (a 1-input
+merge is a no-op) and does **not** affect the Phase E fixpoint claim: describe →
+exec → describe converges after one step (verified D1 = D2 = D3). The loss is on
+the first step, from the *authored graph* to D1.
+
+Deleting a node the user drew is what guard-don't-drop exists to prevent, so the
+candidate remedies are a **describe-time warning** when an `ExclusiveMerge` is
+not represented in the output (cheap, no behaviour change, consistent with
+MDL-FLOW01 warning rather than silently flattening) or emitting a label for every
+unrepresented merge (more faithful, noisier on every describe of a real
+microflow). Undecided.

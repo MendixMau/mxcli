@@ -187,3 +187,103 @@ func mergeDeclarationLines(indent int, label string, obj microflows.MicroflowObj
 		pad + "merge " + label + ";",
 	}
 }
+
+// droppedMergeWarnings flags every ExclusiveMerge the description does not
+// represent — and which a describe → exec round trip therefore DELETES.
+//
+// Three shapes are represented and must stay quiet, because between them they
+// cover every merge in a real project that survives the round trip:
+//
+//   - the join point of an exclusive/inheritance split, rendered implicitly by
+//     `end if` / `end split`;
+//   - a labelled error rejoin, rendered explicitly as `merge <label>`; and
+//   - any merge with two or more incoming flows, which is a genuine convergence
+//     the describer renders as the continuation of whatever construct it closes.
+//
+// That last one is not redundant with the first, and the case that proves it is
+// a split where one branch `return`s: findMergeForSplit needs a join common to
+// ALL branches, so it finds none, yet the merge is still emitted as the
+// continuation after `end split` and survives. Measured on
+// Administration.ManageMyAccount (Administration 4.3.2), whose merge keeps its
+// $ID across describe → exec; without the in-degree clause it is a false
+// positive, and a warning that cries wolf on ordinary Marketplace code is worse
+// than no warning.
+//
+// What is left — a merge with a SINGLE incoming path — is walked straight
+// through by the describer and represented by nothing at all. Measured across
+// the microflows of a blank 11.14 app plus FeedbackModule: every one-input
+// merge is deleted by describe → exec (7 of 7) and every other survivor keeps
+// its $ID. It is behaviourally harmless (a one-input merge is a no-op) but it
+// deletes a node the user drew, which is what guard-don't-drop exists to
+// prevent. MDL-FLOW01 does not cover it: the graph is perfectly reducible, so
+// the irreducibility detector is right to stay silent and something else has to
+// speak.
+//
+// Deliberately NOT covered here: a merge lost to the flattening of an
+// IRREDUCIBLE graph (one two-input merge of
+// FeedbackModule.SUB_Feedback_SendToServer goes this way). That microflow
+// already carries MDL-FLOW01, which says the description is not equivalent and
+// must not be re-executed at all — a strictly stronger statement than this
+// warning, and the right owner for it.
+//
+// Loop bodies are recursed into because a LoopedActivity owns its own object
+// collection and its own traversal; without that every in-loop if/else merge
+// would report as dropped.
+func droppedMergeWarnings(ctx *ExecContext, oc *microflows.MicroflowObjectCollection, labels mergeLabels) []string {
+	if oc == nil {
+		return nil
+	}
+
+	activityMap := map[model.ID]microflows.MicroflowObject{}
+	for _, o := range oc.Objects {
+		if o != nil {
+			activityMap[o.GetID()] = o
+		}
+	}
+
+	// Merges that a split joins on are spelled by `end if` / `end split`.
+	represented := map[model.ID]bool{}
+	for _, mergeID := range findSplitMergePoints(ctx, oc, activityMap) {
+		represented[mergeID] = true
+	}
+
+	// A merge two or more paths arrive at is a real convergence and is rendered
+	// as the continuation of whatever construct closes there — including the
+	// split-with-a-returning-branch that findSplitMergePoints cannot pair up.
+	inDegree := map[model.ID]int{}
+	for _, f := range oc.Flows {
+		if f != nil {
+			inDegree[f.DestinationID]++
+		}
+	}
+
+	var out []string
+	for _, o := range oc.Objects {
+		merge, ok := o.(*microflows.ExclusiveMerge)
+		if !ok {
+			continue
+		}
+		if represented[merge.GetID()] || inDegree[merge.GetID()] >= 2 {
+			continue
+		}
+		if _, labelled := labels.of(merge.GetID()); labelled {
+			continue
+		}
+		p := merge.GetPosition()
+		out = append(out, fmt.Sprintf(
+			"-- WARNING: the merge at (%d, %d) is not represented in this description - "+
+				"it joins no decision and no error handler, so re-executing this MDL DELETES it. "+
+				"The microflow behaves the same either way (a merge with one incoming path is a no-op), "+
+				"but the node disappears from the diagram (mxcli #923)",
+			p.X, p.Y))
+	}
+
+	// A loop body is described by its own traversal, so its merges are judged
+	// against its own collection.
+	for _, o := range oc.Objects {
+		if loop, ok := o.(*microflows.LoopedActivity); ok {
+			out = append(out, droppedMergeWarnings(ctx, loop.ObjectCollection, labels)...)
+		}
+	}
+	return out
+}

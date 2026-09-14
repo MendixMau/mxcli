@@ -22,54 +22,90 @@ import (
 	"github.com/mendixlabs/mxcli/mdl/ast"
 	mdlerrors "github.com/mendixlabs/mxcli/mdl/errors"
 	"github.com/mendixlabs/mxcli/mdl/types"
+	"github.com/mendixlabs/mxcli/model"
 )
 
-// iconIndex holds the project's icon collections, keyed by qualified collection
-// name (Module.Collection) → set of icon names.
+// iconIndex holds the project's icon collections AND its image collections,
+// each keyed by qualified collection name (Module.Collection) → set of member
+// names.
+//
+// Both are needed because a widget icon can point into either, and they are
+// DIFFERENT documents: `Icon: 'Mod.Coll.name'` is a CustomIcons$CustomIcon and
+// `Icon: image Mod.Coll.name` is an Images$Image. Resolving one against the
+// other's listing reports a correct reference as a typo — which is the mirror
+// image of the defect that made these kinds distinguishable in the first place
+// (mendixlabs/mxcli#1059).
 type iconIndex struct {
 	collections map[string]map[string]bool
-	// order preserves a stable listing for error messages.
-	order []string
+	images      map[string]map[string]bool
+	// order and imageOrder preserve a stable listing for error messages.
+	order      []string
+	imageOrder []string
 }
 
-// buildIconIndex reads the project's icon collections once per validation run.
-// Returns nil when the project exposes none, which disables the check rather
-// than reporting every icon as unknown.
+// buildIconIndex reads the project's icon and image collections once per
+// validation run. Returns nil when the project exposes neither, which disables
+// the check rather than reporting every icon as unknown.
+//
+// An EMPTY listing means the backend could not answer, not that the project has
+// none — reporting every reference as unknown on that basis is the false error
+// the third state exists to prevent. Each half is therefore independent: a
+// project that yields icon collections but no image collections still has its
+// collection references resolved, and its image references left alone.
 func buildIconIndex(ctx *ExecContext) *iconIndex {
-	cols, err := ctx.Backend.ListIconCollections()
-	if err != nil || len(cols) == 0 {
-		return nil
-	}
 	h, err := getHierarchy(ctx)
 	if err != nil {
 		return nil
 	}
-	idx := &iconIndex{collections: make(map[string]map[string]bool, len(cols))}
-	for _, c := range cols {
-		qn := iconCollectionQualifiedName(h, c)
-		if qn == "" {
-			continue
-		}
-		names := make(map[string]bool, len(c.Icons))
-		for _, ic := range c.Icons {
-			names[ic.Name] = true
-		}
-		idx.collections[qn] = names
-		idx.order = append(idx.order, qn)
+	idx := &iconIndex{
+		collections: map[string]map[string]bool{},
+		images:      map[string]map[string]bool{},
 	}
+
+	if cols, err := ctx.Backend.ListIconCollections(); err == nil {
+		for _, c := range cols {
+			qn := iconCollectionQualifiedName(h, c.ContainerID, c.Name)
+			if qn == "" {
+				continue
+			}
+			names := make(map[string]bool, len(c.Icons))
+			for _, ic := range c.Icons {
+				names[ic.Name] = true
+			}
+			idx.collections[qn] = names
+			idx.order = append(idx.order, qn)
+		}
+	}
+
+	if cols, err := ctx.Backend.ListImageCollections(); err == nil {
+		for _, c := range cols {
+			qn := iconCollectionQualifiedName(h, c.ContainerID, c.Name)
+			if qn == "" {
+				continue
+			}
+			names := make(map[string]bool, len(c.Images))
+			for _, img := range c.Images {
+				names[img.Name] = true
+			}
+			idx.images[qn] = names
+			idx.imageOrder = append(idx.imageOrder, qn)
+		}
+	}
+
 	sort.Strings(idx.order)
-	if len(idx.collections) == 0 {
+	sort.Strings(idx.imageOrder)
+	if len(idx.collections) == 0 && len(idx.images) == 0 {
 		return nil
 	}
 	return idx
 }
 
-func iconCollectionQualifiedName(h *ContainerHierarchy, c *types.IconCollection) string {
-	mod := h.GetModuleName(h.FindModuleID(c.ContainerID))
-	if mod == "" || c.Name == "" {
+func iconCollectionQualifiedName(h *ContainerHierarchy, container model.ID, name string) string {
+	mod := h.GetModuleName(h.FindModuleID(container))
+	if mod == "" || name == "" {
 		return ""
 	}
-	return mod + "." + c.Name
+	return mod + "." + name
 }
 
 // validateIconRefs resolves every icon reference in the program against the
@@ -86,6 +122,11 @@ func validateIconRefs(ctx *ExecContext, prog *ast.Program) []error {
 	var errs []error
 	for i, stmt := range prog.Statements {
 		for _, ref := range iconRefsInStatement(stmt) {
+			// A glyph names no document. MDL078 checks its code against the
+			// font's own table; there is nothing for this pass to resolve.
+			if ref.kind == types.MenuIconGlyph {
+				continue
+			}
 			if err := idx.check(ref); err != nil {
 				errs = append(errs, fmt.Errorf("statement %d: %w", i+1, err))
 			}
@@ -96,13 +137,21 @@ func validateIconRefs(ctx *ExecContext, prog *ast.Program) []error {
 
 // iconRef is one icon reference and where it was written, for the message.
 type iconRef struct {
-	value string // as authored, e.g. Atlas_Core.Atlas_Filled.pencil
-	where string // e.g. `button "btnSave"` or `menu item 'Home'`
+	value string             // as authored, e.g. Atlas_Core.Atlas_Filled.pencil
+	kind  types.MenuIconKind // which document the name lives in
+	code  int                // the character code, for MenuIconGlyph (which has no name)
+	where string             // e.g. `button "btnSave"` or `menu item 'Home'`
 }
 
-// iconRefsInStatement collects icon references from the statements that can
-// carry one: page/snippet/layout widget trees, navigation menus and menu
-// documents.
+// iconRefsInStatement collects EVERY icon in a statement — page/snippet/layout
+// widget trees, navigation menus and menu documents — glyphs included, even
+// though a glyph resolves against no document.
+//
+// It is deliberately the single icon walk in this package. MDL078 (glyph codes)
+// consumes the same list, because a second walk over the same statements is how
+// one of them comes to know about a widget kind the other does not: the icon
+// reference check already had to be widened once for a field it was not looking
+// at, and that escape is silent both ways.
 //
 // Every widget-bearing field has to be walked, not just the obvious one. A
 // reference the walker misses is a reference nothing checks, and the escape is
@@ -147,8 +196,9 @@ func iconRefsInStatement(stmt ast.Statement) []iconRef {
 		for _, op := range s.Operations {
 			switch o := op.(type) {
 			case *ast.SetPropertyOp:
-				if v := iconPropValue(o.Properties); v != "" {
-					out = append(out, iconRef{value: v, where: "widget " + quoteName(o.Target.Name())})
+				if ref, ok := iconPropRef(o.Properties); ok {
+					ref.where = "widget " + quoteName(o.Target.Name())
+					out = append(out, ref)
 				}
 			case *ast.InsertWidgetOp:
 				for _, w := range o.Widgets {
@@ -173,8 +223,9 @@ func iconRefsInWidget(w *ast.WidgetV3) []iconRef {
 		return nil
 	}
 	var out []iconRef
-	if v := iconPropValue(w.Properties); v != "" {
-		out = append(out, iconRef{value: v, where: strings.ToLower(w.Type) + " " + quoteName(w.Name)})
+	if ref, ok := iconPropRef(w.Properties); ok {
+		ref.where = strings.ToLower(w.Type) + " " + quoteName(w.Name)
+		out = append(out, ref)
 	}
 	for _, c := range w.Children {
 		out = append(out, iconRefsInWidget(c)...)
@@ -184,8 +235,21 @@ func iconRefsInWidget(w *ast.WidgetV3) []iconRef {
 
 func iconRefsInMenu(item ast.NavMenuItemDef) []iconRef {
 	var out []iconRef
-	if ref := normalizeIconRef(item.Icon); ref != "" {
-		out = append(out, iconRef{value: ref, where: "menu item " + quoteName(item.Caption)})
+	where := "menu item " + quoteName(item.Caption)
+	switch {
+	case item.IconKind == types.MenuIconGlyph:
+		// A glyph has a code and no name. It resolves against no document, so
+		// validateIconRefs skips it — but it is walked here so MDL078 can read it
+		// from the same list rather than keeping a second walk of its own.
+		out = append(out, iconRef{kind: types.MenuIconGlyph, code: item.IconCode, where: where})
+	case normalizeIconRef(item.Icon) != "":
+		kind := item.IconKind
+		if kind == types.MenuIconNone {
+			// An item built before the kind existed carries a name and nothing
+			// else, and that name has only ever meant a collection icon.
+			kind = types.MenuIconCollection
+		}
+		out = append(out, iconRef{value: normalizeIconRef(item.Icon), kind: kind, where: where})
 	}
 	for _, sub := range item.Items {
 		out = append(out, iconRefsInMenu(sub)...)
@@ -193,23 +257,40 @@ func iconRefsInMenu(item ast.NavMenuItemDef) []iconRef {
 	return out
 }
 
-// iconPropValue pulls the icon property out of a widget property map. MDL
+// iconPropRef pulls a widget's icon property out as a resolvable reference. MDL
 // property keys are case-insensitive, so both `Icon:` and `icon:` are accepted.
-func iconPropValue(props map[string]any) string {
+//
+// A glyph is returned too, carrying its code and no name: it resolves against no
+// document, so validateIconRefs skips it, but MDL078 reads it from the same walk.
+// Reports ok=false only when the widget carries no icon at all.
+//
+// The plain-string shape is still handled: `Icon:` carried one before the kinds
+// existed, and callers that build a WidgetV3 directly still pass one. A reader
+// that handles ONLY the typed shape stops resolving icons entirely and says
+// nothing about it, which is how this check would quietly become a no-op.
+func iconPropRef(props map[string]any) (iconRef, bool) {
 	if props == nil {
-		return ""
+		return iconRef{}, false
 	}
 	for k, v := range props {
 		if !strings.EqualFold(k, "icon") {
 			continue
 		}
-		s, ok := v.(string)
-		if !ok {
-			continue
+		switch val := v.(type) {
+		case *ast.WidgetIcon:
+			if val == nil {
+				return iconRef{}, false
+			}
+			return widgetIconRef(*val)
+		case ast.WidgetIcon:
+			return widgetIconRef(val)
+		case string:
+			if name := normalizeIconRef(val); name != "" {
+				return iconRef{value: name, kind: types.MenuIconCollection}, true
+			}
 		}
-		return normalizeIconRef(s)
 	}
-	return ""
+	return iconRef{}, false
 }
 
 // normalizeIconRef strips the quoting MDL allows around an icon reference.
@@ -224,38 +305,92 @@ func quoteName(s string) string {
 	return "'" + s + "'"
 }
 
+// widgetIconRef turns one parsed icon into a walkable reference.
+func widgetIconRef(icon ast.WidgetIcon) (iconRef, bool) {
+	if icon.Kind == types.MenuIconGlyph {
+		return iconRef{kind: types.MenuIconGlyph, code: icon.Code}, true
+	}
+	if icon.Name == "" {
+		return iconRef{}, false
+	}
+	return iconRef{value: normalizeIconRef(icon.Name), kind: icon.Kind}, true
+}
+
 // check resolves one reference, distinguishing an unknown collection from an
-// unknown icon within a known one — the two need different fixes.
+// unknown member within a known one — the two need different fixes.
+//
+// Which listing it resolves against is decided by the reference's KIND, not by
+// trying both: a collection icon and an image icon are spelled identically and
+// live in different documents, so resolving one against the other's listing
+// turns a correct reference into a reported typo. That is the same conflation,
+// pointed the other way, that made an image icon re-execute as a custom icon.
 func (idx *iconIndex) check(ref iconRef) error {
-	// Module.Collection.IconName — the icon name is the last segment, and the
+	listing, order, what, lister := idx.collections, idx.order, "icon collection", "describe icon collection"
+	if ref.kind == types.MenuIconImage {
+		listing, order, what, lister = idx.images, idx.imageOrder, "image collection", "describe image collection"
+	}
+	// An empty listing means the backend could not answer, not that the project
+	// has none — reporting every reference as unknown on that basis is a false
+	// error blocking a script that builds cleanly.
+	if len(listing) == 0 {
+		return nil
+	}
+
+	// Module.Collection.Name — the member name is the last segment, and the
 	// collection is everything before it. Splitting from the right keeps working
 	// if a module name ever contains a dot.
 	dot := strings.LastIndex(ref.value, ".")
 	if dot <= 0 || dot == len(ref.value)-1 {
 		return mdlerrors.NewValidation(fmt.Sprintf(
-			"%s: icon %q is not a qualified icon reference — write Module.Collection.IconName, "+
-				"for example 'Atlas_Core.Atlas_Filled.pencil'.\n  Collections in this project: %s",
-			ref.where, ref.value, strings.Join(idx.order, ", ")))
+			"%s: icon %q is not a qualified reference — write Module.Collection.Name, "+
+				"for example 'Atlas_Core.Atlas_Filled.pencil'.\n  %ss in this project: %s",
+			ref.where, ref.value, strings.Title(what), strings.Join(order, ", ")))
 	}
-	collection, icon := ref.value[:dot], ref.value[dot+1:]
+	collection, member := ref.value[:dot], ref.value[dot+1:]
 
-	icons, known := idx.collections[collection]
+	members, known := listing[collection]
 	if !known {
-		return mdlerrors.NewValidation(fmt.Sprintf(
-			"%s: unknown icon collection %q in icon reference %q.\n  Collections in this project: %s",
-			ref.where, collection, ref.value, strings.Join(idx.order, ", ")))
+		msg := fmt.Sprintf("%s: unknown %s %q in icon reference %q.\n  %ss in this project: %s",
+			ref.where, what, collection, ref.value, strings.Title(what), strings.Join(order, ", "))
+		// The likeliest cause of this exact miss is the wrong KIND rather than a
+		// typo: the name resolves, just in the other kind of collection. Saying so
+		// is the difference between a two-second fix and a hunt.
+		if other := idx.otherKindHint(ref, collection); other != "" {
+			msg += "\n  " + other
+		}
+		return mdlerrors.NewValidation(msg)
 	}
-	if icons[icon] {
+	if members[member] {
 		return nil
 	}
 
-	msg := fmt.Sprintf("%s: icon %q does not exist in collection %q (MxBuild reports this as CE1613)",
-		ref.where, icon, collection)
-	if near := nearestIcons(icons, icon); len(near) > 0 {
+	msg := fmt.Sprintf("%s: %q does not exist in %s %q (MxBuild reports this as CE1613)",
+		ref.where, member, what, collection)
+	if near := nearestIcons(members, member); len(near) > 0 {
 		msg += ".\n  Did you mean: " + strings.Join(near, ", ")
 	}
-	msg += fmt.Sprintf(".\n  List the collection's icons with: describe icon collection %s", collection)
+	msg += fmt.Sprintf(".\n  List it with: %s %s", lister, collection)
 	return mdlerrors.NewValidation(msg)
+}
+
+// otherKindHint names the fix when a reference resolves under the OTHER kind:
+// the author wrote `Icon: 'Mod.Coll.x'` for what is really an image, or
+// `Icon: image Mod.Coll.x` for what is really a collection icon. Both spell the
+// same name, so the miss looks like a typo and is not one.
+func (idx *iconIndex) otherKindHint(ref iconRef, collection string) string {
+	if ref.kind == types.MenuIconImage {
+		if _, ok := idx.collections[collection]; ok {
+			return fmt.Sprintf("%q IS an icon collection — write `Icon: '%s'` (no `image`) for a "+
+				"CustomIcons$CustomIcon.", collection, ref.value)
+		}
+		return ""
+	}
+	if _, ok := idx.images[collection]; ok {
+		return fmt.Sprintf("%q IS an image collection — write `Icon: image %s` for an Images$Image. "+
+			"Writing it as a plain icon reference stores a custom-icon reference, which fails the "+
+			"build with CE1613.", collection, ref.value)
+	}
+	return ""
 }
 
 // nearestIcons suggests up to five icons whose names are close to the one
