@@ -150,12 +150,22 @@ type WorkflowWaitForNotificationNode struct {
 
 func (n *WorkflowWaitForNotificationNode) workflowActivityNode() {}
 
-// WorkflowEndNode represents an END activity.
+// WorkflowEndNode is `end workflow [comment '<caption>']` inside a branch: it
+// ends the whole workflow there. The main flow's End is not a node — the body's
+// closing `end workflow` is it.
 type WorkflowEndNode struct {
 	Caption string
 }
 
 func (n *WorkflowEndNode) workflowActivityNode() {}
+
+// WorkflowReturnNode is a `return;` written in a workflow body. Nothing is built
+// from it: it exists so MDL-WF11 can tell a microflow author that a workflow ends
+// with `end workflow;`, and so exec can refuse it rather than drop it — dropped,
+// the branch would fall through, the fault `end workflow` exists to prevent.
+type WorkflowReturnNode struct{}
+
+func (n *WorkflowReturnNode) workflowActivityNode() {}
 
 // WorkflowBoundaryEventNode represents a BOUNDARY EVENT clause on a user task.
 // Issue #7

@@ -58,6 +58,7 @@ var (
 //   - MDL-WF06: enumeration outcomes with no empty-valued branch (CE6686)
 //   - MDL-WF04: standalone `annotation` in a workflow body (unloadable model)
 //   - MDL-WF05: `jump to` a target that names no activity (see validate_workflow_jump.go)
+//   - MDL-WF08..11: where `end workflow` may go, and `return` (see validate_workflow_end.go)
 func ValidateWorkflow(stmt *ast.CreateWorkflowStmt) []linter.Violation {
 	var out []linter.Violation
 	loc := linter.Location{
@@ -81,12 +82,21 @@ func ValidateWorkflow(stmt *ast.CreateWorkflowStmt) []linter.Violation {
 			}
 			// MDL-WF02 — a single outcome must not carry a nested flow.
 			if len(n.Outcomes) == 1 && len(n.Outcomes[0].Activities) > 0 {
+				msg := fmt.Sprintf("user task %s has a single outcome with nested activities — MxBuild rejects this (CE1876)", label)
+				suggestion := "Move the activities to the workflow's main flow after the user task, or add a second outcome."
+				// "Move them to the main flow" is wrong advice for an End: moved
+				// there it is a parse error, and the workflow ends at its own
+				// `end workflow` anyway.
+				if onlyEnd(n.Outcomes[0].Activities) {
+					msg = fmt.Sprintf("user task %s has a single outcome that holds `end workflow` — a single outcome may not hold activities at all, so MxBuild rejects this (CE1876), and nothing after the task could be reached", label)
+					suggestion = "Add a second outcome that continues, if the task is meant to decide whether the workflow ends; otherwise remove `end workflow;` — the workflow ends at its own `end workflow` after the task."
+				}
 				out = append(out, linter.Violation{
 					RuleID:     "MDL-WF02",
 					Severity:   linter.SeverityError,
 					Location:   loc,
-					Message:    fmt.Sprintf("user task %s has a single outcome with nested activities — MxBuild rejects this (CE1876)", label),
-					Suggestion: "Move the activities to the workflow's main flow after the user task, or add a second outcome.",
+					Message:    msg,
+					Suggestion: suggestion,
 				})
 			}
 		case *ast.WorkflowDecisionNode:
@@ -111,7 +121,17 @@ func ValidateWorkflow(stmt *ast.CreateWorkflowStmt) []linter.Violation {
 		}
 	})
 	out = append(out, ValidateWorkflowJumpTargets(stmt)...)
+	out = append(out, ValidateWorkflowEnds(stmt)...)
 	return out
+}
+
+// onlyEnd reports whether a block holds nothing but `end workflow`.
+func onlyEnd(acts []ast.WorkflowActivityNode) bool {
+	if len(acts) != 1 {
+		return false
+	}
+	_, ok := acts[0].(*ast.WorkflowEndNode)
+	return ok
 }
 
 // checkWorkflowOutcomeNames flags condition-outcome values (decision / call
@@ -390,5 +410,5 @@ func ValidateAlterWorkflow(stmt *ast.AlterWorkflowStmt) []linter.Violation {
 			out = append(out, *v)
 		}
 	}
-	return out
+	return append(out, ValidateAlterWorkflowEnds(stmt)...)
 }

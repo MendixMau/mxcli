@@ -356,3 +356,76 @@ func TestWorkflowRewrite_CountsAnEventSubProcessOnce(t *testing.T) {
 		t.Fatalf("expected one event sub-process to be reported, got %v", err)
 	}
 }
+
+// storedWorkflowWithEnds returns a context whose stored workflow has the main
+// flow's End plus `nested` Ends inside a user task's outcomes, and one of each
+// end-of-path marker, which must not be mistaken for an End.
+func storedWorkflowWithEnds(t *testing.T, nested int) *ExecContext {
+	t.Helper()
+	outcomes := make([]any, 0, nested)
+	for i := 0; i < nested; i++ {
+		outcomes = append(outcomes, map[string]any{
+			"$Type": "Workflows$UserTaskOutcome",
+			"Flow": map[string]any{
+				"$Type":      "Workflows$Flow",
+				"Activities": []any{map[string]any{"$Type": "Workflows$EndWorkflowActivity"}},
+			},
+		})
+	}
+	raw := map[string]any{
+		"$Type": "Workflows$Workflow",
+		"Flow": map[string]any{
+			"$Type": "Workflows$Flow",
+			"Activities": []any{
+				map[string]any{"$Type": "Workflows$StartWorkflowActivity"},
+				map[string]any{"$Type": "Workflows$SingleUserTaskActivity", "Outcomes": outcomes},
+				map[string]any{"$Type": "Workflows$EndOfParallelSplitPathActivity"},
+				map[string]any{"$Type": "Workflows$EndOfBoundaryEventPathActivity"},
+				map[string]any{"$Type": "Workflows$EndWorkflowActivity"},
+			},
+		},
+	}
+	mb := &mock.MockBackend{
+		IsConnectedFunc: func() bool { return true },
+		GetRawUnitFunc:  func(model.ID) (map[string]any, error) { return raw, nil },
+	}
+	ctx, _ := newMockCtx(t, withBackend(mb))
+	return ctx
+}
+
+// A branch that ended the workflow could not be stated in MDL, and describe
+// dropped it, so a rewrite deleted it without a word — and the branch then fell
+// through into the main flow. Guard-don't-drop, as for boundary events.
+func TestWorkflowRewrite_RefusesDroppingNestedEnd(t *testing.T) {
+	stmt := parseWorkflowStmt(t, `create or replace workflow M.W parameter $C: M.Ctx
+begin
+  user task T 'c' page M.P outcomes 'Reject' { } 'Approve' { };
+end workflow;`)
+	err := checkNoDroppedWorkflowConstructs(storedWorkflowWithEnds(t, 1), "wf1", "M.W", stmt)
+	if err == nil || !strings.Contains(err.Error(), "end workflow") {
+		t.Fatalf("a rewrite that drops a stored nested End must be refused, got %v", err)
+	}
+}
+
+func TestWorkflowRewrite_AllowsRestatedNestedEnd(t *testing.T) {
+	stmt := parseWorkflowStmt(t, `create or replace workflow M.W parameter $C: M.Ctx
+begin
+  user task T 'c' page M.P outcomes 'Reject' { end workflow; } 'Approve' { };
+end workflow;`)
+	if err := checkNoDroppedWorkflowConstructs(storedWorkflowWithEnds(t, 1), "wf1", "M.W", stmt); err != nil {
+		t.Fatalf("a rewrite that restates the nested End must be allowed, got %v", err)
+	}
+}
+
+// The control for both: the main flow's End and the two end-of-path markers are
+// always present and are not branch Ends — counting them would refuse every
+// rewrite of every workflow.
+func TestWorkflowRewrite_MainEndAndPathMarkersAreNotNestedEnds(t *testing.T) {
+	stmt := parseWorkflowStmt(t, `create or replace workflow M.W parameter $C: M.Ctx
+begin
+  user task T 'c' page M.P outcomes 'Reject' { } 'Approve' { };
+end workflow;`)
+	if err := checkNoDroppedWorkflowConstructs(storedWorkflowWithEnds(t, 0), "wf1", "M.W", stmt); err != nil {
+		t.Fatalf("no nested End is stored, so nothing can be dropped, got %v", err)
+	}
+}

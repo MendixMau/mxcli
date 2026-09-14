@@ -21,11 +21,42 @@ createWorkflowStatement
       (EXPORT LEVEL (IDENTIFIER | API))?
       (OVERVIEW PAGE qualifiedName)?
       (DUE DATE_TYPE dueDate=STRING_LITERAL)?
-      BEGIN workflowBody END WORKFLOW SEMICOLON? SLASH?
+      BEGIN workflowMainBody END WORKFLOW SEMICOLON? SLASH?
     ;
 
+/**
+ * The top-level body. It cannot hold `end workflow;` as a statement: there those
+ * words close the body, and they ARE the main flow's End — Mendix refuses an End
+ * anywhere else in the main flow (CE6671). Keeping the statement out of this rule
+ * is what lets it exist at all; the first workflow grammar dropped it for the
+ * conflict with the closer. See docs/11-proposals/PROPOSAL_workflow_end_activity.md.
+ */
+workflowMainBody
+    : (workflowActivityStmt | workflowReturnStmt SEMICOLON)*
+    ;
+
+/**
+ * A brace body: an outcome, a decision branch, a parallel path, a boundary-event
+ * path, or an ALTER insert. `end workflow;` is accepted in every one and refused
+ * by check rules where Mendix refuses it (MDL-WF08/09/10), because a platform
+ * rule reported as a parse error reads as "not implemented".
+ */
 workflowBody
-    : workflowActivityStmt*
+    : (workflowActivityStmt | workflowEndStmt SEMICOLON | workflowReturnStmt SEMICOLON)*
+    ;
+
+/** Ends the whole workflow from inside a branch; `comment` sets the End's caption. */
+workflowEndStmt
+    : END WORKFLOW (COMMENT STRING_LITERAL)?
+    ;
+
+/**
+ * `return` belongs to microflows. It is parsed only so MDL-WF11 can say that a
+ * workflow ends with `end workflow;` — it is the spelling a microflow author, or
+ * an LLM, reaches for — and exec refuses it rather than dropping it.
+ */
+workflowReturnStmt
+    : RETURN
     ;
 
 workflowActivityStmt

@@ -62,6 +62,23 @@ func checkNoDroppedWorkflowConstructs(ctx *ExecContext, workflowID model.ID, qua
 			qualifiedName, strings.Join(cannotExpress, "\n  - ")))
 	}
 
+	// Ends inside branches. MDL could not state one until `end workflow`, and
+	// describe dropped them, so a rewrite from an older describe output would
+	// delete every one — and a branch that ended the workflow would silently
+	// fall through into the main flow instead. The main flow's own End is not
+	// counted: the builder always writes it.
+	if storedEnds := countRawWorkflowNodesExact(raw, "Workflows$EndWorkflowActivity") - 1; storedEnds > 0 {
+		if authored := countAuthoredEnds(stmt.Activities); authored < storedEnds {
+			return mdlerrors.NewUnsupported(fmt.Sprintf(
+				"workflow %s has %d stored `end workflow` inside its branches but this statement declares %d — "+
+					"rewriting it would delete the difference, and each branch that ended the workflow would fall "+
+					"through into the main flow instead.\n"+
+					"  Restate them (`end workflow;`), which `describe workflow %s` now emits, or use ALTER WORKFLOW "+
+					"to change one activity at a time.",
+				qualifiedName, storedEnds, authored, qualifiedName))
+		}
+	}
+
 	storedBE := countRawBoundaryEvents(raw)
 	if storedBE == 0 {
 		return nil
@@ -337,4 +354,42 @@ func countEventSubProcesses(raw map[string]any) int {
 		return subProcesses
 	}
 	return starts
+}
+
+// countRawWorkflowNodesExact counts BSON sub-documents whose $Type is exactly
+// the given one. The substring match countRawWorkflowNodes uses would also count
+// Workflows$EndOfParallelSplitPathActivity and EndOfBoundaryEventPathActivity,
+// the markers mxcli writes at the end of every path.
+func countRawWorkflowNodesExact(v any, typeName string) int {
+	switch t := v.(type) {
+	case map[string]any:
+		n := 0
+		if s, ok := t["$Type"].(string); ok && s == typeName {
+			n++
+		}
+		for k, child := range t {
+			if k != "$Type" {
+				n += countRawWorkflowNodesExact(child, typeName)
+			}
+		}
+		return n
+	case []any:
+		n := 0
+		for _, e := range t {
+			n += countRawWorkflowNodesExact(e, typeName)
+		}
+		return n
+	}
+	return 0
+}
+
+// countAuthoredEnds counts the `end workflow` statements inside branches.
+func countAuthoredEnds(activities []ast.WorkflowActivityNode) int {
+	n := 0
+	walkWorkflowActivities(activities, func(act ast.WorkflowActivityNode) {
+		if _, ok := act.(*ast.WorkflowEndNode); ok {
+			n++
+		}
+	})
+	return n
 }

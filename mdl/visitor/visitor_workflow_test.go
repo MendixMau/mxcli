@@ -1355,3 +1355,99 @@ end workflow;`,
 		})
 	}
 }
+
+// `end workflow` ends a workflow from inside a branch. It is accepted in every
+// brace body and builds in statement order, so an End after a call stays after
+// it. See docs/11-proposals/PROPOSAL_workflow_end_activity.md.
+func TestWorkflowVisitor_EndWorkflowInBranches(t *testing.T) {
+	input := `create workflow M.W parameter $C: M.E
+begin
+  user task T 'Review' page M.P
+    outcomes
+      'Approve' { }
+      'Reject' { call microflow M.Notify; end workflow comment 'Rejected'; }
+    boundary event interrupting timer 'addDays([%CurrentDateTime%], 3)' { end workflow; };
+  decision '$WorkflowContext/Flag'
+    outcomes
+      true -> { end workflow; }
+      false -> { };
+end workflow;`
+	prog, errs := Build(input)
+	if len(errs) > 0 {
+		t.Fatalf("parse errors: %v", errs)
+	}
+	stmt := prog.Statements[0].(*ast.CreateWorkflowStmt)
+	if len(stmt.Activities) != 2 {
+		t.Fatalf("expected 2 main-flow activities, got %d", len(stmt.Activities))
+	}
+
+	task := stmt.Activities[0].(*ast.WorkflowUserTaskNode)
+	reject := task.Outcomes[1].Activities
+	if len(reject) != 2 {
+		t.Fatalf("Reject outcome: expected [call microflow, end workflow], got %d activities", len(reject))
+	}
+	if _, ok := reject[0].(*ast.WorkflowCallMicroflowNode); !ok {
+		t.Errorf("Reject[0] = %T, want the call microflow (statement order lost)", reject[0])
+	}
+	if end, ok := reject[1].(*ast.WorkflowEndNode); !ok || end.Caption != "Rejected" {
+		t.Errorf("Reject[1] = %#v, want an End captioned 'Rejected'", reject[1])
+	}
+	if len(task.BoundaryEvents) != 1 || len(task.BoundaryEvents[0].Activities) != 1 {
+		t.Fatalf("boundary event path: expected one activity")
+	}
+	if end, ok := task.BoundaryEvents[0].Activities[0].(*ast.WorkflowEndNode); !ok || end.Caption != "" {
+		t.Errorf("boundary path = %#v, want an uncaptioned End", task.BoundaryEvents[0].Activities[0])
+	}
+
+	decision := stmt.Activities[1].(*ast.WorkflowDecisionNode)
+	if _, ok := decision.Outcomes[0].Activities[0].(*ast.WorkflowEndNode); !ok {
+		t.Errorf("decision true branch = %T, want an End", decision.Outcomes[0].Activities[0])
+	}
+}
+
+// In the top-level body `end workflow` is the closer — it IS the main flow's End —
+// so one written in the middle stays a parse error. Mendix refuses an End there
+// anyway (CE6671). The closer keeps its optional `;` and `/`.
+func TestWorkflowVisitor_EndWorkflowOnlyClosesTheMainFlow(t *testing.T) {
+	mid := `create workflow M.W parameter $C: M.E
+begin
+  user task T 'c' page M.P outcomes 'a' { } 'b' { };
+  end workflow;
+  user task U 'u' page M.P outcomes 'a' { } 'b' { };
+end workflow;`
+	if _, errs := Build(mid); len(errs) == 0 {
+		t.Error("a top-level `end workflow;` followed by more activities must not parse")
+	}
+	for _, closer := range []string{"end workflow;", "end workflow\n/", "end workflow"} {
+		src := "create workflow M.W parameter $C: M.E\nbegin\n  user task T 'c' page M.P outcomes 'a' { } 'b' { };\n" + closer
+		if _, errs := Build(src); len(errs) > 0 {
+			t.Errorf("closer %q must still parse: %v", closer, errs)
+		}
+	}
+}
+
+// `return;` is how a microflow ends. In a workflow it is parsed — in a branch and
+// in the main flow — so MDL-WF11 can point at `end workflow;` instead of a bare
+// parse error, and so exec can refuse it rather than drop it.
+func TestWorkflowVisitor_ReturnIsParsedForItsHint(t *testing.T) {
+	input := `create workflow M.W parameter $C: M.E
+begin
+  user task T 'c' page M.P outcomes 'a' { return; } 'b' { };
+  return;
+end workflow;`
+	prog, errs := Build(input)
+	if len(errs) > 0 {
+		t.Fatalf("parse errors: %v", errs)
+	}
+	stmt := prog.Statements[0].(*ast.CreateWorkflowStmt)
+	if len(stmt.Activities) != 2 {
+		t.Fatalf("expected [user task, return], got %d activities", len(stmt.Activities))
+	}
+	if _, ok := stmt.Activities[1].(*ast.WorkflowReturnNode); !ok {
+		t.Errorf("main flow [1] = %T, want a WorkflowReturnNode", stmt.Activities[1])
+	}
+	task := stmt.Activities[0].(*ast.WorkflowUserTaskNode)
+	if _, ok := task.Outcomes[0].Activities[0].(*ast.WorkflowReturnNode); !ok {
+		t.Errorf("outcome 'a' = %T, want a WorkflowReturnNode", task.Outcomes[0].Activities[0])
+	}
+}
