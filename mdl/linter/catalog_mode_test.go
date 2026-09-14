@@ -37,6 +37,7 @@ func TestDetectRequiredCatalogMode(t *testing.T) {
 		{"refs_from", "def check():\n  refs_from(x)", CatalogFull},
 		{"cycles", "def check():\n  for c in cycles(): pass", CatalogCommunities},
 		{"module_dependencies", "def check():\n  module_dependencies()", CatalogCommunities},
+		{"module_cycles", "def check():\n  for c in module_cycles(): pass", CatalogCommunities},
 		{"community_beats_refs", "def check():\n  refs_to(x); cycles()", CatalogCommunities},
 		// A substring that isn't a call must not trigger (needs the "(").
 		{"mention_only", "# refs_to is documented here", CatalogFast},
