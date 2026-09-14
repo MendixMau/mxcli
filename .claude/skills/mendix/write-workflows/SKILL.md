@@ -315,6 +315,15 @@ documented in `system-module`.
 
 ## Platform rules
 
+- **Some workflow state has no MDL spelling, and a rewrite refuses rather than
+  reset it.** An event sub-process, a workflow event handler, an AI agent task, a
+  user task's on-created microflow, and a multi-user task's completion rule other
+  than consensus falling back to its first outcome are set in Studio Pro.
+  `create or modify` on a workflow that holds any of them is refused with the
+  list, and so is `alter workflow … replace activity` on an activity that holds
+  one. Change such a workflow with `alter workflow … set activity …` (it edits
+  the stored document and keeps the rest) or in Studio Pro.
+
 - A user task needs a **task page** to be useful; without one Mendix flags the
   task (`CE1834`). Bind the page to `System.WorkflowUserTask`.
 - A user task / decision with a single outcome and no activity can trip

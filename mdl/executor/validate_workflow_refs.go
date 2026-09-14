@@ -313,6 +313,10 @@ func validateAlterWorkflowRefs(ctx *ExecContext, s *ast.AlterWorkflowStmt, sc *s
 	// loading. Same function for both passes, so `check --references` and `exec`
 	// cannot drift.
 	errs = append(errs, validateAlterWorkflowActivityKinds(ctx, s)...)
+	// REPLACE ACTIVITY rebuilds the activity from the statement, so state MDL
+	// cannot express — an on-created microflow, a completion rule — would be
+	// reset; refused like the same loss in a whole-workflow rewrite.
+	errs = append(errs, validateAlterReplaceKeepsStudioProState(ctx, s)...)
 
 	return append(errs, validateWorkflowReferences(ctx, added, sc)...)
 }
