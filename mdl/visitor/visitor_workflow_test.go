@@ -1303,3 +1303,55 @@ END WORKFLOW;`
 		t.Errorf("mapping = %+v, want {Ctx $WorkflowContext}", got)
 	}
 }
+
+// Describe writes `boundary event` before EVERY boundary event, and the syntax
+// topic documents that form, but the grammar took the keyword once and then all
+// clauses — so the describe output of any activity with two boundary events did
+// not parse (`mismatched input 'boundary' expecting ';'`). Both forms parse now.
+func TestWorkflowVisitor_BoundaryEventKeywordPerClause(t *testing.T) {
+	cases := map[string]string{
+		"user task": `create workflow M.W parameter $C: M.E
+begin
+  user task T 'c' page M.P outcomes 'a' { } 'b' { }
+    boundary event interrupting timer 'addDays([%CurrentDateTime%], 3)' { jump to T; }
+    boundary event non interrupting timer 'addDays([%CurrentDateTime%], 1)';
+end workflow;`,
+		"call microflow": `create workflow M.W parameter $C: M.E
+begin
+  call microflow M.ACT
+    boundary event interrupting timer 'addHours([%CurrentDateTime%], 1)'
+    boundary event non interrupting timer 'addHours([%CurrentDateTime%], 2)';
+end workflow;`,
+		"wait for notification": `create workflow M.W parameter $C: M.E
+begin
+  wait for notification w1
+    boundary event interrupting timer 'addDays([%CurrentDateTime%], 5)'
+    boundary event non interrupting timer 'addDays([%CurrentDateTime%], 2)';
+end workflow;`,
+		"one keyword, several clauses (the older form)": `create workflow M.W parameter $C: M.E
+begin
+  user task T 'c' page M.P outcomes 'a' { } 'b' { }
+    boundary event interrupting timer '${PT24H}' non interrupting timer '${PT1H}';
+end workflow;`,
+	}
+	for name, src := range cases {
+		t.Run(name, func(t *testing.T) {
+			prog, errs := Build(src)
+			if len(errs) > 0 {
+				t.Fatalf("parse errors: %v", errs)
+			}
+			var n int
+			switch a := prog.Statements[0].(*ast.CreateWorkflowStmt).Activities[0].(type) {
+			case *ast.WorkflowUserTaskNode:
+				n = len(a.BoundaryEvents)
+			case *ast.WorkflowCallMicroflowNode:
+				n = len(a.BoundaryEvents)
+			case *ast.WorkflowWaitForNotificationNode:
+				n = len(a.BoundaryEvents)
+			}
+			if n != 2 {
+				t.Errorf("boundary events = %d, want 2", n)
+			}
+		})
+	}
+}

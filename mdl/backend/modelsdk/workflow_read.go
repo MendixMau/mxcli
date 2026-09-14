@@ -158,6 +158,17 @@ func workflowActivityFromGen(el element.Element) workflows.WorkflowActivity {
 			}
 		}
 		return t
+	case *genWf.WaitForNotificationActivity:
+		// A wait for notification carries boundary events, like a user task or a
+		// call microflow. It had no case here, so it went through
+		// workflowSimpleActivityFromGen, which reads only the name and caption:
+		// describe printed it with every timer — and any `end workflow` inside
+		// one — gone, while the legacy engine read them. Measured on 11.13.0,
+		// both engines write them and mxbuild accepts them.
+		t := &workflows.WaitForNotificationActivity{}
+		setWfBase(&t.BaseWorkflowActivity, a.ID(), a.Name(), a.Caption(), a.Annotation(), "Workflows$WaitForNotificationActivity")
+		t.BoundaryEvents = boundaryEventsFromGen(a.BoundaryEventsItems())
+		return t
 	default:
 		return workflowSimpleActivityFromGen(el)
 	}

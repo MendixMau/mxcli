@@ -1,0 +1,59 @@
+-- describe dropped the boundary events of a wait for notification on the default
+-- engine.
+--
+-- Symptom: `describe workflow` printed `wait for notification awaitReply;`
+-- without its timers — and without the handler flow inside each — while the
+-- legacy engine (MXCLI_ENGINE=legacy) described them. A describe -> exec round
+-- trip therefore lost them.
+--
+-- Root cause: the default engine's reader (mdl/backend/modelsdk/workflow_read.go)
+-- had no typed case for WaitForNotificationActivity, so it went through the path
+-- for untyped activities, which reads only the name and caption.
+--
+-- Both engines WRITE these events and mxbuild accepts them (measured on 11.13.0:
+-- interrupting and non-interrupting timers on a wait for notification).
+--
+-- Verify:
+--   mxcli exec mdl-examples/bug-tests/workflow-wait-for-notification-boundary.mdl -p app.mpr
+--   mxcli -p app.mpr -c "describe workflow WFWN.AwaitReply"
+--   Expect both `boundary event` clauses under `wait for notification awaitReply`.
+
+create module WFWN;
+
+create persistent entity WFWN.Request ( Title: string(100) );
+/
+
+create page WFWN.TaskPage (
+  title: 'Task',
+  layout: Atlas_Core.Atlas_Default,
+  params: { $WorkflowUserTask: System.WorkflowUserTask }
+) {
+  layoutgrid g1 { row r1 { column c1 (desktopwidth: 12) { dynamictext t1 (content: 'Task') } } }
+}
+/
+
+create workflow WFWN.AwaitReply
+  parameter $Request: WFWN.Request
+begin
+  user task Ask 'Ask the requester'
+    page WFWN.TaskPage
+    outcomes 'Sent' { } 'Cancelled' { };
+
+  wait for notification awaitReply
+    -- `boundary event` before each clause — the form describe emits. The
+    -- grammar used to take the keyword once, so describe -> exec of this
+    -- activity failed to parse; both forms parse now.
+    boundary event interrupting timer 'addDays([%CurrentDateTime%], 5)' {
+      jump to Ask;
+    }
+    boundary event non interrupting timer 'addDays([%CurrentDateTime%], 2)' {
+      user task Remind 'Send a reminder'
+        page WFWN.TaskPage
+        outcomes 'Done' { } 'Skip' { };
+    };
+
+  user task Handle 'Handle the reply'
+    page WFWN.TaskPage
+    outcomes 'Done' { } 'Reject' { };
+end workflow;
+/

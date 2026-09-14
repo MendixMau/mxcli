@@ -3,6 +3,8 @@
 package executor
 
 import (
+	"github.com/mendixlabs/mxcli/mdl/ast"
+	"github.com/mendixlabs/mxcli/mdl/visitor"
 	"strings"
 	"testing"
 
@@ -294,6 +296,45 @@ func TestContextExprNormalizer_AliasesDeclaredParameterName(t *testing.T) {
 			got := newContextExprNormalizer(tc.declared).rewrite(tc.expr)
 			if got != tc.want {
 				t.Errorf("rewrite(%q) with declared %q = %q, want %q", tc.expr, tc.declared, got, tc.want)
+			}
+		})
+	}
+}
+
+// Describe output must re-parse with every boundary event intact. The integration
+// round trips compare describe output but never feed it back, which is how an
+// activity with two boundary events described into MDL that did not parse.
+func TestWorkflowDescribe_TwoBoundaryEventsReparse(t *testing.T) {
+	events := func() []*workflows.BoundaryEvent {
+		return []*workflows.BoundaryEvent{
+			{EventType: "InterruptingTimer", TimerDelay: "addDays([%CurrentDateTime%], 3)"},
+			{EventType: "NonInterruptingTimer", TimerDelay: "addDays([%CurrentDateTime%], 1)"},
+		}
+	}
+	task := &workflows.UserTask{Page: "M.P", Outcomes: []*workflows.UserTaskOutcome{{Value: "Ok"}, {Value: "No"}}}
+	task.Name, task.Caption = "T", "Task"
+	task.BoundaryEvents = events()
+	wait := &workflows.WaitForNotificationActivity{}
+	wait.Name, wait.Caption = "w1", "Wait"
+	wait.BoundaryEvents = events()
+
+	for name, act := range map[string]workflows.WorkflowActivity{"user task": task, "wait for notification": wait} {
+		t.Run(name, func(t *testing.T) {
+			body := strings.Join(formatSingleActivity(act, "  "), "\n")
+			src := "create workflow M.W parameter $C: M.E\nbegin\n" + body + "\nend workflow;"
+			prog, errs := visitor.Build(src)
+			if len(errs) > 0 {
+				t.Fatalf("describe output does not parse: %v\n%s", errs, src)
+			}
+			var n int
+			switch a := prog.Statements[0].(*ast.CreateWorkflowStmt).Activities[0].(type) {
+			case *ast.WorkflowUserTaskNode:
+				n = len(a.BoundaryEvents)
+			case *ast.WorkflowWaitForNotificationNode:
+				n = len(a.BoundaryEvents)
+			}
+			if n != 2 {
+				t.Errorf("boundary events after re-parse = %d, want 2\n%s", n, src)
 			}
 		})
 	}
