@@ -92,7 +92,7 @@ workflowUserTaskStmt
       (DUE DATE_TYPE STRING_LITERAL)?
       (DESCRIPTION STRING_LITERAL)?
       (OUTCOMES workflowUserTaskOutcome+)?
-      (BOUNDARY EVENT workflowBoundaryEventClause+)?
+      (BOUNDARY EVENT workflowBoundaryEventClause ((BOUNDARY EVENT)? workflowBoundaryEventClause)*)?
     | MULTI USER TASK (IDENTIFIER | QUOTED_IDENTIFIER) STRING_LITERAL
       (PAGE qualifiedName)?
       (TARGETING (USERS | GROUPS)? MICROFLOW qualifiedName)?
@@ -101,9 +101,16 @@ workflowUserTaskStmt
       (DUE DATE_TYPE STRING_LITERAL)?
       (DESCRIPTION STRING_LITERAL)?
       (OUTCOMES workflowUserTaskOutcome+)?
-      (BOUNDARY EVENT workflowBoundaryEventClause+)?
+      (BOUNDARY EVENT workflowBoundaryEventClause ((BOUNDARY EVENT)? workflowBoundaryEventClause)*)?
     ;
 
+/**
+ * One boundary event. An activity's clauses may each repeat `boundary event`
+ * (the form describe emits and the syntax topic documents) or share one
+ * (`boundary event interrupting timer '…' non interrupting timer '…'`). The
+ * grammar accepted only the shared form, so the describe output of an activity
+ * with two boundary events did not parse.
+ */
 workflowBoundaryEventClause
     : INTERRUPTING TIMER STRING_LITERAL? (LBRACE workflowBody RBRACE)?
     | NON INTERRUPTING TIMER STRING_LITERAL? (LBRACE workflowBody RBRACE)?
@@ -118,7 +125,7 @@ workflowCallMicroflowStmt
     : CALL MICROFLOW qualifiedName (AS workflowActivityName)? (COMMENT STRING_LITERAL)?
       (WITH LPAREN workflowParameterMapping (COMMA workflowParameterMapping)* RPAREN)?
       (OUTCOMES workflowConditionOutcome+)?
-      (BOUNDARY EVENT workflowBoundaryEventClause+)?
+      (BOUNDARY EVENT workflowBoundaryEventClause ((BOUNDARY EVENT)? workflowBoundaryEventClause)*)?
     ;
 
 workflowParameterMapping
@@ -158,7 +165,7 @@ workflowWaitForTimerStmt
 
 workflowWaitForNotificationStmt
     : WAIT FOR NOTIFICATION workflowActivityName? (COMMENT STRING_LITERAL)?
-      (BOUNDARY EVENT workflowBoundaryEventClause+)?
+      (BOUNDARY EVENT workflowBoundaryEventClause ((BOUNDARY EVENT)? workflowBoundaryEventClause)*)?
     ;
 
 workflowAnnotationStmt

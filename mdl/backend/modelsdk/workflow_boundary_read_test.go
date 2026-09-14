@@ -150,3 +150,44 @@ func TestWorkflowRead_UserTaskBoundaryEvents(t *testing.T) {
 		t.Errorf("TimerDelay = %q, want ${PT1H}", got)
 	}
 }
+
+// A wait for notification carries boundary events too, and the default engine
+// read them as absent: the typed reader switch had no case for it, so it fell
+// through to the untyped "simple" path, which sets only the name and caption.
+// DESCRIBE printed `wait for notification x;` with its timers — and any `end
+// workflow` inside them — gone, while the legacy engine described them.
+// Measured on 11.13.0: both engines write them and mxbuild accepts them.
+func TestWorkflowRead_WaitForNotificationBoundaryEvents(t *testing.T) {
+	end := &workflows.EndWorkflowActivity{}
+	end.Name, end.Caption = "End2", "NoReply"
+	wait := &workflows.WaitForNotificationActivity{}
+	wait.Name, wait.Caption = "notify1", "Wait for reply"
+	wait.BoundaryEvents = []*workflows.BoundaryEvent{
+		{
+			EventType:  "InterruptingTimer",
+			TimerDelay: "addDays([%CurrentDateTime%], 3)",
+			Flow:       &workflows.Flow{Activities: []workflows.WorkflowActivity{end}},
+		},
+		{
+			EventType:  "NonInterruptingTimer",
+			TimerDelay: "addDays([%CurrentDateTime%], 1)",
+		},
+	}
+
+	rt, ok := roundTripWorkflowActivity(t, wait).(*workflows.WaitForNotificationActivity)
+	if !ok {
+		t.Fatalf("round-tripped to %T, want *workflows.WaitForNotificationActivity", roundTripWorkflowActivity(t, wait))
+	}
+	if rt.Name != "notify1" || rt.Caption != "Wait for reply" {
+		t.Errorf("name/caption = %q/%q, want notify1/Wait for reply", rt.Name, rt.Caption)
+	}
+	if len(rt.BoundaryEvents) != 2 {
+		t.Fatalf("boundary events after round trip = %d, want 2 (the reader dropped them)", len(rt.BoundaryEvents))
+	}
+	if rt.BoundaryEvents[0].EventType != "InterruptingTimer" || rt.BoundaryEvents[1].EventType != "NonInterruptingTimer" {
+		t.Errorf("event types = %q, %q", rt.BoundaryEvents[0].EventType, rt.BoundaryEvents[1].EventType)
+	}
+	if f := rt.BoundaryEvents[0].Flow; f == nil || len(f.Activities) == 0 {
+		t.Errorf("the interrupting event's handler flow (with its End) was lost")
+	}
+}
