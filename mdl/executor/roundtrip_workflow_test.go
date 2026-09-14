@@ -29,12 +29,17 @@ import (
 // exec now resolve a workflow's page references (issue #943), so the missing
 // page is reported rather than written into the model — which is the point of
 // that check: Mendix rejects the same workflow with CE1613.
+//
+// And the page must take the task. These pages took no parameters, which
+// mxbuild refuses as CE7410 (measured on 11.13.0); exec now checks the task
+// page's signature and refused them, so the fixture is a valid task page.
 func createTaskPages(t *testing.T, env *testEnv, mod string, names ...string) {
 	t.Helper()
 	for _, name := range names {
 		mdl := `create page ` + mod + `.` + name + ` (
 			Title: '` + name + `',
-			Layout: Atlas_Core.Atlas_Default
+			Layout: Atlas_Core.Atlas_Default,
+			Params: { $WorkflowUserTask: System.WorkflowUserTask }
 		) {
 			layoutgrid g { row r { column c (DesktopWidth: 12) {
 				dynamictext dt (Content: '` + name + `')
@@ -62,13 +67,26 @@ func TestRoundtripWorkflow_Comprehensive(t *testing.T) {
 		t.Fatalf("create WfCtxEntity: %v", err)
 	}
 
+	// Targeting microflows take exactly System.Workflow and the workflow's
+	// context entity and return the candidate users. These took no parameters
+	// and returned a String, which mxbuild refuses as CE6677 (measured on
+	// 11.13.0), and exec now checks the signature.
+	targeting := func(name string) string {
+		return `create microflow ` + mod + `.` + name + ` ($Workflow: System.Workflow, $Context: ` + mod + `.WfCtxEntity)
+returns List of System.User as $Reviewers
+begin
+  retrieve $Reviewers from System.User;
+  return $Reviewers;
+end;`
+	}
+
 	// Microflow: single-user targeting
-	if err := env.executeMDL(`create microflow ` + mod + `.GetSingleReviewer () returns String begin end;`); err != nil {
+	if err := env.executeMDL(targeting("GetSingleReviewer")); err != nil {
 		t.Fatalf("create GetSingleReviewer: %v", err)
 	}
 
 	// Microflow: multi-user targeting
-	if err := env.executeMDL(`create microflow ` + mod + `.GetMultiReviewers () returns String begin end;`); err != nil {
+	if err := env.executeMDL(targeting("GetMultiReviewers")); err != nil {
 		t.Fatalf("create GetMultiReviewers: %v", err)
 	}
 

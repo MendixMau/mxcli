@@ -44,9 +44,27 @@ func init() {
 			"user task", "human task", "assign", "assignee",
 			"outcomes", "approve", "reject", "page",
 		},
-		Syntax:  "USER TASK <name> '<caption>'\n  [PAGE Module.Page]\n  [TARGETING MICROFLOW Module.MF | TARGETING XPATH '<xpath>']\n  [ENTITY Module.Entity]\n  OUTCOMES '<outcome1>' { <activities> } '<outcome2>' { <activities> };",
-		Example: "USER TASK ReviewTask 'Review the request'\n  PAGE HR.ReviewPage\n  TARGETING XPATH '[Module.Employee/Active = true()]'\n  OUTCOMES 'Approve' { } 'Reject' { };",
-		SeeAlso: []string{"workflow.user-task.targeting", "workflow.create"},
+		// The task page's parameter rule is the platform's, not MDL's, and it was
+		// nowhere in this help — a team building workflows from MDL found it by
+		// failing a build. Measured on 11.13: no parameters is CE7410, parameters
+		// without a WorkflowUserTask one is CE7412, and a WorkflowUserTask
+		// parameter PLUS others builds clean, so the help must not say "exactly".
+		Syntax: "[MULTI] USER TASK <name> '<caption>'\n" +
+			"  PAGE Module.TaskPage\n" +
+			"  [TARGETING [USERS | GROUPS] MICROFLOW Module.MF | TARGETING [USERS | GROUPS] XPATH '<xpath>']\n" +
+			"  [ENTITY Module.Entity]\n" +
+			"  [DUE DATE '<expression>']\n" +
+			"  [DESCRIPTION '<text>']\n" +
+			"  OUTCOMES '<outcome1>' { <activities> } '<outcome2>' { <activities> };\n\n" +
+			"-- The task page is opened with the TASK, not with the workflow's context\n" +
+			"-- object, so it must take a System.WorkflowUserTask parameter:\n" +
+			"--   page with no parameters              -> CE7410\n" +
+			"--   page without a WorkflowUserTask one  -> CE7412\n" +
+			"-- Other parameters may sit alongside it.",
+		Example: "-- The task page takes the task:\n" +
+			"CREATE PAGE HR.ReviewPage (\n  title: 'Review',\n  layout: Atlas_Core.Atlas_Default,\n  params: { $WorkflowUserTask: System.WorkflowUserTask }\n) { };\n\n" +
+			"USER TASK ReviewTask 'Review the request'\n  PAGE HR.ReviewPage\n  TARGETING XPATH '[Module.Employee/Active = true()]'\n  OUTCOMES 'Approve' { } 'Reject' { };",
+		SeeAlso: []string{"workflow.user-task.targeting", "workflow.multi-user-task", "workflow.create"},
 	})
 
 	Register(SyntaxFeature{
@@ -55,12 +73,54 @@ func init() {
 		Keywords: []string{
 			"targeting", "user targeting", "who can execute",
 			"assignee", "candidate", "xpath", "microflow",
-			"task assignment", "user filter",
+			"task assignment", "user filter", "workflow group",
+			"targeting microflow parameters", "targeting signature",
 		},
-		Syntax:     "TARGETING MICROFLOW Module.MF\nTARGETING XPATH '<xpath-expression>'",
-		Example:    "-- XPath targeting: only active managers\nUSER TASK Approve 'Approve request'\n  TARGETING XPATH '[HR.Employee/Role = \"Manager\" and Active = true()]'\n  OUTCOMES 'Done' { };\n\n-- Microflow targeting: custom logic\nUSER TASK Approve 'Approve request'\n  TARGETING MICROFLOW HR.GetApprovers\n  OUTCOMES 'Done' { };",
+		// The targeting microflow's signature was undocumented, and both of its
+		// traps are ones a reading of the error text gets wrong. Measured on
+		// 11.13: exactly TWO parameters (one, none, or a third is CE6677), in
+		// EITHER order, and the context parameter may be a GENERALIZATION of the
+		// context entity but not a specialization. Users and groups share it.
+		Syntax: "TARGETING [USERS] MICROFLOW Module.MF    -- returns a List of System.User\n" +
+			"TARGETING GROUPS MICROFLOW Module.MF     -- returns a List of System.WorkflowGroup\n" +
+			"TARGETING [USERS | GROUPS] XPATH '<xpath-expression>'\n\n" +
+			"-- A targeting microflow takes EXACTLY two parameters, in either order:\n" +
+			"--   System.Workflow\n" +
+			"--   the workflow's context entity, or a generalization of it\n" +
+			"-- One parameter, none, a third, or a specialization of the context\n" +
+			"-- entity is CE6677.",
+		Example: "-- XPath targeting: only active managers\nUSER TASK Approve 'Approve request'\n  TARGETING XPATH '[HR.Employee/Role = \"Manager\" and Active = true()]'\n  OUTCOMES 'Done' { };\n\n" +
+			"-- Microflow targeting: the microflow takes the workflow AND its context object\n" +
+			"CREATE MICROFLOW HR.GetApprovers ($Workflow: System.Workflow, $Request: HR.Request)\nRETURNS List of System.User AS $Approvers\nBEGIN\n  RETRIEVE $Approvers FROM System.User;\n  RETURN $Approvers;\nEND;\n\n" +
+			"USER TASK Approve 'Approve request'\n  TARGETING MICROFLOW HR.GetApprovers\n  OUTCOMES 'Done' { };",
 		MinVersion: "9.0.0",
-		SeeAlso:    []string{"workflow.user-task"},
+		SeeAlso:    []string{"workflow.user-task", "workflow.multi-user-task"},
+	})
+
+	Register(SyntaxFeature{
+		Path:    "workflow.multi-user-task",
+		Summary: "Multi-user task — one activity that several users each act on",
+		Keywords: []string{
+			"multi user task", "multi-user task", "several users", "multiple assignees",
+			"assessors", "voting", "parallel approval", "group approval",
+		},
+		// The grammar has accepted MULTI USER TASK since issue #8, and a team
+		// shipped one fanning out to eight assessors — but there was no topic for
+		// it, so it read as unsupported. It takes USER TASK's clauses and obeys the
+		// same page rule (measured: a context-typed page is CE7412 on a multi-user
+		// task too) and the same targeting rule.
+		Syntax: "MULTI USER TASK <name> '<caption>'\n" +
+			"  PAGE Module.TaskPage\n" +
+			"  [TARGETING [USERS | GROUPS] MICROFLOW Module.MF | TARGETING [USERS | GROUPS] XPATH '<xpath>']\n" +
+			"  [ENTITY Module.Entity]\n" +
+			"  [DUE DATE '<expression>']\n" +
+			"  [DESCRIPTION '<text>']\n" +
+			"  OUTCOMES '<outcome1>' { <activities> } '<outcome2>' { <activities> };\n\n" +
+			"-- Same clauses, task-page rule and targeting rule as USER TASK.\n" +
+			"-- MDL has no clause for a multi-user task's completion settings (how the\n" +
+			"-- individual answers decide the outcome); set those in Studio Pro.",
+		Example: "MULTI USER TASK ExpertAssessment 'Expert assessment'\n  PAGE MOC.AssessmentPage\n  TARGETING MICROFLOW MOC.GetAssessors\n  OUTCOMES 'Approve' { } 'Reject' { };",
+		SeeAlso: []string{"workflow.user-task", "workflow.user-task.targeting"},
 	})
 
 	Register(SyntaxFeature{
