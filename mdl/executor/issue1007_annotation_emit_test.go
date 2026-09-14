@@ -129,6 +129,12 @@ func TestDescribeWorkflow_MultiLineAnnotationCommentsEveryLine(t *testing.T) {
 // correctly reported the dangling target. Both PRs were green alone and red
 // together, because neither CI run saw the other's change; a fixture that is a
 // VALID workflow is what makes the assertion mean what it says.
+//
+// The same thing happened a second time. The jump sat at the end of the main
+// flow, and MDL-WF10 reported it: measured on mxbuild 11.13.0, a main flow that
+// ends in `jump to` fails CE6679 (a jump must end a path — the implicit End
+// follows it) and CE6689 (that End is unreachable), while the same jump inside
+// an outcome builds clean. So the jump now lives in an outcome.
 func TestDescribeWorkflow_NoAnnotationEmitsNoComment(t *testing.T) {
 	target := &workflows.UserTask{}
 	target.Name = "Review"
@@ -138,7 +144,15 @@ func TestDescribeWorkflow_NoAnnotationEmitsNoComment(t *testing.T) {
 	jump := &workflows.JumpToActivity{TargetActivity: "Review"}
 	jump.Name = "j1"
 
-	src, parseErrs, rules := describeAndValidate(t, target, jump)
+	approve := &workflows.UserTask{Outcomes: []*workflows.UserTaskOutcome{
+		{Name: "Again", Caption: "Again", Value: "Again", Flow: &workflows.Flow{Activities: []workflows.WorkflowActivity{jump}}},
+		{Name: "Done", Caption: "Done", Value: "Done"},
+	}}
+	approve.Name = "Approve"
+	approve.Caption = "Approve"
+	approve.Page = "M.ReviewPage"
+
+	src, parseErrs, rules := describeAndValidate(t, target, approve)
 	if parseErrs != nil {
 		t.Fatalf("parse: %v\n%s", parseErrs, src)
 	}

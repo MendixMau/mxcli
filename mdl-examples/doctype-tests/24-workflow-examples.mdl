@@ -529,3 +529,46 @@ begin
   wait for notification waitForNotification1;
 end workflow;
 /
+
+
+-- ############################################################################
+-- PART E: END WORKFLOW — ending the workflow from inside a branch
+-- ############################################################################
+--
+-- `end workflow [comment '<caption>'];` is legal as the last statement of a
+-- user-task outcome, a decision branch, a call-microflow outcome or an
+-- interrupting boundary-event path, at any depth. It ends the whole workflow.
+-- The main flow needs none — the body's closing `end workflow` is its End.
+-- See docs/11-proposals/PROPOSAL_workflow_end_activity.md.
+
+create workflow WFTest.EndInBranches
+  parameter $OrderContext: WFTest.OrderContext
+begin
+  decision decision1 '$WorkflowContext/Total > 1000'
+    outcomes
+      true -> {
+        user task ManagerReview 'Manager review'
+          page WFTest.TaskPage
+          outcomes
+            'Reject' { end workflow comment 'Rejected by manager'; }
+            'Approve' { };
+      }
+      false -> { };
+
+  user task FinalCheck 'Final check'
+    page WFTest.TaskPage
+    outcomes
+      'Cancel' { end workflow; }
+      'Confirm' { }
+    boundary event interrupting timer 'addDays([%CurrentDateTime%], 3)' {
+      end workflow comment 'Expired';
+    };
+
+  wait for timer timer1 'addHours([%CurrentDateTime%], 1)';
+end workflow;
+/
+
+alter workflow WFTest.EndInBranches
+  insert outcome 'Withdraw' on FinalCheck {
+    end workflow comment 'Withdrawn';
+  };

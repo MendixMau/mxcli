@@ -21,11 +21,42 @@ createWorkflowStatement
       (EXPORT LEVEL (IDENTIFIER | API))?
       (OVERVIEW PAGE qualifiedName)?
       (DUE DATE_TYPE dueDate=STRING_LITERAL)?
-      BEGIN workflowBody END WORKFLOW SEMICOLON? SLASH?
+      BEGIN workflowMainBody END WORKFLOW SEMICOLON? SLASH?
     ;
 
+/**
+ * The top-level body. It cannot hold `end workflow;` as a statement: there those
+ * words close the body, and they ARE the main flow's End — Mendix refuses an End
+ * anywhere else in the main flow (CE6671). Keeping the statement out of this rule
+ * is what lets it exist at all; the first workflow grammar dropped it for the
+ * conflict with the closer. See docs/11-proposals/PROPOSAL_workflow_end_activity.md.
+ */
+workflowMainBody
+    : (workflowActivityStmt | workflowReturnStmt SEMICOLON)*
+    ;
+
+/**
+ * A brace body: an outcome, a decision branch, a parallel path, a boundary-event
+ * path, or an ALTER insert. `end workflow;` is accepted in every one and refused
+ * by check rules where Mendix refuses it (MDL-WF08/09/10), because a platform
+ * rule reported as a parse error reads as "not implemented".
+ */
 workflowBody
-    : workflowActivityStmt*
+    : (workflowActivityStmt | workflowEndStmt SEMICOLON | workflowReturnStmt SEMICOLON)*
+    ;
+
+/** Ends the whole workflow from inside a branch; `comment` sets the End's caption. */
+workflowEndStmt
+    : END WORKFLOW (COMMENT STRING_LITERAL)?
+    ;
+
+/**
+ * `return` belongs to microflows. It is parsed only so MDL-WF11 can say that a
+ * workflow ends with `end workflow;` — it is the spelling a microflow author, or
+ * an LLM, reaches for — and exec refuses it rather than dropping it.
+ */
+workflowReturnStmt
+    : RETURN
     ;
 
 workflowActivityStmt
@@ -61,7 +92,7 @@ workflowUserTaskStmt
       (DUE DATE_TYPE STRING_LITERAL)?
       (DESCRIPTION STRING_LITERAL)?
       (OUTCOMES workflowUserTaskOutcome+)?
-      (BOUNDARY EVENT workflowBoundaryEventClause+)?
+      (BOUNDARY EVENT workflowBoundaryEventClause ((BOUNDARY EVENT)? workflowBoundaryEventClause)*)?
     | MULTI USER TASK (IDENTIFIER | QUOTED_IDENTIFIER) STRING_LITERAL
       (PAGE qualifiedName)?
       (TARGETING (USERS | GROUPS)? MICROFLOW qualifiedName)?
@@ -70,9 +101,16 @@ workflowUserTaskStmt
       (DUE DATE_TYPE STRING_LITERAL)?
       (DESCRIPTION STRING_LITERAL)?
       (OUTCOMES workflowUserTaskOutcome+)?
-      (BOUNDARY EVENT workflowBoundaryEventClause+)?
+      (BOUNDARY EVENT workflowBoundaryEventClause ((BOUNDARY EVENT)? workflowBoundaryEventClause)*)?
     ;
 
+/**
+ * One boundary event. An activity's clauses may each repeat `boundary event`
+ * (the form describe emits and the syntax topic documents) or share one
+ * (`boundary event interrupting timer '…' non interrupting timer '…'`). The
+ * grammar accepted only the shared form, so the describe output of an activity
+ * with two boundary events did not parse.
+ */
 workflowBoundaryEventClause
     : INTERRUPTING TIMER STRING_LITERAL? (LBRACE workflowBody RBRACE)?
     | NON INTERRUPTING TIMER STRING_LITERAL? (LBRACE workflowBody RBRACE)?
@@ -87,7 +125,7 @@ workflowCallMicroflowStmt
     : CALL MICROFLOW qualifiedName (AS workflowActivityName)? (COMMENT STRING_LITERAL)?
       (WITH LPAREN workflowParameterMapping (COMMA workflowParameterMapping)* RPAREN)?
       (OUTCOMES workflowConditionOutcome+)?
-      (BOUNDARY EVENT workflowBoundaryEventClause+)?
+      (BOUNDARY EVENT workflowBoundaryEventClause ((BOUNDARY EVENT)? workflowBoundaryEventClause)*)?
     ;
 
 workflowParameterMapping
@@ -127,7 +165,7 @@ workflowWaitForTimerStmt
 
 workflowWaitForNotificationStmt
     : WAIT FOR NOTIFICATION workflowActivityName? (COMMENT STRING_LITERAL)?
-      (BOUNDARY EVENT workflowBoundaryEventClause+)?
+      (BOUNDARY EVENT workflowBoundaryEventClause ((BOUNDARY EVENT)? workflowBoundaryEventClause)*)?
     ;
 
 workflowAnnotationStmt

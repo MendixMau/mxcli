@@ -5,6 +5,8 @@ package visitor
 import (
 	"strings"
 
+	"github.com/antlr4-go/antlr/v4"
+
 	"github.com/mendixlabs/mxcli/mdl/ast"
 	"github.com/mendixlabs/mxcli/mdl/grammar/parser"
 )
@@ -84,8 +86,8 @@ func (b *Builder) ExitCreateWorkflowStatement(ctx *parser.CreateWorkflowStatemen
 	stmt.Documentation, stmt.DocumentationSet = findDocComment(ctx)
 
 	// Parse body
-	if body := ctx.WorkflowBody(); body != nil {
-		stmt.Activities = buildWorkflowBody(body)
+	if body := ctx.WorkflowMainBody(); body != nil {
+		stmt.Activities = buildWorkflowMainBody(body)
 	}
 
 	b.statements = append(b.statements, stmt)
@@ -389,22 +391,55 @@ func parseAlterActivityRef(ctx *parser.AlterActivityRefContext) (string, int) {
 	return name, atPos
 }
 
-// buildWorkflowBody converts a workflow body context to activity nodes.
+// buildWorkflowBody builds a brace body — an outcome, a decision branch, a
+// parallel path, a boundary-event path or an ALTER insert — which may contain
+// `end workflow`.
 func buildWorkflowBody(ctx parser.IWorkflowBodyContext) []ast.WorkflowActivityNode {
 	if ctx == nil {
 		return nil
 	}
-	bodyCtx := ctx.(*parser.WorkflowBodyContext)
-	var activities []ast.WorkflowActivityNode
+	return buildWorkflowStatements(ctx.GetChildren())
+}
 
-	for _, actCtx := range bodyCtx.AllWorkflowActivityStmt() {
-		act := buildWorkflowActivityStmt(actCtx)
+// buildWorkflowMainBody builds the top-level body, where `end workflow` is the
+// closer rather than a statement.
+func buildWorkflowMainBody(ctx parser.IWorkflowMainBodyContext) []ast.WorkflowActivityNode {
+	if ctx == nil {
+		return nil
+	}
+	return buildWorkflowStatements(ctx.GetChildren())
+}
+
+// buildWorkflowStatements walks a body's children in source order. A body holds
+// more than one rule since `end workflow` and `return` are not
+// workflowActivityStmt alternatives, and collecting each with its own All…()
+// accessor would move every End to the end of its block.
+func buildWorkflowStatements(children []antlr.Tree) []ast.WorkflowActivityNode {
+	var activities []ast.WorkflowActivityNode
+	for _, child := range children {
+		var act ast.WorkflowActivityNode
+		switch c := child.(type) {
+		case *parser.WorkflowActivityStmtContext:
+			act = buildWorkflowActivityStmt(c)
+		case *parser.WorkflowEndStmtContext:
+			act = buildWorkflowEnd(c)
+		case *parser.WorkflowReturnStmtContext:
+			act = &ast.WorkflowReturnNode{}
+		}
 		if act != nil {
 			activities = append(activities, act)
 		}
 	}
-
 	return activities
+}
+
+// buildWorkflowEnd builds `end workflow [comment '<caption>']`.
+func buildWorkflowEnd(ctx *parser.WorkflowEndStmtContext) *ast.WorkflowEndNode {
+	node := &ast.WorkflowEndNode{}
+	if ctx.COMMENT() != nil && ctx.STRING_LITERAL() != nil {
+		node.Caption = unquoteString(ctx.STRING_LITERAL().GetText())
+	}
+	return node
 }
 
 // buildWorkflowActivityStmt dispatches to the appropriate builder.

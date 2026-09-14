@@ -1,0 +1,20 @@
+-- NEGATIVE TEST (.fail.mdl) — EXPECTED to fail `mxcli check` with MDL-WF10.
+--
+-- When every path of an activity ends the workflow or jumps away, nothing after
+-- it can run: CE6689 ("cannot be reached because of the activities before
+-- it"). Measured on mxbuild 11.13.0 for outcomes that all End, a decision whose
+-- branches all End, outcomes that all jump, a mix, and termination through a
+-- nested decision — and for the main flow's own End when such an activity is
+-- last.
+
+create persistent entity WFEND.Ctx ( Title: string(50) );
+create page WFEND.TaskPage ( title: 'T', layout: Atlas_Core.Atlas_Default, params: { $WorkflowUserTask: System.WorkflowUserTask } ) { };
+
+create workflow WFEND.EveryPathEnds parameter $Ctx: WFEND.Ctx
+begin
+  user task Review 'Review' page WFEND.TaskPage
+    outcomes
+      'Reject' { end workflow comment 'Rejected'; }
+      'Cancel' { end workflow comment 'Cancelled'; };
+  user task Book 'Book' page WFEND.TaskPage outcomes 'Done' { } 'Later' { };
+end workflow;

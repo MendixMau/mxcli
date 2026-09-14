@@ -1,0 +1,22 @@
+-- NEGATIVE TEST (.fail.mdl) — EXPECTED to fail `mxcli check` with MDL-WF08.
+--
+-- `end workflow` under a parallel split, at any depth, is CE1844 ("A 'End'
+-- cannot be used for a 'Parallel split'"): one path cannot end the workflow
+-- while the other paths are still running. Measured on mxbuild 11.13.0 both
+-- directly in a path and in an outcome nested inside one.
+
+create persistent entity WFEND.Ctx ( Title: string(50) );
+create page WFEND.TaskPage ( title: 'T', layout: Atlas_Core.Atlas_Default, params: { $WorkflowUserTask: System.WorkflowUserTask } ) { };
+
+create workflow WFEND.EndInSplit parameter $Ctx: WFEND.Ctx
+begin
+  parallel split
+    path 1 {
+      user task Legal 'Legal review' page WFEND.TaskPage
+        outcomes 'Reject' { end workflow; } 'Approve' { };
+    }
+    path 2 {
+      user task Tech 'Technical review' page WFEND.TaskPage
+        outcomes 'Done' { } 'Skip' { };
+    };
+end workflow;

@@ -174,7 +174,12 @@ func validateWorkflowStatementRefs(ctx *ExecContext, s *ast.CreateWorkflowStmt, 
 		}
 	}
 	errs = append(errs, bareTimerBoundaryEventErrors(ctx, s.Activities, 0)...)
-	return append(errs, validateWorkflowReferences(ctx, s.Activities, sc)...)
+	errs = append(errs, validateWorkflowReferences(ctx, s.Activities, sc)...)
+	// Then the signatures of the page and targeting microflow each user task
+	// hands work to — names that resolve can still be the wrong shape (CE7410,
+	// CE7412, CE6677). A target that did not resolve is skipped there, so it is
+	// reported once, above.
+	return append(errs, validateWorkflowTaskSignatures(ctx, s.Activities, s.ParameterEntity.String(), sc)...)
 }
 
 // bareTimerBoundaryEventErrors refuses `boundary event timer` without a kind
@@ -313,6 +318,15 @@ func validateAlterWorkflowRefs(ctx *ExecContext, s *ast.AlterWorkflowStmt, sc *s
 	// loading. Same function for both passes, so `check --references` and `exec`
 	// cannot drift.
 	errs = append(errs, validateAlterWorkflowActivityKinds(ctx, s)...)
+	// REPLACE ACTIVITY rebuilds the activity from the statement, so state MDL
+	// cannot express — an on-created microflow, a completion rule — would be
+	// reset; refused like the same loss in a whole-workflow rewrite.
+	errs = append(errs, validateAlterReplaceKeepsStudioProState(ctx, s)...)
 
-	return append(errs, validateWorkflowReferences(ctx, added, sc)...)
+	// And an inserted `end workflow` must not land under a parallel split or a
+	// non-interrupting boundary event that only the stored workflow shows.
+	errs = append(errs, validateAlterWorkflowEndAncestry(ctx, s)...)
+
+	errs = append(errs, validateWorkflowReferences(ctx, added, sc)...)
+	return append(errs, validateAlterWorkflowTaskSignatures(ctx, s, added, sc)...)
 }

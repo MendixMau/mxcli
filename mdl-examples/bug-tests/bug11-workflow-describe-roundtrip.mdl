@@ -44,12 +44,27 @@ begin
 end;
 /
 
+create microflow WF11.ACT_Check ()
+  returns boolean as $Result
+begin
+  return true;
+end;
+/
+
 create or replace workflow WF11.WF_RoundTrip
   parameter $Context: WF11.Request
 begin
   call microflow WF11.ACT_Noop;
   wait for timer 'addHours([%CurrentDateTime%], 1)';
   wait for notification;
-  jump to ACT_Noop;
+  -- The jump sits in an outcome. It used to close the main flow, which this
+  -- fixture's own claim ("a workflow that docker build accepts") did not
+  -- survive: measured on mxbuild 11.13.0, a main flow ending in `jump to` fails
+  -- CE6679 (a jump must end a path — the implicit End follows it) and CE6689
+  -- (that End is unreachable), and MDL-WF10 now reports it at check time.
+  call microflow WF11.ACT_Check
+    outcomes
+      true -> { }
+      false -> { jump to ACT_Noop; };
 end workflow;
 /
