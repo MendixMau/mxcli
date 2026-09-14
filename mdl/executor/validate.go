@@ -287,8 +287,13 @@ func (sc *scriptContext) has(name string) bool {
 	if _, ok := sc.javaScriptActions[name]; ok {
 		return true
 	}
+	// Every kind allNames lists must be answerable here. allNames includes
+	// workflows and this did not, so annotateForwardRef could exclude neither a
+	// workflow's own name nor one already created, and told the author to move a
+	// workflow statement before itself.
 	return sc.modules[name] || sc.entities[name] || sc.enumerations[name] ||
-		sc.microflows[name] || sc.nanoflows[name] || sc.pages[name] || sc.snippets[name]
+		sc.microflows[name] || sc.nanoflows[name] || sc.pages[name] || sc.snippets[name] ||
+		sc.workflows[name]
 }
 
 // validateProgram validates all statements in a program, skipping references
