@@ -52,6 +52,21 @@ func (f *rejoinFixture) edge(from, to string, isError bool) {
 	})
 }
 
+// branch adds a labelled edge out of a split, which is how the describer tells
+// the true arm from the false one.
+func (f *rejoinFixture) branch(from, to string, isTrue bool) {
+	expr := "false"
+	if isTrue {
+		expr = "true"
+	}
+	f.col.Flows = append(f.col.Flows, &microflows.SequenceFlow{
+		BaseElement:   model.BaseElement{ID: model.ID(randomTestID())},
+		OriginID:      f.ids[from],
+		DestinationID: f.ids[to],
+		CaseValue:     &microflows.ExpressionCase{Expression: expr},
+	})
+}
+
 var testIDCounter int
 
 func randomTestID() string {

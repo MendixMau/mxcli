@@ -193,7 +193,15 @@ func calculateNanoflowComplexity(nf *microflows.Nanoflow) int {
 }
 
 // describeMicroflow handles DESCRIBE MICROFLOW command - outputs MDL source code.
+// describeMicroflow renders a microflow as MDL (Mode 1 / Mode 2). It keeps this
+// exact signature because the catalog dispatches on it by name.
 func describeMicroflow(ctx *ExecContext, name ast.QualifiedName) error {
+	return describeMicroflowMode(ctx, name, false)
+}
+
+// describeMicroflowMode adds Mode 3: with normalized set, a recombinable
+// irreducible split is folded into a single condition rather than flattened.
+func describeMicroflowMode(ctx *ExecContext, name ast.QualifiedName, normalized bool) error {
 	// Get hierarchy for module/folder resolution
 	h, err := getHierarchy(ctx)
 	if err != nil {
@@ -230,8 +238,20 @@ func describeMicroflow(ctx *ExecContext, name ast.QualifiedName) error {
 		return mdlerrors.NewNotFound("microflow", name.String())
 	}
 
+	// Mode 3. Fold the guards of any recombinable split into one condition and
+	// describe the resulting properly-nested graph, rather than flattening the
+	// real one into MDL that means something else. Works on a copy: a DESCRIBE
+	// never touches the stored model.
+	var normalizeNotes []string
+	if normalized {
+		clone := *targetMf
+		clone.ObjectCollection, normalizeNotes = normalizeCollection(targetMf.ObjectCollection)
+		targetMf = &clone
+	}
+
 	// Generate MDL output
 	var lines []string
+	lines = append(lines, normalizeNotes...)
 
 	// Documentation
 	if targetMf.Documentation != "" {
@@ -758,6 +778,7 @@ func formatMicroflowActivities(
 	var lines []string
 	lines = append(lines, duplicateOutputVariableWarnings(mf.ObjectCollection)...)
 	lines = append(lines, irreducibleGraphWarnings(mf.ObjectCollection)...)
+	lines = append(lines, droppedMergeWarnings(ctx, mf.ObjectCollection, labelRejoinMerges(mf.ObjectCollection))...)
 
 	// Sort flows by OriginConnectionIndex for each origin
 	for originID := range flowsByOrigin {
@@ -996,6 +1017,7 @@ func formatMicroflowActivitiesWithSourceMap(
 	var lines []string
 	lines = append(lines, duplicateOutputVariableWarnings(mf.ObjectCollection)...)
 	lines = append(lines, irreducibleGraphWarnings(mf.ObjectCollection)...)
+	lines = append(lines, droppedMergeWarnings(ctx, mf.ObjectCollection, labelRejoinMerges(mf.ObjectCollection))...)
 
 	for originID := range flowsByOrigin {
 		flows := flowsByOrigin[originID]

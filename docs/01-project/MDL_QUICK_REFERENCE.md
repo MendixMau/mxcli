@@ -467,6 +467,7 @@ rather than updating the first.
 | Show microflows | `show microflows [in module];` | List all or filter by module |
 | Show nanoflows | `show nanoflows [in module];` | List all or filter by module |
 | Describe microflow | `describe microflow Module.Name;` | Full MDL with activities |
+| Describe microflow (normalized) | `describe microflow Module.Name normalized;` | Folds crossed branches into one condition instead of flattening them. Opt-in: the output re-executes to an equivalent graph with fewer nodes and a different layout |
 | Describe nanoflow | `describe nanoflow Module.Name;` | Full MDL with activities |
 | Rename microflow | `rename microflow Module.Old to New;` | Updates all references |
 | Rename nanoflow | `rename nanoflow Module.Old to New;` | Updates all references |
