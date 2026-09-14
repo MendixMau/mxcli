@@ -207,7 +207,43 @@ func init() {
 		Example: "DECISION decision1 '$WorkflowContext/Total > 1000'\n" +
 			"  OUTCOMES\n    true -> { }\n    false -> { };\n\n" +
 			"PARALLEL SPLIT split1\n  PATH 1 { JUMP TO decision1; }\n  PATH 2 { };",
-		SeeAlso: []string{"workflow.create", "workflow.decision", "workflow.parallel-split"},
+		SeeAlso: []string{"workflow.create", "workflow.decision", "workflow.parallel-split", "workflow.end"},
+	})
+
+	Register(SyntaxFeature{
+		Path:    "workflow.end",
+		Summary: "End the workflow from inside a branch — the workflow counterpart of a microflow's return",
+		Keywords: []string{
+			"end workflow", "end event", "end activity", "stop workflow", "terminate",
+			"early exit", "reject ends the workflow", "return",
+		},
+		// Every placement rule below is an mxbuild measurement (11.13.0), not a
+		// reading of the error text. See docs/11-proposals/PROPOSAL_workflow_end_activity.md.
+		Syntax: "end workflow [comment '<caption>'];\n\n" +
+			"-- Legal as the LAST statement of a user-task outcome, a decision branch,\n" +
+			"-- a call-microflow outcome or an interrupting boundary-event path, at any depth.\n" +
+			"-- It ends the WHOLE workflow, not the block it is written in.\n" +
+			"--\n" +
+			"-- Refused:\n" +
+			"--   under a parallel split or a non-interrupting boundary path   CE1844  MDL-WF08\n" +
+			"--   followed by anything in the same block                        CE6671  MDL-WF09\n" +
+			"--   when every path of an activity ends and more follows          CE6689  MDL-WF10\n" +
+			"--   `return;` — a microflow's spelling                            MDL-WF11\n" +
+			"--\n" +
+			"-- The main flow needs none: the body's own closing `end workflow` is its End.\n" +
+			"-- `comment` sets the End's caption on the canvas. An End is not a jump target.",
+		Example: "USER TASK Review 'Review the request'\n" +
+			"  PAGE HR.ReviewPage\n" +
+			"  OUTCOMES\n" +
+			"    'Approve' { }\n" +
+			"    'Reject' {\n" +
+			"      CALL MICROFLOW HR.ACT_NotifyRejected;\n" +
+			"      END WORKFLOW COMMENT 'Rejected';\n" +
+			"    }\n" +
+			"  BOUNDARY EVENT INTERRUPTING TIMER 'addDays([%CurrentDateTime%], 5)' {\n" +
+			"    END WORKFLOW COMMENT 'Expired';\n" +
+			"  };",
+		SeeAlso: []string{"workflow.user-task", "workflow.decision", "workflow.boundary-event", "workflow.jump-to"},
 	})
 
 	Register(SyntaxFeature{

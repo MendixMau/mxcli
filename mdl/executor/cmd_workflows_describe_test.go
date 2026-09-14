@@ -298,3 +298,31 @@ func TestContextExprNormalizer_AliasesDeclaredParameterName(t *testing.T) {
 		})
 	}
 }
+
+// A workflow whose branch ends the workflow described as if it did not: every
+// EndWorkflowActivity was skipped as "implicit", nested ones included, so Studio
+// Pro's `Reject -> End` came out as `'Reject' { }` — which, re-executed, falls
+// through into the main flow. Only the main flow's own End is implicit.
+func TestDescribeWorkflow_NestedEndIsEmitted(t *testing.T) {
+	end := func(caption string) *workflows.Flow {
+		e := &workflows.EndWorkflowActivity{}
+		e.Name = "end1"
+		e.Caption = caption
+		return &workflows.Flow{Activities: []workflows.WorkflowActivity{e}}
+	}
+	decision := &workflows.ExclusiveSplitActivity{Expression: "$WorkflowContext/Flag"}
+	decision.Name = "decision1"
+	decision.Caption = "Decision"
+	decision.Outcomes = []workflows.ConditionOutcome{
+		&workflows.BooleanConditionOutcome{Value: true, Flow: end("Rejected")},
+		&workflows.BooleanConditionOutcome{Value: false, Flow: end("End")},
+	}
+
+	out := strings.Join(formatSingleActivity(decision, "  "), "\n")
+	if !strings.Contains(out, "end workflow comment 'Rejected';") {
+		t.Errorf("a captioned nested End must describe as `end workflow comment 'Rejected';`, got:\n%s", out)
+	}
+	if strings.Count(out, "end workflow") != 2 || !strings.Contains(out, "end workflow;") {
+		t.Errorf("a nested End with the default caption must describe as a bare `end workflow;`, got:\n%s", out)
+	}
+}

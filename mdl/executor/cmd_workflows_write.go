@@ -49,6 +49,13 @@ func execCreateWorkflow(ctx *ExecContext, s *ast.CreateWorkflowStmt) error {
 			s.Name.String(), vs[0].Message, vs[0].Suggestion)
 	}
 
+	// A `return;` builds nothing, so exec would drop it and the branch it ends
+	// would fall through. Refused here for the #833 reason — exec is reachable
+	// without check — as well as at check time (MDL-WF11).
+	if err := refuseWorkflowReturn(s.Activities); err != nil {
+		return err
+	}
+
 	// Refuse a broken reference here as well as at check time. `check
 	// --references` reports these, but exec runs a different pass and wrote the
 	// workflow anyway, so a script that skipped check produced a model the build
@@ -170,7 +177,10 @@ func execCreateWorkflow(ctx *ExecContext, s *ast.CreateWorkflowStmt) error {
 	autoBindWorkflowParameters(ctx, userActivities, s.ParameterVar)
 
 	// Deduplicate activity names to avoid CE0495
-	deduplicateActivityNames(userActivities)
+	// The implicit Start and End take part: an `end workflow` inside a branch is
+	// named after its caption, "End" by default, and colliding with the main
+	// flow's End is CE0495 "Duplicate name 'End'".
+	deduplicateActivityNames(userActivities, startAct.Name, endAct.Name)
 
 	// Compose: start + user activities + end
 	flow.Activities = make([]workflows.WorkflowActivity, 0, len(userActivities)+2)
@@ -622,15 +632,26 @@ func buildEndWorkflow(n *ast.WorkflowEndNode) *workflows.EndWorkflowActivity {
 	if act.Caption == "" {
 		act.Caption = "End"
 	}
-	act.Name = act.Caption
+	// The name is NOT the caption, unlike the other activities. A caption is
+	// free text — `end workflow comment 'Rejected by manager'` named the End
+	// "Rejected by manager", and mxbuild refused it as CE7247 "The name ... is
+	// not valid". An End is never referenced by name (it cannot be a jump
+	// target, CE6681), so a fixed base name, made unique by
+	// deduplicateActivityNames, removes the problem instead of sanitising it.
+	act.Name = "End"
 
 	return act
 }
 
 // deduplicateActivityNames ensures all activity names within a workflow are unique.
 // Mendix Studio Pro requires unique activity names (CE0495).
-func deduplicateActivityNames(activities []workflows.WorkflowActivity) {
+func deduplicateActivityNames(activities []workflows.WorkflowActivity, reserved ...string) {
 	nameCount := make(map[string]int)
+	// Names already held by activities outside this list — the main flow's
+	// implicit Start and End — count as seen, so nothing in the list takes them.
+	for _, name := range reserved {
+		nameCount[name]++
+	}
 	// Two passes, jumps LAST.
 	//
 	// A jump is not a jump target (Mendix refuses that, CE6681), so it has no

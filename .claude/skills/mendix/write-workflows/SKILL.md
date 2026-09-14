@@ -111,8 +111,15 @@ begin
   -- Wait for an external notification (e.g. an event)
   wait for notification waitForNotification1;
 
-  -- Jump back to an earlier activity by name (a loop)
-  jump to Review;
+  -- Loop back, or stop the whole workflow, from inside an outcome. A `jump to`
+  -- and an `end workflow` must each END their path, so neither can close the
+  -- main flow itself (CE6679 / CE6671).
+  user task Confirm 'Confirm the booking'
+    page Module.ReviewPage
+    outcomes
+      'Redo'   { jump to Review; }
+      'Cancel' { end workflow comment 'Cancelled'; }
+      'Done'   { };
 
   -- Call a sub-workflow
   call workflow Module.SubProcess as callWorkflow1 comment 'delegate';
@@ -314,6 +321,25 @@ selects open tasks) rather than naming a System enum value. System **entities** 
 documented in `system-module`.
 
 ## Platform rules
+
+- **`end workflow` ends the whole workflow from inside a branch** — the workflow
+  counterpart of a microflow's `return`. `return;` itself is refused in a workflow
+  (`MDL-WF11`): inside a `{ }` block it reads as "leave this block", which is
+  exactly the fallthrough `end workflow` prevents. Measured placement rules
+  (mxbuild 11.13, both engines), all checked without a project:
+  - legal as the **last** statement of a user-task outcome, a decision branch, a
+    call-microflow outcome or an **interrupting** boundary-event path, at any depth;
+  - refused under a **parallel split** or a **non-interrupting** boundary-event
+    path, at any depth — `CE1844`, `MDL-WF08` (a path cannot end the workflow
+    while the others run; jumping out of a path is refused too, `CE6682`);
+  - refused with anything after it in its block — `CE6671`, `MDL-WF09`;
+  - when **every** path of an activity ends — in `end workflow` or `jump to`,
+    also through a nested decision — nothing may follow it, not even the end of
+    the main flow: `CE6689`, `MDL-WF10`. Let one path continue; a path that
+    reaches the end of the workflow needs no `end workflow`.
+  - The main flow needs none: the body's closing `end workflow` is its End.
+  An outcome left **empty** does not stop anything — it rejoins the main flow.
+  `comment '…'` sets the End's caption, as on every workflow activity.
 
 - A user task needs a **task page** to be useful; without one Mendix flags the
   task (`CE1834`). Bind the page to `System.WorkflowUserTask`.

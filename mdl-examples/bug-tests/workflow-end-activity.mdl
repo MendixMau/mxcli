@@ -1,0 +1,101 @@
+-- `end workflow` — ending a workflow from inside a branch.
+-- docs/11-proposals/PROPOSAL_workflow_end_activity.md
+--
+-- Symptom: MDL could not end a workflow from a branch, so a workflow whose
+-- "Reject" outcome should stop the process instead fell through into the main
+-- flow, and every later task was created for a request already rejected —
+-- `mxcli check`, `exec` and `mx check` all passed. `describe workflow` had the
+-- same fault on the read side: it skipped every End, so Studio Pro's
+-- `Reject -> End` described as `'Reject' { }`, which re-executed falls through.
+--
+-- A caption with a space is deliberate: the End's name used to be its caption,
+-- and `comment 'Rejected by reviewer'` built CE7247 (an invalid name).
+--
+-- POSITIVE fixture: every shape here builds at 0 errors (mxbuild 11.13.0, both
+-- engines). The refusals — CE1844, CE6671, CE6689, and `return` — each have a
+-- `.fail.mdl` sibling: workflow-end-*.fail.mdl.
+
+create module WFEND;
+
+create persistent entity WFEND.Request (
+  Title: string(200),
+  IsDuplicate: boolean
+);
+/
+
+create page WFEND.TaskPage (
+  title: 'Task',
+  layout: Atlas_Core.Atlas_Default,
+  params: { $WorkflowUserTask: System.WorkflowUserTask }
+) {
+  layoutgrid g1 { row r1 { column c1 (desktopwidth: 12) { dynamictext t1 (content: 'Task') } } }
+}
+/
+
+create microflow WFEND.ACT_Notify ($Request: WFEND.Request)
+begin
+  @position(200,200) return;
+end;
+/
+
+create microflow WFEND.ACT_IsComplete ($Request: WFEND.Request)
+returns Boolean
+begin
+  @position(200,200) return true;
+end;
+/
+
+create workflow WFEND.Approval
+  parameter $Request: WFEND.Request
+begin
+  -- A decision branch that ends the workflow.
+  decision decision1 '$WorkflowContext/IsDuplicate'
+    outcomes
+      true  -> { end workflow comment 'Duplicate'; }
+      false -> { };
+
+  -- A call-microflow outcome that ends it.
+  call microflow WFEND.ACT_IsComplete as callMicroflow1 with (Request = '$WorkflowContext')
+    outcomes
+      true  -> { }
+      false -> { end workflow comment 'Incomplete'; };
+
+  -- An outcome that ends it after an activity, and an interrupting boundary
+  -- event whose path ends it.
+  user task Review 'Review the request'
+    page WFEND.TaskPage
+    outcomes
+      'Approve' { }
+      'Reject' {
+        call microflow WFEND.ACT_Notify as callMicroflow2 with (Request = '$WorkflowContext') outcomes default -> { };
+        end workflow comment 'Rejected by reviewer';
+      }
+    boundary event interrupting timer 'addDays([%CurrentDateTime%], 5)' {
+      end workflow comment 'Expired';
+    };
+
+  -- An End nested at depth: inside an outcome, inside a decision branch.
+  decision decision2 '$WorkflowContext/IsDuplicate'
+    outcomes
+      true -> {
+        user task Confirm 'Confirm the duplicate'
+          page WFEND.TaskPage
+          outcomes
+            'Discard' { end workflow; }
+            'Keep' { };
+      }
+      false -> { };
+
+  user task Book 'Book the request'
+    page WFEND.TaskPage
+    outcomes
+      'Done' { }
+      'Later' { };
+end workflow;
+/
+
+-- ALTER takes the same statement in any inserted block.
+alter workflow WFEND.Approval
+  insert outcome 'Withdraw' on Book {
+    end workflow comment 'Withdrawn';
+  };

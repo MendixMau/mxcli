@@ -674,7 +674,16 @@ Nested folders use `/` separator: `'Parent/Child/Grandchild'`. Missing folders a
 - `jump to <activity-name>;`
 - `wait for timer [<name>] ['<expr>'];`
 - `wait for notification [<name>];`
-- `end;`
+- `end workflow [comment '<caption>'];` — only inside a `{ }` block; ends the whole workflow
+
+**Ending a workflow early.** `end workflow` inside an outcome, a decision branch, a
+call-microflow outcome or an interrupting boundary-event path ends the whole
+workflow — the workflow counterpart of a microflow's `return` (which a workflow
+refuses, MDL-WF11). It must be the last statement of its block (MDL-WF09, CE6671),
+is refused under a parallel split or a non-interrupting boundary path (MDL-WF08,
+CE1844), and when every path of an activity ends — in `end workflow` or `jump to` —
+nothing may follow it, including the end of the main flow (MDL-WF10, CE6689). The
+main flow needs none: the body's closing `end workflow` is its End.
 
 **Activity names.** Every activity has a name, and `jump to` resolves against it
 — Mendix stores `JumpToActivity.TargetActivity` as a name string, not a pointer.

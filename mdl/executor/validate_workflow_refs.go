@@ -318,6 +318,9 @@ func validateAlterWorkflowRefs(ctx *ExecContext, s *ast.AlterWorkflowStmt, sc *s
 	// loading. Same function for both passes, so `check --references` and `exec`
 	// cannot drift.
 	errs = append(errs, validateAlterWorkflowActivityKinds(ctx, s)...)
+	// And an inserted `end workflow` must not land under a parallel split or a
+	// non-interrupting boundary event that only the stored workflow shows.
+	errs = append(errs, validateAlterWorkflowEndAncestry(ctx, s)...)
 
 	errs = append(errs, validateWorkflowReferences(ctx, added, sc)...)
 	return append(errs, validateAlterWorkflowTaskSignatures(ctx, s, added, sc)...)
