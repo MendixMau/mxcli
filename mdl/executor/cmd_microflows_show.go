@@ -775,10 +775,12 @@ func formatMicroflowActivities(
 		flowsByDest[flow.DestinationID] = append(flowsByDest[flow.DestinationID], flow)
 	}
 
+	labels := mergeAllLabels(labelRejoinMerges(mf.ObjectCollection), labelCrossedMerges(mf.ObjectCollection))
+
+	// The body is built first and the warnings prepended afterwards, because
+	// MDL-FLOW01 is retired per decision on the strength of what the description
+	// actually emitted — which is not known until it has been emitted.
 	var lines []string
-	lines = append(lines, duplicateOutputVariableWarnings(mf.ObjectCollection)...)
-	lines = append(lines, irreducibleGraphWarnings(mf.ObjectCollection)...)
-	lines = append(lines, droppedMergeWarnings(ctx, mf.ObjectCollection, labelRejoinMerges(mf.ObjectCollection))...)
 
 	// Sort flows by OriginConnectionIndex for each origin
 	for originID := range flowsByOrigin {
@@ -807,9 +809,10 @@ func formatMicroflowActivities(
 	// flowsByOrigin / flowsByDest are threaded into traverseFlow so @anchor
 	// emission is per-call — no package-level globals, safe under concurrent
 	// describe (e.g. captureDescribeParallel).
-	traverseFlow(ctx, startID, activityMap, flowsByOrigin, flowsByDest, splitMergeMap, visited, entityNames, microflowNames, &lines, 0, nil, 0, annotationsByTarget, labelRejoinMerges(mf.ObjectCollection))
+	traverseFlow(ctx, startID, activityMap, flowsByOrigin, flowsByDest, splitMergeMap, visited, entityNames, microflowNames, &lines, 0, nil, 0, annotationsByTarget, labels)
+	declaredCrossed := emitCrossedMergeSections(ctx, mf.ObjectCollection, activityMap, flowsByOrigin, flowsByDest, splitMergeMap, visited, entityNames, microflowNames, &lines, nil, 0, annotationsByTarget, labels)
 
-	return lines
+	return append(microflowBodyWarnings(ctx, mf, labels, declaredCrossed), lines...)
 }
 
 // duplicateOutputVariableWarnings flags output-variable names that are assigned by
@@ -1014,10 +1017,12 @@ func formatMicroflowActivitiesWithSourceMap(
 		flowsByDest[flow.DestinationID] = append(flowsByDest[flow.DestinationID], flow)
 	}
 
+	labels := mergeAllLabels(labelRejoinMerges(mf.ObjectCollection), labelCrossedMerges(mf.ObjectCollection))
+
+	// The body is built first and the warnings prepended afterwards, because
+	// MDL-FLOW01 is retired per decision on the strength of what the description
+	// actually emitted — which is not known until it has been emitted.
 	var lines []string
-	lines = append(lines, duplicateOutputVariableWarnings(mf.ObjectCollection)...)
-	lines = append(lines, irreducibleGraphWarnings(mf.ObjectCollection)...)
-	lines = append(lines, droppedMergeWarnings(ctx, mf.ObjectCollection, labelRejoinMerges(mf.ObjectCollection))...)
 
 	for originID := range flowsByOrigin {
 		flows := flowsByOrigin[originID]
@@ -1038,7 +1043,9 @@ func formatMicroflowActivitiesWithSourceMap(
 
 	lines = append(lines, startAnnotationLines(mf.ObjectCollection)...)
 
-	traverseFlow(ctx, startID, activityMap, flowsByOrigin, flowsByDest, splitMergeMap, visited, entityNames, microflowNames, &lines, 0, sourceMap, headerLineCount, annotationsByTarget, labelRejoinMerges(mf.ObjectCollection))
+	traverseFlow(ctx, startID, activityMap, flowsByOrigin, flowsByDest, splitMergeMap, visited, entityNames, microflowNames, &lines, 0, sourceMap, headerLineCount, annotationsByTarget, labels)
+	declaredCrossed := emitCrossedMergeSections(ctx, mf.ObjectCollection, activityMap, flowsByOrigin, flowsByDest, splitMergeMap, visited, entityNames, microflowNames, &lines, sourceMap, headerLineCount, annotationsByTarget, labels)
+	lines = append(microflowBodyWarnings(ctx, mf, labels, declaredCrossed), lines...)
 
 	return lines
 }
@@ -1349,12 +1356,30 @@ func isSplitJoinCandidate(obj microflows.MicroflowObject) bool {
 // silently means something else. It follows the `-- WARNING:` convention
 // duplicateOutputVariableWarnings established, so it survives copy/paste of the
 // description as a comment.
-func irreducibleGraphWarnings(oc *microflows.MicroflowObjectCollection) []string {
+func irreducibleGraphWarnings(oc *microflows.MicroflowObjectCollection, declaredCrossed map[model.ID]bool) []string {
 	if oc == nil {
 		return nil
 	}
 	var out []string
 	for _, f := range microflowgraph.Analyze(oc.Objects, oc.Flows) {
+		// Mode 2 describes this one faithfully — every branch says where it goes
+		// with an explicit `join`, and the round trip rebuilds the same graph.
+		// Keeping the warning here would be worse than noise: it says the
+		// description "is NOT equivalent to the microflow and must not be
+		// re-executed", which is now simply untrue and would send someone to
+		// Studio Pro for an edit they could make in MDL.
+		//
+		// The test is that the description actually DECLARED the merge, not
+		// merely that a label was minted for it. Those differ: an inheritance
+		// split has its own traversal, which walks through the labelled merge
+		// without emitting a join, so the label goes unused and the nested
+		// rendering is what the reader gets. Suppressing on the label alone
+		// retires the warning on the strength of something nothing emitted —
+		// caught on Administration.ManageMyAccount, where the description is
+		// byte-identical with and without Mode 2.
+		if len(f.Entries) == 1 && declaredCrossed[f.Entries[0]] {
+			continue
+		}
 		pos := ""
 		if f.Split != nil {
 			p := f.Split.GetPosition()
@@ -1637,5 +1662,23 @@ func exposeClauseLines(mf *microflows.Microflow) []string {
 			}
 		}
 	}
+	return out
+}
+
+// microflowBodyWarnings collects the header warnings for a described microflow.
+//
+// Called AFTER the body is built: MDL-FLOW01 is retired per decision based on
+// whether the description declared the crossed merge, and that is a fact about
+// the emitted text rather than about the graph.
+func microflowBodyWarnings(
+	ctx *ExecContext,
+	mf *microflows.Microflow,
+	labels mergeLabels,
+	declaredCrossed map[model.ID]bool,
+) []string {
+	var out []string
+	out = append(out, duplicateOutputVariableWarnings(mf.ObjectCollection)...)
+	out = append(out, irreducibleGraphWarnings(mf.ObjectCollection, declaredCrossed)...)
+	out = append(out, droppedMergeWarnings(ctx, mf.ObjectCollection, labels)...)
 	return out
 }

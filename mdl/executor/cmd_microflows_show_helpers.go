@@ -974,7 +974,22 @@ func traverseFlow(
 	annotationsByTarget *annotationEmitter,
 	labels mergeLabels,
 ) {
-	if currentID == "" || visited[currentID] {
+	if currentID == "" {
+		return
+	}
+
+	// A crossed merge emits a `join` EVERY time a path arrives at it — arriving
+	// more than once is exactly what makes it crossed — so this is checked
+	// before the visited guard, which would otherwise swallow the second
+	// branch's join and leave that path falling off the end of the description.
+	if labels.isCrossed(currentID) {
+		if label, ok := labels.of(currentID); ok {
+			*lines = append(*lines, strings.Repeat("  ", indent)+"join "+label+";")
+			return
+		}
+	}
+
+	if visited[currentID] {
 		return
 	}
 
@@ -993,6 +1008,17 @@ func traverseFlow(
 	// through — same as traverseFlowUntilMerge already does for intermediate
 	// merges.
 	if _, isMerge := obj.(*microflows.ExclusiveMerge); isMerge {
+		// A CROSSED merge is reached by several branches, so arriving at one is
+		// not a place to continue from — it is a place to stop and say where the
+		// path went. The declaration is emitted once, afterwards, by
+		// emitCrossedMergeSections. Deliberately does NOT mark visited: every
+		// branch that lands here has to emit its own `join`.
+		if labels.isCrossed(currentID) {
+			if label, ok := labels.of(currentID); ok {
+				*lines = append(*lines, strings.Repeat("  ", indent)+"join "+label+";")
+				return
+			}
+		}
 		// A merge some error handler rejoins needs a name, and the name has to be
 		// DECLARED on the path that owns it — a `join` with no `merge` is MDL that
 		// does not execute. Emitted before the paired-with-a-split check so the
@@ -1193,6 +1219,13 @@ func traverseFlowUntilMerge(
 	// pattern whose merge sits inside the ELSE branch is the common instance, and
 	// the `join` in the handler is dangling MDL without this.
 	if _, isMerge := obj.(*microflows.ExclusiveMerge); isMerge {
+		// Crossed: this branch ends here and says so. See traverseFlow.
+		if labels.isCrossed(currentID) {
+			if label, ok := labels.of(currentID); ok {
+				*lines = append(*lines, strings.Repeat("  ", indent)+"join "+label+";")
+				return
+			}
+		}
 		if label, ok := labels.of(currentID); ok && !visited[currentID] {
 			visited[currentID] = true
 			*lines = append(*lines, mergeDeclarationLines(indent, label, obj)...)
@@ -1360,6 +1393,15 @@ func continueAfterSplitJoin(
 		return
 	}
 	if _, isMerge := activityMap[joinID].(*microflows.ExclusiveMerge); isMerge {
+		// Crossed: the fall-through path out of the split ends here and says so.
+		// Declaring it inline instead would put the declaration before the
+		// section that owns it and orphan the other branches' joins.
+		if labels.isCrossed(joinID) {
+			if label, ok := labels.of(joinID); ok {
+				*lines = append(*lines, strings.Repeat("  ", indent)+"join "+label+";")
+				return
+			}
+		}
 		if label, ok := labels.of(joinID); ok && !visited[joinID] {
 			*lines = append(*lines, mergeDeclarationLines(indent, label, activityMap[joinID])...)
 		}
@@ -1576,7 +1618,7 @@ func emitLoopBody(
 		loopVisited := make(map[model.ID]bool)
 		// Build split→merge map for ExclusiveSplit handling inside the loop
 		loopSplitMergeMap := findSplitMergePoints(ctx, loop.ObjectCollection, loopActivityMap)
-		traverseLoopBody(ctx, firstID, loopActivityMap, loopFlowsByOrigin, loopFlowsByDest, loopSplitMergeMap, loopVisited, entityNames, microflowNames, lines, indent+1, sourceMap, headerLineCount, loopAnnotationsByTarget, nil)
+		traverseLoopBody(ctx, firstID, loopActivityMap, loopFlowsByOrigin, loopFlowsByDest, loopSplitMergeMap, loopVisited, entityNames, microflowNames, lines, indent+1, sourceMap, headerLineCount, loopAnnotationsByTarget, mergeLabels{})
 	}
 }
 
@@ -2424,7 +2466,7 @@ func (e *Executor) traverseFlow(
 	// supply flowsByDest. Passing nil suppresses @anchor emission, matching
 	// the pre-refactor behaviour. Nil labels likewise: a caller that does not
 	// compute them describes exactly as before.
-	traverseFlow(e.newExecContext(context.Background()), currentID, activityMap, flowsByOrigin, nil, splitMergeMap, visited, entityNames, microflowNames, lines, indent, sourceMap, headerLineCount, annotationsByTarget, nil)
+	traverseFlow(e.newExecContext(context.Background()), currentID, activityMap, flowsByOrigin, nil, splitMergeMap, visited, entityNames, microflowNames, lines, indent, sourceMap, headerLineCount, annotationsByTarget, mergeLabels{})
 }
 
 // negateIfCondition transforms "if <cond> then" into "if not(<cond>) then".
@@ -2470,5 +2512,5 @@ func (e *Executor) collectErrorHandlerStatements(
 	microflowNames map[model.ID]string,
 	annotationsByTarget *annotationEmitter,
 ) []string {
-	return collectErrorHandlerStatements(e.newExecContext(context.Background()), startID, activityMap, flowsByOrigin, entityNames, microflowNames, annotationsByTarget, nil)
+	return collectErrorHandlerStatements(e.newExecContext(context.Background()), startID, activityMap, flowsByOrigin, entityNames, microflowNames, annotationsByTarget, mergeLabels{})
 }

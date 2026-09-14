@@ -1,0 +1,61 @@
+-- ============================================================================
+-- Mode 2: the DEFAULT describe of a graph whose branches cross
+-- ============================================================================
+--
+-- Same graph as 923-normalized-describe.mdl, kept separate because it pins the
+-- other half of #923. Mode 3 (NORMALIZED) is opt-in and rewrites the graph into
+-- an equivalent one; Mode 2 is what `describe microflow` does with no modifier
+-- at all, and it must reproduce THE graph, not an equivalent one.
+--
+--   split1 : true -> split2      false -> merge1
+--   split2 : true -> merge1      false -> merge2
+--
+-- BEFORE Mode 2 this described as `if $A then if $B then ...`, i.e. `$A and $B`,
+-- carrying an MDL-FLOW01 warning that the description was not equivalent and
+-- must not be re-executed. The truth is `not($A) or $B`.
+--
+-- AFTER, every branch says where it goes:
+--
+--   if $A then
+--     if $B then join shared1; end if;
+--   else
+--     join shared1;
+--   end if;
+--   join shared2;
+--   merge shared1;  <activity>  join shared2;
+--   merge shared2;  <tail>
+--
+-- and the MDL-FLOW01 warning is GONE, because it is no longer true.
+--
+-- Note the `join shared2` after `end if`: that is split2's EMPTY false arm,
+-- which is why the post-dominator is labelled too. Without it the empty arm
+-- would fall through into `merge shared1` and describe a different graph.
+--
+-- Run it:
+--   mxcli exec mdl-examples/bug-tests/923-crossed-branches.mdl -p app.mpr
+--   mxcli -p app.mpr -c "describe microflow Mode3.MF_Orig"   -- faithful, no warning
+--   mxcli test mdl-examples/bug-tests/923-crossed-branches.test.mdl -p app.mpr --local
+--
+-- Measured on Mendix 11.14.0: both merge $IDs survive the round trip, the
+-- description is a fixed point, and a re-exec of it is elided (Unchanged).
+
+CREATE MODULE Mode3;
+/
+CREATE OR REPLACE MICROFLOW Mode3.MF_Orig (A: Boolean, B: Boolean) RETURNS String
+BEGIN
+  DECLARE $Result String = 'skipped';
+  IF $A THEN
+    IF $B THEN
+      JOIN m1;
+    ELSE
+      JOIN m2;
+    END IF;
+  ELSE
+    JOIN m1;
+  END IF;
+  MERGE m1;
+  SET $Result = 'ran';
+  JOIN m2;
+  MERGE m2;
+  RETURN $Result;
+END;

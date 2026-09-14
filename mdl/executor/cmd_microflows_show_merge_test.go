@@ -96,8 +96,8 @@ func TestLabelRejoinMerges_SharedMergeIsLabelled(t *testing.T) {
 	if _, ok := labels.of(f.ids["merge"]); !ok {
 		t.Fatal("the shared merge was not labelled; DESCRIBE has no way to name the rejoin")
 	}
-	if len(labels) != 1 {
-		t.Errorf("labelled %d merges, want exactly 1", len(labels))
+	if labels.len() != 1 {
+		t.Errorf("labelled %d merges, want exactly 1", labels.len())
 	}
 }
 
@@ -116,7 +116,7 @@ func TestLabelRejoinMerges_HandlerWithItsOwnEndIsNotLabelled(t *testing.T) {
 	f.edge("call", "handler", true)
 	f.edge("handler", "errEnd", false)
 
-	if got := len(labelRejoinMerges(f.col)); got != 0 {
+	if got := labelRejoinMerges(f.col).len(); got != 0 {
 		t.Errorf("labelled %d merges in a graph with none to share", got)
 	}
 }
@@ -133,7 +133,7 @@ func TestLabelRejoinMerges_NoErrorHandlerMeansNoLabels(t *testing.T) {
 	f.edge("split", "merge", false)
 	f.edge("merge", "end", false)
 
-	if got := len(labelRejoinMerges(f.col)); got != 0 {
+	if got := labelRejoinMerges(f.col).len(); got != 0 {
 		t.Errorf("labelled %d merges in a graph with no error handler", got)
 	}
 }
