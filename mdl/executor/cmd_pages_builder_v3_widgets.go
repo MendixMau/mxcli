@@ -945,19 +945,12 @@ func (pb *pageBuilder) buildButtonV3(w *ast.WidgetV3) (*pages.ActionButton, erro
 		btn.Action = act
 	}
 
-	// Handle Icon (issue #602): an icon-collection reference (a modern Atlas
-	// icon) — e.g. `icon: 'Atlas_Core.Atlas_Filled.pencil'` — serialized as a
-	// Forms$IconCollectionIcon.
-	if iconRef := strings.Trim(strings.TrimSpace(w.GetStringProp("icon")), "'\""); iconRef != "" {
-		btn.Icon = &pages.Icon{
-			BaseElement: model.BaseElement{
-				ID:       model.ID(types.GenerateID()),
-				TypeName: "Forms$IconCollectionIcon",
-			},
-			Type:  pages.IconTypeIconCollection,
-			Image: iconRef,
-		}
+	// Handle Icon (#602, #1059): one of Mendix's three icon elements.
+	icon, err := buildWidgetIcon(w)
+	if err != nil {
+		return nil, err
 	}
+	btn.Icon = icon
 
 	if err := pb.registerWidgetName(w.Name, btn.ID); err != nil {
 		return nil, err
@@ -1313,4 +1306,77 @@ func propBool(v any) (bool, error) {
 		return false, fmt.Errorf("invalid value %q (expected true or false)", x)
 	}
 	return false, fmt.Errorf("invalid value %v (expected true or false)", v)
+}
+
+// buildWidgetIcon turns a widget's `Icon:` property into the icon element it
+// names, or nil when the widget carries none.
+//
+// It dispatches on the KIND the author wrote rather than inferring one from the
+// payload, because there is nothing in the payload to infer from: an
+// icon-collection icon and an image icon are both a Module.Collection.Name, into
+// two different documents. Writing the wrong one is not a cosmetic error — a
+// name stored as a custom-icon reference that is really an image fails the build
+// with CE1613, which is how this was reported (mendixlabs/mxcli#1059).
+//
+// A bare name with no kind is the collection icon, so every script written
+// against the original `Icon: 'Atlas_Core.Atlas_Filled.pencil'` keeps its
+// meaning. That legacy string form is still accepted here, and not only for
+// scripts: several callers build a WidgetV3 directly.
+func buildWidgetIcon(w *ast.WidgetV3) (*pages.Icon, error) {
+	spec := widgetIconSpec(w)
+	if spec == nil {
+		return nil, nil
+	}
+	icon := &pages.Icon{
+		BaseElement: model.BaseElement{
+			ID:       model.ID(types.GenerateID()),
+			TypeName: types.MenuIconStorageType(spec.Kind),
+		},
+		Kind:  spec.Kind,
+		Image: spec.Name,
+		Code:  spec.Code,
+	}
+	// Refuse an icon that names nothing rather than writing an element nobody can
+	// see. A glyph is identified by its code ALONE, so a missing code is as fatal
+	// there as a missing name is for the other two — and the failure would be
+	// invisible: a bare Forms$GlyphIcon builds cleanly and renders nothing.
+	switch spec.Kind {
+	case types.MenuIconGlyph:
+		if spec.Code == 0 {
+			return nil, mdlerrors.NewValidationf(
+				"button %q: `Icon: glyph` needs a character code, e.g. `Icon: glyph 57377` — "+
+					"a glyph icon carries no name, so the code is the only thing that identifies it", w.Name)
+		}
+	default:
+		if spec.Name == "" {
+			return nil, mdlerrors.NewValidationf(
+				"button %q: `Icon:` needs a qualified name, e.g. `Icon: 'Atlas_Core.Atlas_Filled.pencil'`", w.Name)
+		}
+	}
+	if icon.TypeName == "" {
+		return nil, mdlerrors.NewValidationf("button %q: unsupported icon kind %q", w.Name, spec.Kind)
+	}
+	return icon, nil
+}
+
+// widgetIconSpec reads the `Icon:` property in either shape: the typed value the
+// visitor produces, or the plain string the property carried before the kinds
+// existed. Returns nil when there is no icon.
+func widgetIconSpec(w *ast.WidgetV3) *ast.WidgetIcon {
+	for _, key := range []string{"Icon", "icon"} {
+		switch v := w.Properties[key].(type) {
+		case *ast.WidgetIcon:
+			if v != nil {
+				return v
+			}
+		case ast.WidgetIcon:
+			spec := v
+			return &spec
+		case string:
+			if name := strings.Trim(strings.TrimSpace(v), "'\""); name != "" {
+				return &ast.WidgetIcon{Kind: types.MenuIconCollection, Name: name}
+			}
+		}
+	}
+	return nil
 }

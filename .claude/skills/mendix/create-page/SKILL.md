@@ -380,6 +380,41 @@ image imgRemote (ImageType: imageUrl, ImageUrl: 'https://example.com/logo.svg')
 image imgIcon   (ImageType: icon)
 ```
 
+### A button's icon is one of three elements
+
+Mendix stores **three different icon elements**, and the keyword picks which:
+
+```sql
+actionbutton btnEdit  (Caption: 'Edit',  Action: nothing, Icon: 'Atlas_Core.Atlas_Filled.pencil')
+actionbutton btnLogo  (Caption: 'Logo',  Action: nothing, Icon: image MyFirstModule.Images.logo)
+actionbutton btnHome  (Caption: 'Home',  Action: nothing, Icon: glyph 57377)
+```
+
+| form | element | holds |
+|------|---------|-------|
+| bare name | `Forms$IconCollectionIcon` | a name in an **icon** collection |
+| `image <name>` | `Forms$ImageIcon` | a name in an **image** collection |
+| `glyph <code>` | `Forms$GlyphIcon` | a font character code, no name |
+
+The first two are spelled identically and point into **different documents**, so
+the `image` keyword is the only thing separating them. Write an image reference
+without it and mxcli stores a custom-icon reference, which fails the build with
+*CE1613 "The selected custom icon … no longer exists."* `mxcli check -p app.mpr
+--references` resolves each kind against its own collection and names the remedy
+when the kind is wrong, which is cheaper than a build.
+
+Any icon collection works, third-party ones included — `show icon collections`
+lists them and `describe icon collection Atlas_Core.Atlas_Filled` lists the names
+(they are non-obvious: it is `add`, not `plus`).
+
+A glyph has a code and no name. The codes are **sparse**, and an undefined one
+fails only at `mxbuild --target=deploy` — with *"An exception occurred while
+exporting page '<name>'"*, naming the page and never the icon — so `mxcli check`
+reports it as **MDL078** first. Browse them with `show glyphs`.
+
+`describe page` emits all three forms, so describe → exec round-trips a button's
+icon whichever kind it is.
+
 ### Binding across modules and to audit members
 
 An attribute path may cross module boundaries, including into the platform's
