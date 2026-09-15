@@ -10,6 +10,15 @@
 // one method from its interface at a time and rebuilds — grep cannot tell
 // `b.reader.X()` inside the MPR backend from `ctx.Backend.X()` in the executor.
 //
+// Read the reason column as a MAP and it names the places that hold a concrete
+// sdk/mpr reader or writer instead of a backend value — api/, the MCP backend,
+// and the cmd/mxcli commands that do so deliberately. A method is on this list
+// *because* such a caller exists and unreachable *because* that caller does not
+// use a backend. So the list shrinks by closing a bypass, not by deleting
+// interface surface: AddAttribute and UpdateAttribute left it when api/ was
+// routed through the abstraction, which made them reachable and therefore worth
+// implementing. See docs/plans/2026-09-14-retire-legacy-engine.md, Phase 3.
+//
 // This test does not repeat that measurement (a build per method takes minutes).
 // It pins its OUTPUT: the set of methods *Backend leaves to the stub must be
 // exactly the set measured unreachable. A new stub, or a rename that drops an
@@ -35,8 +44,6 @@ import (
 // and cmd/mxcli commands that open a reader directly) — none of which route
 // through this engine.
 var unreachableUnimplemented = map[string]string{
-	"AddAttribute":             "api/ and examples/ call it on the sdk writer; ALTER ENTITY goes through the mutator",
-	"UpdateAttribute":          "same as AddAttribute",
 	"GetDomainModelByID":       "the MPR and MCP backends call it on their own reader",
 	"ExportJSON":               "examples/read_project calls it on the sdk reader",
 	"FindCustomWidgetType":     "cmd/mxcli/cmd_extract_templates.go holds a concrete reader",
