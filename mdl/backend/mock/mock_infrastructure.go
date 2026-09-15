@@ -276,3 +276,10 @@ func (m *MockBackend) DeleteAgentEditorAgent(id string) error {
 	}
 	return fmt.Errorf("MockBackend.DeleteAgentEditorAgent not configured")
 }
+
+func (m *MockBackend) AddRawUnit(unitID, containerID, containmentName, unitType string, contents []byte) error {
+	if m.AddRawUnitFunc != nil {
+		return m.AddRawUnitFunc(unitID, containerID, containmentName, unitType, contents)
+	}
+	return fmt.Errorf("MockBackend.AddRawUnit not configured")
+}

@@ -307,6 +307,7 @@ type MockBackend struct {
 	ListRawUnitsFunc          func(objectType string) ([]*types.RawUnitInfo, error)
 	GetRawUnitByNameFunc      func(objectType, qualifiedName string) (*types.RawUnitInfo, error)
 	GetRawMicroflowByNameFunc func(qualifiedName string) ([]byte, error)
+	AddRawUnitFunc            func(unitID, containerID, containmentName, unitType string, contents []byte) error
 	UpdateRawUnitFunc         func(unitID string, contents []byte) error
 	// UpdateRawUnitOwningTranslationsFunc stubs the write path that is
 	// authoritative about a unit's translations. Falls back to UpdateRawUnitFunc

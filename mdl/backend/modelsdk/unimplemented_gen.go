@@ -41,6 +41,10 @@ func (unimplemented) AddNavigationProfile(_ model.ID, _ string) error {
 	return errUnimplemented("AddNavigationProfile")
 }
 
+func (unimplemented) AddRawUnit(_ string, _ string, _ string, _ string, _ []uint8) error {
+	return errUnimplemented("AddRawUnit")
+}
+
 func (unimplemented) AddUserRole(_ model.ID, _ string, _ []string, _ bool) error {
 	return errUnimplemented("AddUserRole")
 }

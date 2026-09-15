@@ -3,6 +3,8 @@
 package modelsdkbackend
 
 import (
+	"fmt"
+
 	"github.com/mendixlabs/mxcli/mdl/types"
 	"github.com/mendixlabs/mxcli/model"
 )
@@ -82,4 +84,18 @@ func (b *Backend) ListFolders() ([]*types.FolderInfo, error) {
 		})
 	}
 	return out, nil
+}
+
+// AddRawUnit inserts a new unit verbatim.
+//
+// Exposed on the backend because the marketplace transplant copies a module's
+// units between projects without decoding them, and had been reaching a
+// concrete sdk/mpr writer to do it. Copying verbatim is deliberate rather than
+// lazy: decoding and re-encoding would mint fresh identities, and an entity's
+// GUID is what the runtime keys the database on (CLAUDE.md).
+func (b *Backend) AddRawUnit(unitID, containerID, containmentName, unitType string, contents []byte) error {
+	if b.writer == nil {
+		return fmt.Errorf("AddRawUnit: not connected for writing")
+	}
+	return b.writer.InsertUnit(unitID, containerID, containmentName, unitType, contents)
 }

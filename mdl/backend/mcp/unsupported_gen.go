@@ -45,6 +45,11 @@ func (unsupportedBackend) AddNavigationProfile(_ model.ID, _ string) (err0 error
 	return
 }
 
+func (unsupportedBackend) AddRawUnit(_ string, _ string, _ string, _ string, _ []uint8) (err0 error) {
+	err0 = errUnsupported("AddRawUnit")
+	return
+}
+
 func (unsupportedBackend) AddUserRole(_ model.ID, _ string, _ []string, _ bool) (err0 error) {
 	err0 = errUnsupported("AddUserRole")
 	return

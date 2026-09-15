@@ -18,7 +18,9 @@
 //     the abstraction, which makes the method reachable and therefore worth
 //     implementing. AddAttribute and UpdateAttribute left the list this way when
 //     api/ was ported; GetDomainModelByID, GetWorkflow and ListNavigationDocuments
-//     when the MCP backend composed this one for its reads.
+//     when the MCP backend composed this one for its reads; ExportJSON when the
+//     root package (modelsdk.go) stopped aliasing sdk/mpr and examples/
+//     read_project moved onto a backend value (Phase 4a).
 //  2. ORPHAN — nothing anywhere calls it, under any type. There is no bypass to
 //     close, so the fix is to DELETE it from the interface.
 //  3. DUPLICATE — callers exist, but through a narrower package-local interface
@@ -64,7 +66,7 @@ import (
 // that hold a concrete *mpr.Reader / *mpr.Writer (the api/ package, examples/,
 // and cmd/mxcli commands that open a reader directly) — none of which route
 // through this engine.
-// Every remaining entry is a BYPASS, and all six are the same kind of caller:
+// Every remaining entry is a BYPASS, and all five are the same kind of caller:
 // a raw-unit debugging or export command that holds a concrete reader on
 // purpose. ACCEPTED as deliberate rather than queued for porting (2026-09-15,
 // closing Phase 3 of docs/plans/2026-09-14-retire-legacy-engine.md) — routing a
@@ -77,7 +79,6 @@ import (
 // FullBackend that nothing calls — establish which (see the three causes above)
 // rather than adding a row to match the failure.
 var unreachableUnimplemented = map[string]string{
-	"ExportJSON":               "BYPASS, accepted: examples/read_project calls it on the sdk reader",
 	"FindCustomWidgetType":     "BYPASS, accepted: cmd/mxcli/cmd_extract_templates.go holds a concrete reader",
 	"FindAllCustomWidgetTypes": "BYPASS, accepted: reached only via the reader, inside modelsdk/mpr itself",
 	"GetProjectRootID":         "BYPASS, accepted: callers hold a reader; this package uses b.reader.GetProjectRootID directly",
