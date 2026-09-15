@@ -36,6 +36,7 @@ func init() {
 		"Workflows$TimerBoundaryEvent", "Workflows$InterruptingTimerBoundaryEvent",
 		"Workflows$NonInterruptingTimerBoundaryEvent",
 		"Workflows$MicroflowCallParameterMapping", "Workflows$WorkflowCallParameterMapping",
+		"Workflows$WorkflowEventHandler",
 	} {
 		codec.RegisterListMarker(t, 2)
 	}
@@ -196,7 +197,14 @@ func workflowToGen(wf *workflows.Workflow) element.Element {
 	}
 	addPart(g, "Flow", flowToGen(flow))
 	addStr(g, "Name", wf.Name)
-	// OnWorkflowEvent: empty marker-2 list (via MandatoryListMarkers).
+	// OnWorkflowEvent: a marker-2 list; empty via MandatoryListMarkers.
+	if len(wf.EventHandlers) > 0 {
+		handlers := make([]element.Element, 0, len(wf.EventHandlers))
+		for _, h := range wf.EventHandlers {
+			handlers = append(handlers, workflowEventHandlerToGen(h))
+		}
+		addPartList(g, "OnWorkflowEvent", handlers)
+	}
 	if wf.Parameter != nil {
 		addPart(g, "Parameter", workflowParameterToGen(wf.Parameter))
 	}
@@ -211,6 +219,31 @@ func workflowToGen(wf *workflows.Workflow) element.Element {
 	addPart(g, "WorkflowName", workflowStringTemplate(wf.WorkflowName))
 	addBool(g, "WorkflowV2", false)
 	return g
+}
+
+// workflowEventHandlerToGen builds a Workflows$WorkflowEventHandler in the key
+// order ako/TestApp (11.14.0) stores: Description, Documentation, EventTypes (a
+// marker-1 string list), MicroflowEventHandler.
+func workflowEventHandlerToGen(h *workflows.WorkflowEventHandler) element.Element {
+	g := newElem("Workflows$WorkflowEventHandler", string(h.ID))
+	addStr(g, "Description", h.Description)
+	addStr(g, "Documentation", h.Documentation)
+	addStrList(g, "EventTypes", h.EventTypes)
+	mh := newElem("Workflows$MicroflowEventHandler", "")
+	addStr(mh, "Microflow", h.Microflow)
+	addPart(g, "MicroflowEventHandler", mh)
+	return g
+}
+
+// onCreatedEventToGen builds a user task's OnCreatedEvent: the microflow when one
+// is set, the NoEvent marker otherwise.
+func onCreatedEventToGen(microflow string) element.Element {
+	if microflow == "" {
+		return newElem("Workflows$NoEvent", "")
+	}
+	ev := newElem("Workflows$MicroflowBasedEvent", "")
+	addStr(ev, "Microflow", microflow)
+	return ev
 }
 
 func flowToGen(flow *workflows.Flow) element.Element {
@@ -296,7 +329,7 @@ func userTaskToGen(a *workflows.UserTask) element.Element {
 	}
 	addStr(g, "DueDate", a.DueDate)
 	addStr(g, "Name", a.Name)
-	addPart(g, "OnCreatedEvent", newElem("Workflows$NoEvent", ""))
+	addPart(g, "OnCreatedEvent", onCreatedEventToGen(a.OnCreated))
 
 	outcomes := make([]element.Element, 0, len(a.Outcomes))
 	for _, o := range a.Outcomes {

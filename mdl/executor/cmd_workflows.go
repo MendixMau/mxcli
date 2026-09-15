@@ -220,6 +220,8 @@ func describeWorkflowToString(ctx *ExecContext, name ast.QualifiedName) (string,
 		lines = append(lines, fmt.Sprintf("  due date %s", mdlQuoted(targetWf.DueDate)))
 	}
 
+	lines = append(lines, formatWorkflowEventHandlers(ctx, targetWf.EventHandlers)...)
+
 	lines = append(lines, "")
 
 	lines = append(lines, "begin")
@@ -508,6 +510,10 @@ func formatUserTask(a *workflows.UserTask, indent string) []string {
 		}
 	}
 
+	if a.OnCreated != "" {
+		lines = append(lines, fmt.Sprintf("%s  on created microflow %s", indent, a.OnCreated))
+	}
+
 	if a.UserTaskEntity != "" {
 		lines = append(lines, fmt.Sprintf("%s  entity %s", indent, a.UserTaskEntity))
 	}
@@ -548,6 +554,65 @@ func formatUserTask(a *workflows.UserTask, indent string) []string {
 	lines = append(lines, formatBoundaryEvents(a.BoundaryEvents, indent+"  ")...)
 
 	return lines
+}
+
+// formatWorkflowEventHandlers emits the header's handler clauses. A handler
+// subscribed to exactly the types the project version knows is written as
+// `on any workflow event`, which is what re-executing it would store again; any
+// other list is written out, one type per line when it is long.
+func formatWorkflowEventHandlers(ctx *ExecContext, handlers []*workflows.WorkflowEventHandler) []string {
+	var all []string
+	if pv := ctx.Backend.ProjectVersion(); pv != nil {
+		all, _, _ = allWorkflowEventTypes(pv.MajorVersion, pv.MinorVersion, pv.PatchVersion)
+	}
+	var lines []string
+	for _, h := range handlers {
+		if h == nil {
+			continue
+		}
+		as := ""
+		if h.Description != "" {
+			as = " as " + mdlQuoted(h.Description)
+		}
+		switch {
+		case len(h.EventTypes) == 0:
+			// The grammar has no spelling for an empty list; say so rather than
+			// emit a clause that means something else. Rewrites refuse it.
+			lines = append(lines, fmt.Sprintf("  -- workflow event handler %s (microflow %s) subscribes to no event types, which MDL cannot state",
+				mdlQuoted(h.Description), h.Microflow))
+		case len(all) > 0 && sameStringSet(h.EventTypes, all):
+			lines = append(lines, fmt.Sprintf("  on any workflow event microflow %s%s", h.Microflow, as))
+		case len(h.EventTypes) <= 3:
+			lines = append(lines, fmt.Sprintf("  on workflow events (%s) microflow %s%s", strings.Join(h.EventTypes, ", "), h.Microflow, as))
+		default:
+			lines = append(lines, "  on workflow events (")
+			for i, t := range h.EventTypes {
+				sep := ","
+				if i == len(h.EventTypes)-1 {
+					sep = ""
+				}
+				lines = append(lines, "    "+t+sep)
+			}
+			lines = append(lines, fmt.Sprintf("  ) microflow %s%s", h.Microflow, as))
+		}
+	}
+	return lines
+}
+
+func sameStringSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	set := make(map[string]bool, len(a))
+	for _, s := range a {
+		set[s] = true
+	}
+	for _, s := range b {
+		if !set[s] {
+			return false
+		}
+	}
+	return len(set) == len(b)
 }
 
 // formatCallMicroflowTask formats a call microflow task for describe output.

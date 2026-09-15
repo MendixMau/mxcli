@@ -121,6 +121,7 @@ func (c *workflowTaskSignatureChecker) checkActivities(activities []ast.Workflow
 		if strings.Contains(n.Targeting.Kind, "microflow") {
 			errs = appendIfSet(errs, c.checkTargeting(label, n.Targeting.Microflow.String(), contextEntity))
 		}
+		errs = appendIfSet(errs, c.checkOnCreated(label, n.OnCreated.String(), contextEntity))
 	})
 	return errs
 }
@@ -172,22 +173,7 @@ func (c *workflowTaskSignatureChecker) checkTargeting(label, mfQN, contextEntity
 // context entity's inheritance chain leaves what can be resolved, the answer is
 // "not proven", which is not a refusal.
 func (c *workflowTaskSignatureChecker) targetingMismatch(sig *flowSignature, contextEntity string) bool {
-	if len(sig.Params) != 2 {
-		return true
-	}
-	for i, p := range sig.Params {
-		if !strings.EqualFold(p.Entity, workflowEntity) {
-			continue
-		}
-		other := sig.Params[1-i]
-		if other.Entity == "" {
-			continue
-		}
-		if c.contextAssignableTo(contextEntity, other.Entity) != inheritanceNo {
-			return false
-		}
-	}
-	return true
+	return c.pairMismatch(sig, workflowEntity, contextEntity)
 }
 
 type inheritance int

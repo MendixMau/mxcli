@@ -25,8 +25,8 @@ the `LeaveRequest` being reviewed). User tasks render a page bound to
 ## Syntax — CREATE WORKFLOW
 
 The header options are **order-sensitive** (parameter → display → description →
-export level → overview page → due date), and the body **must** close with
-`END WORKFLOW`.
+export level → overview page → due date → event handlers), and the body **must**
+close with `END WORKFLOW`.
 
 ```sql
 create workflow Module.ApprovalFlow
@@ -35,6 +35,9 @@ create workflow Module.ApprovalFlow
   description 'Approves incoming requests'   -- optional
   export level Hidden                        -- optional: Hidden | API (default Hidden)
   overview page Module.WF_Overview           -- optional admin overview page
+  on workflow events (UserTaskStarted, UserTaskEnded)   -- optional, repeatable
+    microflow Module.ACT_AuditTask as 'Task audit'
+  on any workflow event microflow Module.ACT_LogEvent   -- every type this Mendix version has
 begin
   -- activities here, each terminated with ;
 end workflow;
@@ -71,6 +74,7 @@ begin
   user task Review 'Review the request'
     page Module.ReviewPage
     targeting users microflow Module.ACT_Reviewers   -- or: targeting users xpath '[Active = true()]'
+    on created microflow Module.ACT_AssignReviewer   -- optional: runs when the task is created
     description 'Please review'
     outcomes
       'Approve' { call microflow Module.ACT_Process; }
@@ -258,7 +262,9 @@ mxcli refuses the two cases where that would lose something:
 - a stored **event sub-process** — MDL cannot express one, so the rewrite is
   refused outright;
 - **more stored boundary events than the statement declares** — restate them and
-  the rewrite proceeds, which is what `describe workflow` now emits for you.
+  the rewrite proceeds, which is what `describe workflow` now emits for you;
+- **more stored workflow event handlers, or user tasks with an on-created
+  microflow, than the statement declares** — the same: restate them.
 
 The safe way to change one activity in a workflow carrying hand-placed structure
 is `ALTER WORKFLOW`, which mutates in place and touches nothing else.
@@ -323,8 +329,8 @@ documented in `system-module`.
 ## Platform rules
 
 - **Some workflow state has no MDL spelling, and a rewrite refuses rather than
-  reset it.** An event sub-process, a workflow event handler, an AI agent task, a
-  user task's on-created microflow, and a multi-user task's completion rule other
+  reset it.** An event sub-process, an AI agent task, a workflow event handler
+  subscribed to no event types, and a multi-user task's completion rule other
   than consensus falling back to its first outcome are set in Studio Pro.
   `create or modify` on a workflow that holds any of them is refused with the
   list, and so is `alter workflow … replace activity` on an activity that holds
@@ -350,6 +356,20 @@ documented in `system-module`.
   An outcome left **empty** does not stop anything — it rejoins the main flow.
   `comment '…'` sets the End's caption, as on every workflow activity.
 
+- **Handler microflows have fixed signatures** (measured, mxbuild 11.13):
+  - `on created microflow` takes exactly `System.WorkflowUserTask` and the context
+    entity, in either order — anything else is `CE6683` — and returns nothing
+    (`CE5012`).
+  - A workflow event handler takes exactly `System.WorkflowEvent`,
+    `System.WorkflowRecord` and `System.WorkflowActivityRecord`, in any order
+    (`CE6691`).
+  - **Event type names are not checked by the build** — an invented one builds at
+    0 errors and never fires. mxcli refuses an unknown name (`MDL-WF12`) and a type
+    the project's version does not have. The list is in `mxcli syntax
+    workflow.event-handlers`.
+  - `on any workflow event` stores the full list for the project's version (Studio
+    Pro stores a list, not a flag), so it needs Mendix 11.6+; name the types on
+    older projects.
 - A user task needs a **task page** to be useful; without one Mendix flags the
   task (`CE1834`). Bind the page to `System.WorkflowUserTask`.
 - **The task page takes the TASK, not the workflow's context object.** It must

@@ -65,6 +65,16 @@ func execCreateWorkflow(ctx *ExecContext, s *ast.CreateWorkflowStmt) error {
 	// Note this runs BEFORE findOrCreateModule, which auto-creates a module on
 	// demand: without it a typo'd module name silently produced a new module
 	// rather than an error.
+	if vs := ValidateWorkflowEventTypes(s); len(vs) > 0 {
+		return mdlerrors.NewValidationf("%s\n  → %s", vs[0].Message, vs[0].Suggestion)
+	}
+	if len(s.EventHandlers) > 0 {
+		if err := checkFeature(ctx, "workflows", "event_handlers", "on workflow events",
+			"remove the `on … workflow event` clauses, or upgrade the project"); err != nil {
+			return err
+		}
+	}
+
 	if refErrors := validateWorkflowStatementRefs(ctx, s, nil); len(refErrors) > 0 {
 		return mdlerrors.NewValidationf("workflow '%s' has reference errors:\n  - %s",
 			s.Name.String(), strings.Join(refErrors, "\n  - "))
@@ -93,6 +103,7 @@ func execCreateWorkflow(ctx *ExecContext, s *ast.CreateWorkflowStmt) error {
 	// exclusion forward (#914).
 	existingExcluded := false
 	var existingDocumentation string
+	var existingHandlers []*workflows.WorkflowEventHandler
 	haveExistingWf := false
 	if existing, ok := pickLive(existingWorkflows,
 		func(w *workflows.Workflow) bool {
@@ -107,6 +118,7 @@ func execCreateWorkflow(ctx *ExecContext, s *ast.CreateWorkflowStmt) error {
 		existingExcluded = existing.Excluded
 		existingContainer = existing.ContainerID
 		existingDocumentation = existing.Documentation
+		existingHandlers = existing.EventHandlers
 		haveExistingWf = true
 
 		// Refuse a rewrite that would delete a stored construct this statement
@@ -153,6 +165,12 @@ func execCreateWorkflow(ctx *ExecContext, s *ast.CreateWorkflowStmt) error {
 
 	// Due date
 	wf.DueDate = s.DueDate
+
+	handlers, err := buildWorkflowEventHandlers(ctx, s.EventHandlers, existingHandlers)
+	if err != nil {
+		return err
+	}
+	wf.EventHandlers = handlers
 
 	// Build activities with implicit start/end
 	flow := &workflows.Flow{}
@@ -312,6 +330,52 @@ func buildWorkflowActivity(node ast.WorkflowActivityNode) workflows.WorkflowActi
 	}
 }
 
+// buildWorkflowEventHandlers turns the header's handler clauses into stored
+// handlers. `any workflow event` becomes the list the project version knows,
+// because that is what Studio Pro stores; a named list is written in Studio
+// Pro's order. A handler's documentation cannot be written from MDL, so a
+// rewrite carries it from the stored handler with the same microflow and
+// description.
+func buildWorkflowEventHandlers(ctx *ExecContext, nodes []ast.WorkflowEventHandlerNode, stored []*workflows.WorkflowEventHandler) ([]*workflows.WorkflowEventHandler, error) {
+	var out []*workflows.WorkflowEventHandler
+	for _, n := range nodes {
+		h := &workflows.WorkflowEventHandler{
+			Description: n.Description,
+			Microflow:   n.Microflow.String(),
+		}
+		h.ID = model.ID(generateWorkflowUUID())
+		if n.AnyEvent {
+			pv := ctx.Backend.ProjectVersion()
+			if pv == nil {
+				return nil, mdlerrors.NewUnsupported("`on any workflow event` needs the project's Mendix version, which is not available")
+			}
+			types, _, ok := allWorkflowEventTypes(pv.MajorVersion, pv.MinorVersion, pv.PatchVersion)
+			if !ok {
+				return nil, mdlerrors.NewUnsupported(fmt.Sprintf(
+					"`on any workflow event`: the event types of Mendix %d.%d.%d are not known — name them instead",
+					pv.MajorVersion, pv.MinorVersion, pv.PatchVersion))
+			}
+			h.EventTypes = types
+		} else {
+			var names []string
+			for _, t := range n.EventTypes {
+				if name, ok := canonicalWorkflowEventType(t); ok {
+					names = append(names, name)
+				}
+			}
+			h.EventTypes = sortWorkflowEventTypes(names)
+		}
+		for _, sh := range stored {
+			if sh != nil && strings.EqualFold(sh.Microflow, h.Microflow) && sh.Description == h.Description {
+				h.Documentation = sh.Documentation
+				break
+			}
+		}
+		out = append(out, h)
+	}
+	return out, nil
+}
+
 func buildUserTask(n *ast.WorkflowUserTaskNode) *workflows.UserTask {
 	task := &workflows.UserTask{}
 	task.ID = model.ID(generateWorkflowUUID())
@@ -327,6 +391,10 @@ func buildUserTask(n *ast.WorkflowUserTaskNode) *workflows.UserTask {
 
 	if n.Entity.Module != "" {
 		task.UserTaskEntity = n.Entity.Module + "." + n.Entity.Name
+	}
+
+	if n.OnCreated.Module != "" {
+		task.OnCreated = n.OnCreated.String()
 	}
 
 	// Targeting

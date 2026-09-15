@@ -21,7 +21,20 @@ createWorkflowStatement
       (EXPORT LEVEL (IDENTIFIER | API))?
       (OVERVIEW PAGE qualifiedName)?
       (DUE DATE_TYPE dueDate=STRING_LITERAL)?
+      workflowEventHandlerClause*
       BEGIN workflowMainBody END WORKFLOW SEMICOLON? SLASH?
+    ;
+
+/**
+ * A workflow event handler: a microflow the runtime calls when one of the named
+ * workflow events happens. Studio Pro stores the event types as an explicit list
+ * even when every one is ticked, so `any workflow event` is written as the list
+ * the project's Mendix version knows. The optional `as` string is the handler's
+ * description, which is how Studio Pro tells handlers apart.
+ */
+workflowEventHandlerClause
+    : ON ANY WORKFLOW EVENT MICROFLOW qualifiedName (AS STRING_LITERAL)?
+    | ON WORKFLOW EVENTS LPAREN IDENTIFIER (COMMA IDENTIFIER)* RPAREN MICROFLOW qualifiedName (AS STRING_LITERAL)?
     ;
 
 /**
@@ -88,6 +101,7 @@ workflowUserTaskStmt
       (PAGE qualifiedName)?
       (TARGETING (USERS | GROUPS)? MICROFLOW qualifiedName)?
       (TARGETING (USERS | GROUPS)? XPATH STRING_LITERAL)?
+      (ON CREATED MICROFLOW qualifiedName)?
       (ENTITY qualifiedName)?
       (DUE DATE_TYPE STRING_LITERAL)?
       (DESCRIPTION STRING_LITERAL)?
@@ -97,6 +111,7 @@ workflowUserTaskStmt
       (PAGE qualifiedName)?
       (TARGETING (USERS | GROUPS)? MICROFLOW qualifiedName)?
       (TARGETING (USERS | GROUPS)? XPATH STRING_LITERAL)?
+      (ON CREATED MICROFLOW qualifiedName)?
       (ENTITY qualifiedName)?
       (DUE DATE_TYPE STRING_LITERAL)?
       (DESCRIPTION STRING_LITERAL)?
