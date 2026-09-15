@@ -19,6 +19,7 @@ func init() {
 	for _, t := range []string{
 		"Workflows$SingleUserTaskActivity", "Workflows$MultiUserTaskActivity",
 		"Workflows$CallMicroflowTask", "Workflows$CallMicroflowActivity",
+		"Workflows$AIAgentTaskActivity",
 		"Workflows$CallWorkflowActivity",
 		"Workflows$ExclusiveSplitActivity", "Workflows$ParallelSplitActivity",
 		"Workflows$JumpToActivity", "Workflows$WaitForTimerActivity",
@@ -57,8 +58,9 @@ func init() {
 		})
 	}
 	// Both the pre-11.9 CallMicroflowTask and the 11.9+ CallMicroflowActivity
-	// storage names share the same shape (see applyCallMicroflowStorageName).
-	for _, t := range []string{"Workflows$CallMicroflowTask", "Workflows$CallMicroflowActivity"} {
+	// storage names share the same shape (see applyCallMicroflowStorageName), and
+	// so does the 11.9+ AIAgentTaskActivity (ako/TestApp, 11.14.0).
+	for _, t := range []string{"Workflows$CallMicroflowTask", "Workflows$CallMicroflowActivity", "Workflows$AIAgentTaskActivity"} {
 		codec.RegisterTypeDefaults(t, codec.TypeDefaults{
 			MandatoryListMarkers: map[string]int32{"Outcomes": 3, "BoundaryEvents": 2, "ParameterMappings": 2},
 			NullFields:           []string{"Annotation"},
@@ -106,6 +108,7 @@ func init() {
 const (
 	callMicroflowTaskType     = "Workflows$CallMicroflowTask"
 	callMicroflowActivityType = "Workflows$CallMicroflowActivity"
+	aiAgentTaskActivityType   = "Workflows$AIAgentTaskActivity"
 )
 
 // useCallMicroflowActivityName reports whether the target project is Mendix 11.9+
@@ -356,7 +359,13 @@ func userTaskToGen(a *workflows.UserTask) element.Element {
 }
 
 func callMicroflowTaskToGen(a *workflows.CallMicroflowTask) element.Element {
-	g := newElem("Workflows$CallMicroflowTask", activityID(&a.BaseWorkflowActivity))
+	typeName := callMicroflowTaskType
+	if a.IsAgent {
+		// Same document shape; applyCallMicroflowStorageName renames only the
+		// call-microflow type, so this one is written as is.
+		typeName = aiAgentTaskActivityType
+	}
+	g := newElem(typeName, activityID(&a.BaseWorkflowActivity))
 	if a.Annotation != "" {
 		addPart(g, "Annotation", annotationElem(a.Annotation))
 	}

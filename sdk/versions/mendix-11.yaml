@@ -180,6 +180,10 @@ features:
       min_version: "9.0.0"
     user_task:
       min_version: "9.0.0"
+    ai_agent_task:
+      min_version: "11.9.0"
+      mdl: "CALL AGENT MICROFLOW Module.InvokeAgent WITH (Param = '$WorkflowContext')"
+      notes: "Workflows$AIAgentTaskActivity, introduced when Mendix 11.9 split MicroflowBasedActivity into CallMicroflowActivity + AIAgentTaskActivity. Absent from the 11.6 mxbuild, present from 11.10."
     event_handlers:
       min_version: "10.7.0"
       mdl: "CREATE WORKFLOW … ON WORKFLOW EVENTS (…) MICROFLOW Module.Handler AS '…'"

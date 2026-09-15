@@ -619,3 +619,46 @@ begin
     outcomes 'Yes' { } 'No' { };
 end workflow;
 /
+
+-- @version: 11.9+
+-- ############################################################################
+-- PART G: AI AGENT TASK — call agent microflow (Mendix 11.9+)
+-- ############################################################################
+--
+-- `call agent microflow` is the call-microflow statement stored as an AI agent
+-- task. Its microflow must take at least one parameter (CE1590); return Boolean
+-- or an enumeration to branch on the agent's answer.
+
+create microflow WFTest.ACT_SummariseOrder (
+  $OrderContext: WFTest.OrderContext
+)
+begin
+end;
+/
+
+create microflow WFTest.ACT_ClassifyOrder (
+  $OrderContext: WFTest.OrderContext
+)
+returns boolean as $Urgent
+begin
+  return false;
+end;
+/
+
+create workflow WFTest.WithAgentTasks
+  parameter $OrderContext: WFTest.OrderContext
+begin
+  call agent microflow WFTest.ACT_SummariseOrder as aiAgentTask1 comment 'Summarise the order'
+    with (OrderContext = '$WorkflowContext');
+
+  call agent microflow WFTest.ACT_ClassifyOrder as aiAgentTask2 comment 'Classify the order'
+    with (OrderContext = '$WorkflowContext')
+    outcomes
+      true -> {
+        user task Expedite 'Expedite the order'
+          page WFTest.TaskPage
+          outcomes 'Done' { };
+      }
+      false -> { };
+end workflow;
+/

@@ -53,6 +53,33 @@ Example:
 CALL MICROFLOW HR.ACT_SendNotification COMMENT 'Notify the applicant';
 ```
 
+## AI Agent Task
+
+A step that runs an AI agent (Mendix 11.9 or later). It is written like `CALL
+MICROFLOW` with `AGENT` added, and takes the same name, comment, parameter
+mappings, outcomes and boundary events. The microflow is where the agent is
+invoked — build agents with the Studio Pro Agent Editor, or `CREATE AGENT`.
+
+```sql
+CALL AGENT MICROFLOW <Module>.<Name> [AS <name>] [COMMENT '<text>']
+  [WITH (<Param> = '<expression>', ...)]
+  [OUTCOMES <true|false|'Module.Enum.Value'|''> -> { <activities> } ...];
+```
+
+Example — branch on the agent's answer:
+
+```sql
+CALL AGENT MICROFLOW HR.ACT_ClassifyRequest AS aiAgentTask1 COMMENT 'Classify the request'
+  WITH (Request = '$WorkflowContext')
+  OUTCOMES true -> {
+    USER TASK Expedite 'Expedite the request' PAGE HR.TaskPage OUTCOMES 'Done' { };
+  } false -> { };
+```
+
+The microflow must take at least one parameter — usually the workflow's context
+object — or the build fails with CE1590. Return Boolean or an enumeration to
+branch with `OUTCOMES`; return nothing for a single path.
+
 ## Call Workflow
 
 Start a sub-workflow:
@@ -166,6 +193,7 @@ Typically used inside an outcome block to stop the workflow after a rejection or
 |----------|---------|-----------------|
 | `USER TASK` | Wait for human action | Yes |
 | `CALL MICROFLOW` | Execute server logic | No |
+| `CALL AGENT MICROFLOW` | Run an AI agent step (11.9+) | No |
 | `CALL WORKFLOW` | Start sub-workflow | Depends on sub-workflow |
 | `DECISION` | Branch on condition | No |
 | `PARALLEL SPLIT` | Concurrent execution | Yes (waits for all paths) |

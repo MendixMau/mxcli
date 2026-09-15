@@ -533,9 +533,13 @@ func serializeUserTaskOutcome(outcome *workflows.UserTaskOutcome) bson.D {
 }
 
 func serializeCallMicroflowTask(a *workflows.CallMicroflowTask) bson.D {
+	typeName := "Workflows$CallMicroflowTask"
+	if a.IsAgent {
+		typeName = "Workflows$AIAgentTaskActivity" // same shape, 11.9+
+	}
 	doc := bson.D{
 		{Key: "$ID", Value: idToBsonBinary(activityID(&a.BaseWorkflowActivity))},
-		{Key: "$Type", Value: "Workflows$CallMicroflowTask"},
+		{Key: "$Type", Value: typeName},
 	}
 
 	// Annotation

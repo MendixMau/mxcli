@@ -1,6 +1,6 @@
 # Proposal: Workflow constructs only Studio Pro could author
 
-**Status:** Phase 1 implemented; phases 2–4 designed, awaiting reference documents
+**Status:** Phases 1 and 2 implemented; phases 3–4 designed, awaiting reference documents
 **Date:** 2026-09-14
 
 ## Problem Statement
@@ -114,9 +114,10 @@ A rewrite now writes handlers and on-created microflows, so they move from
 "cannot express" to "restated?" — the boundary-event rule: refused when the
 statement declares fewer handlers, or fewer on-created microflows, than are
 stored. `replace activity` is refused only when the replacement does not restate
-the stored on-created microflow. Still refused outright: an event sub-process, an
-AI agent task, a non-default completion rule, and a handler with an empty type
-list (no MDL spelling).
+the stored on-created microflow. Still refused outright: an event sub-process, a
+non-default completion rule, and a handler with an empty type list (no MDL
+spelling). (AI agent tasks were refused outright too until phase 2 made them
+restatable.)
 
 Running the end-to-end rewrite on both engines found that **none of the workflow
 rewrite guards worked on the legacy engine**: its `GetRawUnit` returns arrays as
@@ -151,7 +152,7 @@ workflow version. The signature checks run on Mendix 11+, where they are measure
   (`set activity … on created microflow …` and header handler operations). A
   rewrite restating them is the path today.
 
-## Phase 2 — AI agent task
+## Phase 2 — AI agent task (implemented)
 
 ```sql
 call agent microflow HR.InvokeAgent as aiAgentTask1 comment 'Classify the request'
@@ -161,9 +162,50 @@ call agent microflow HR.InvokeAgent as aiAgentTask1 comment 'Classify the reques
 Stored as `Workflows$AIAgentTaskActivity` with `Caption`, `Name`, `Microflow`,
 `BoundaryEvents` (marker 2), `Outcomes` (marker 3, a `VoidConditionOutcome` with its
 `Flow`) and `ParameterMappings` (marker 2, `MicroflowCallParameterMapping`) — the
-call-microflow shape under a different `$Type`. The TestApp agent microflow takes
-the context entity. Open: the minimum version (agents are 11.9+; the event types
-appear by 11.10), and which signature errors the build reports.
+call-microflow shape under a different `$Type` (ako/TestApp, 11.14.0).
+
+Because the shape is identical, the semantic model is `CallMicroflowTask` with an
+`IsAgent` flag rather than a new type: every walker, validator, catalog edge,
+activity-name rule and ALTER path that handles a call microflow handles an agent
+task unchanged, and only the `$Type`, describe and the rewrite guard branch on it.
+
+**Measured** (mxbuild 11.13.0) by writing each shape as a call-microflow activity
+and switching only the `$Type`, so the two columns differ in nothing else:
+
+| Agent microflow | call microflow | AI agent task |
+|---|---|---|
+| `(Ctx)`, mapped | 0 errors | 0 errors |
+| `()` — no parameters | 0 errors | **CE1590** "Missing parameter" |
+| `(Ctx, String)`, both mapped | 0 errors | 0 errors |
+| `(System.Workflow)` | 0 errors | 0 errors |
+| returns Boolean, true/false outcomes | 0 errors | 0 errors |
+| returns an enumeration, value outcomes | 0 errors | 0 errors |
+| interrupting timer boundary event | 0 errors | 0 errors |
+
+So `check` refuses an agent microflow with no parameters, and nothing else new.
+
+**Confirmed in Studio Pro 11.14 over MCP** (ped_get_schema, then a created
+document checked with `ped_check_errors` once its error list settled): the agent
+task, event handler and on-created shapes mxcli writes are accepted; an on-created
+microflow with the handler signature and a handler with the on-created signature
+report the CE6683 / CE6691 messages mxbuild reports; an agent task without
+parameter mappings is flagged; and an invented event type is refused at create by
+the schema's enum of the same 42 names. Details in
+`docs/03-development/PED_MCP_CAPABILITIES.md`.
+
+**Version.** `AIAgentTaskActivity` is absent from the 11.6 mxbuild and present
+from 11.10; the writer already records that Mendix 11.9 split
+`MicroflowBasedActivity` into `CallMicroflowActivity` + `AIAgentTaskActivity`.
+`workflows.ai_agent_task` min 11.9.0 gates CREATE and the activities ALTER adds.
+
+**Guard.** A rewrite declaring fewer agent tasks than are stored is refused
+(restate with `call agent microflow`, which describe emits); it was refused
+outright before, since describe printed an agent task only as a comment.
+
+**Engines.** Written and read by the modelsdk engine. The retiring legacy engine
+carries the flag through (same shape, agent `$Type`) rather than silently turning
+an agent task into a call microflow; the MCP backend refuses one, since PED's
+agent element has not been measured.
 
 ## Phase 3 — completion rules
 

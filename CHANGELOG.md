@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **AI agent tasks in workflows: `call agent microflow`** (docs/11-proposals/PROPOSAL_workflow_studio_pro_constructs.md, phase 2) — the workflow step that runs an AI agent, which `describe workflow` could only print as a `-- [Workflows$AIAgentTaskActivity]` comment and a rewrite therefore refused. It is the call-microflow statement with `agent` added — same `as`, `comment`, `with (…)`, `outcomes` and boundary events — because Mendix stores exactly the call-microflow shape under a different `$Type` (ako/TestApp, 11.14.0). The rules were measured on mxbuild 11.13.0 by writing each shape as a call microflow and switching only the `$Type`: every shape builds the same except an agent microflow with **no parameters**, which fails **CE1590**, so that is the one new check. Needs Mendix 11.9 (`workflows.ai_agent_task`); describe emits it, and a rewrite that restates it proceeds.
+
+  Verified in Studio Pro 11.14 over MCP as well as mxbuild: the shapes are accepted, and Studio Pro reports the same on-created and handler signature errors, flags an agent task without parameter mappings, and refuses an invented event type at create.
+
+### Fixed
+
+- **Workflows written over MCP lost their on-created microflows and event handlers, and could not be created at all on Studio Pro 11.14.** The MCP mapper hard-coded `onCreatedEvent: NoEvent` and sent no `onWorkflowEvent`, so both constructs from the previous release were dropped without a word; it now sends `MicroflowBasedEvent` and the handlers, and replaces stored handlers on a rewrite. Separately, Studio Pro 11.14's workflow constructor takes the context entity as `context` and `workflowName` as a string and rejects the older payload (`"/context":"Expected reference (string), got undefined"`), so every workflow create over MCP failed; the backend now reads the constructor schema and sends whichever shape the server declares. AI agent tasks are sent as `Workflows$AIAgentTaskActivity`.
+- **`describe workflow` turned a call microflow's caption into the microflow's name on re-execute.** The caption was printed only as a trailing `-- caption` comment, which the parser discards, so describe → exec replaced `comment 'Summarise the order'` with `ACT_Summarise`. An authored caption is now described as `comment '…'`; the derived default is not. Found by the AI agent task's end-to-end round trip.
+
 ## [0.22.0] - 2026-09-14
 
 Headline: **The gap between a model that validates and an app that works.** Almost everything fixed here was invisible to `mxcli check`, to `mx check` and to mxbuild — a workflow that loads, validates and then deadlocks at run time; a `describe` round trip that deletes what it just described; a widget spelling that storage drops — because in each case the model Mendix loaded was perfectly valid, just not the one that was written. Alongside that, offline synchronization, SOAP request bodies and a microflow's join points become authorable, closing three of the places where MDL could describe a model it could not write.

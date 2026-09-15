@@ -28,6 +28,13 @@ func execAlterWorkflow(ctx *ExecContext, s *ast.AlterWorkflowStmt) error {
 		return err
 	}
 
+	if workflowUsesAgentTask(alterWorkflowAddedActivities(s)) {
+		if err := checkFeature(ctx, "workflows", "ai_agent_task", "call agent microflow",
+			"AI agent tasks need Mendix 11.9 or later — use `call microflow` on older projects"); err != nil {
+			return err
+		}
+	}
+
 	// Same exec-side guard as CREATE WORKFLOW: ALTER had no reference validation
 	// at all, so an inserted activity could name a microflow that exists nowhere
 	// and still be written (issue #943).
