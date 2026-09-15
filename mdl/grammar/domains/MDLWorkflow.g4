@@ -115,8 +115,40 @@ workflowUserTaskStmt
       (ENTITY qualifiedName)?
       (DUE DATE_TYPE STRING_LITERAL)?
       (DESCRIPTION STRING_LITERAL)?
+      workflowParticipantsClause?
+      workflowCompletionClause?
+      (AWAIT ALL USERS)?
       (OUTCOMES workflowUserTaskOutcome+)?
       (BOUNDARY EVENT workflowBoundaryEventClause ((BOUNDARY EVENT)? workflowBoundaryEventClause)*)?
+    ;
+
+/**
+ * How many of a multi-user task's targeted users must respond (TargetUserInput).
+ * Omitted means all of them. A sub-rule, so its number stays out of the task's
+ * positional reads.
+ */
+workflowParticipantsClause
+    : PARTICIPANTS ALL
+    | PARTICIPANTS NUMBER_LITERAL PERCENT_KW?
+    ;
+
+/**
+ * How a multi-user task turns its participants' outcomes into one outcome
+ * (CompletionCriteria). Omitted means consensus falling back to the first
+ * outcome. The fallback is optional here and required by check (CE1866): a
+ * platform rule reported as a parse error reads as "not implemented".
+ */
+workflowCompletionClause
+    : DECIDE BY CONSENSUS workflowFallbackClause?
+    | DECIDE BY MAJORITY MORE_KW THAN HALF workflowFallbackClause?
+    | DECIDE BY MAJORITY MOST CHOSEN workflowFallbackClause?
+    | DECIDE BY THRESHOLD NUMBER_LITERAL (PERCENT_KW | VOTES) workflowFallbackClause?
+    | DECIDE BY VETO STRING_LITERAL
+    | DECIDE BY MICROFLOW qualifiedName
+    ;
+
+workflowFallbackClause
+    : FALLBACK STRING_LITERAL
     ;
 
 /**

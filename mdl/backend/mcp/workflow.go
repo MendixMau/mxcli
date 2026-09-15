@@ -29,10 +29,16 @@ func (b *Backend) CreateWorkflow(wf *workflows.Workflow) error {
 	if err != nil {
 		return err
 	}
+	if b.multiUserTaskConstructorTakesTaskPage() {
+		adaptMultiUserTaskPages(content)
+	}
 	if err := b.ensureSchema(workflowDocType); err != nil {
 		return err
 	}
 	if err := b.pedCreateDocument(moduleName, workflowDocType, wf.Name, content, folderPath); err != nil {
+		return err
+	}
+	if err := b.applyMoreThanHalfFallbacks(moduleName+"."+wf.Name, wf); err != nil {
 		return err
 	}
 	if contextShape {
@@ -81,6 +87,9 @@ func (b *Backend) UpdateWorkflow(wf *workflows.Workflow) error {
 	// Start/End (it refuses to remove them) and auto-positions an index-less add by
 	// activity type, so we strip the executor's leading Start / trailing End and
 	// let PED place the new middles between the existing ones.
+	if b.multiUserTaskConstructorTakesTaskPage() {
+		adaptMultiUserTaskPages(flowVal)
+	}
 	middles := stripStartEnd(flowVal["activities"].([]any))
 
 	n, err := b.workflowActivityCount(qn)
@@ -134,6 +143,9 @@ func (b *Backend) UpdateWorkflow(wf *workflows.Workflow) error {
 	}
 
 	if err := b.pedUpdateDoc(workflowDocType, qn, ops...); err != nil {
+		return err
+	}
+	if err := b.applyMoreThanHalfFallbacks(qn, wf); err != nil {
 		return err
 	}
 	b.markDirty(mod.Name)
@@ -273,6 +285,55 @@ func (b *Backend) workflowConstructorTakesContext() bool {
 	}
 	b.workflowCtorContext = &takes
 	return takes
+}
+
+// multiUserTaskConstructorTakesTaskPage reports whether the connected server's
+// Workflows$MultiUserTaskActivity constructor takes the page as a `taskPage`
+// element. Studio Pro 11.14 does, and rejects the bare `pageReference` string the
+// mapper sends for older servers — measured live:
+// `"/flow/activities/1/taskPage":"Expected an object, but the value is missing."`,
+// so no multi-user task could be created over MCP. Read off the live constructor
+// schema, like workflowConstructorTakesContext; the probe doubles as the schema
+// fetch PED asks for before a create.
+func (b *Backend) multiUserTaskConstructorTakesTaskPage() bool {
+	if b.multiTaskPageCtor != nil {
+		return *b.multiTaskPageCtor
+	}
+	const multiTaskType = "Workflows$MultiUserTaskActivity"
+	takes := false
+	if b.client != nil {
+		res, err := b.client.CallTool("ped_get_schema", map[string]any{"elementTypes": []string{multiTaskType}})
+		if err == nil && res != nil && !res.IsError {
+			takes = strings.Contains(res.Text, "taskPage: Element<'Workflows$PageReference'>")
+			if b.schemaFetched == nil {
+				b.schemaFetched = map[string]bool{}
+			}
+			b.schemaFetched[multiTaskType] = true
+		}
+	}
+	b.multiTaskPageCtor = &takes
+	return takes
+}
+
+// adaptMultiUserTaskPages rewrites, at any depth, each mapped multi-user task's
+// bare `pageReference` into the `taskPage` element the 11.14 constructor takes.
+func adaptMultiUserTaskPages(v any) {
+	switch t := v.(type) {
+	case map[string]any:
+		if t["$Type"] == "Workflows$MultiUserTaskActivity" {
+			if page, ok := t["pageReference"].(string); ok {
+				delete(t, "pageReference")
+				t["taskPage"] = map[string]any{"$Type": "Workflows$PageReference", "page": page}
+			}
+		}
+		for _, c := range t {
+			adaptMultiUserTaskPages(c)
+		}
+	case []any:
+		for _, c := range t {
+			adaptMultiUserTaskPages(c)
+		}
+	}
 }
 
 // mapWorkflow maps the executor's Workflow onto the PED Workflows$Workflow content
@@ -517,6 +578,7 @@ func mapWorkflowActivity(a workflows.WorkflowActivity) (map[string]any, error) {
 				"onCreatedEvent":    mapOnCreatedEvent(act.OnCreated),
 				"outcomes":          vals,
 			}
+			mapMultiUserTaskCompletion(m, act, vals)
 		} else {
 			outcomes, err := mapUserTaskOutcomes(act.Outcomes)
 			if err != nil {
@@ -543,6 +605,150 @@ func mapWorkflowActivity(a workflows.WorkflowActivity) (map[string]any, error) {
 	default:
 		return nil, fmt.Errorf("workflow activity type %q is not yet supported by the MCP backend", a.ActivityType())
 	}
+}
+
+// mapMultiUserTaskCompletion sets a multi-user task constructor's participant and
+// completion fields (ped_get_schema, Studio Pro 11.14). The constructor names
+// outcomes by value. With no rule it sends consensus falling back to the first
+// outcome — what the file engine writes — because PED's own default is consensus
+// with no fallback, which is CE1866.
+func mapMultiUserTaskCompletion(m map[string]any, act *workflows.UserTask, outcomes []any) {
+	if t := act.TargetUserInput; t != nil {
+		switch t.Kind {
+		case "Absolute":
+			m["participiantInput"] = "AbsoluteNumber"
+			m["participiantValue"] = t.Amount
+		case "Percentage":
+			m["participiantInput"] = "Percentage"
+			m["participiantValue"] = t.Percentage
+		}
+	}
+	if act.AwaitAllUsers {
+		m["awaitAllUsers"] = true
+	}
+	cc := act.CompletionCriteria
+	if cc == nil {
+		m["completionCriteria"] = "Consensus"
+		if len(outcomes) > 0 {
+			m["fallbackOutcome"] = outcomes[0]
+		}
+		return
+	}
+	setFallback := func() {
+		if cc.FallbackOutcome != "" {
+			m["fallbackOutcome"] = cc.FallbackOutcome
+		}
+	}
+	switch cc.Kind {
+	case "Majority":
+		m["completionCriteria"] = "Majority"
+		m["majorityType"] = "MostChosen"
+		if cc.CompletionType == "Absolute" {
+			m["majorityType"] = "MoreThanHalf"
+		}
+		setFallback()
+	case "Threshold":
+		m["completionCriteria"] = "Threshold"
+		m["thresholdType"] = "AbsoluteNumber"
+		if cc.CompletionType == "Relative" {
+			m["thresholdType"] = "Percentage"
+		}
+		m["thresholdValue"] = cc.Threshold
+		setFallback()
+	case "Veto":
+		m["completionCriteria"] = "Veto"
+		m["vetoOutcome"] = cc.VetoOutcome
+	case "Microflow":
+		m["completionCriteria"] = "Microflow"
+		m["microflow"] = cc.Microflow
+	default:
+		m["completionCriteria"] = "Consensus"
+		setFallback()
+	}
+}
+
+// moreThanHalfFallbacks lists, by JSON path, every multi-user task in a flow that
+// decides by majority-more-than-half with a fallback, and that fallback's outcome
+// index. PED's constructor drops `fallbackOutcome` for MoreThanHalf (measured,
+// Studio Pro 11.14: stored null, then "Fallback outcome cannot be empty"), so it
+// is set afterwards by the outcome's $ID.
+func moreThanHalfFallbacks(flow *workflows.Flow, base string) map[string]int {
+	out := map[string]int{}
+	if flow == nil {
+		return out
+	}
+	for i, a := range flow.Activities {
+		path := fmt.Sprintf("%s/%d", base, i)
+		sub := func(f *workflows.Flow, p string) {
+			for k, v := range moreThanHalfFallbacks(f, p) {
+				out[k] = v
+			}
+		}
+		switch t := a.(type) {
+		case *workflows.UserTask:
+			if cc := t.CompletionCriteria; t.IsMulti && cc != nil && cc.Kind == "Majority" && cc.CompletionType == "Absolute" && cc.FallbackOutcome != "" {
+				for j, o := range t.Outcomes {
+					if o.Value == cc.FallbackOutcome || (o.Value == "" && o.Caption == cc.FallbackOutcome) {
+						out[path] = j
+					}
+				}
+			}
+			for j, o := range t.Outcomes {
+				sub(o.Flow, fmt.Sprintf("%s/outcomes/%d/flow/activities", path, j))
+			}
+			for j, be := range t.BoundaryEvents {
+				sub(be.Flow, fmt.Sprintf("%s/boundaryEvents/%d/flow/activities", path, j))
+			}
+		case *workflows.CallMicroflowTask:
+			for j, o := range t.Outcomes {
+				sub(o.GetFlow(), fmt.Sprintf("%s/outcomes/%d/flow/activities", path, j))
+			}
+			for j, be := range t.BoundaryEvents {
+				sub(be.Flow, fmt.Sprintf("%s/boundaryEvents/%d/flow/activities", path, j))
+			}
+		case *workflows.ExclusiveSplitActivity:
+			for j, o := range t.Outcomes {
+				sub(o.GetFlow(), fmt.Sprintf("%s/outcomes/%d/flow/activities", path, j))
+			}
+		case *workflows.ParallelSplitActivity:
+			for j, o := range t.Outcomes {
+				if o != nil {
+					sub(o.Flow, fmt.Sprintf("%s/outcomes/%d/flow/activities", path, j))
+				}
+			}
+		}
+	}
+	return out
+}
+
+// applyMoreThanHalfFallbacks sets each majority-more-than-half fallback the
+// constructor dropped, reading the outcome's $ID and pointing at it.
+func (b *Backend) applyMoreThanHalfFallbacks(qn string, wf *workflows.Workflow) error {
+	for path, idx := range moreThanHalfFallbacks(wf.Flow, "/flow/activities") {
+		idPath := fmt.Sprintf("%s/outcomes/%d/$ID", path, idx)
+		res, err := b.client.CallTool("ped_read_document", map[string]any{
+			"documentType": workflowDocType,
+			"documentName": qn,
+			"paths":        []string{idPath},
+		})
+		if err != nil {
+			return err
+		}
+		text := pedStripReminder(res.Text)
+		var doc struct {
+			Results []struct {
+				Result string `json:"result"`
+			} `json:"results"`
+		}
+		if res.IsError || json.Unmarshal([]byte(text), &doc) != nil || len(doc.Results) == 0 || doc.Results[0].Result == "" {
+			return fmt.Errorf("read outcome id at %s of %s: %s", idPath, qn, text)
+		}
+		op := pedOpEntry{Path: path + "/completionCriteria/fallbackOutcome", Operation: pedOperation{Type: "set", Value: doc.Results[0].Result}}
+		if err := b.pedUpdateDoc(workflowDocType, qn, op); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // mapOnCreatedEvent maps a user task's on-created microflow onto its PED element:

@@ -1,6 +1,6 @@
 # Proposal: Workflow constructs only Studio Pro could author
 
-**Status:** Phases 1 and 2 implemented; phases 3–4 designed, awaiting reference documents
+**Status:** Phases 1–3 implemented; phase 4 designed, reference documents captured
 **Date:** 2026-09-14
 
 ## Problem Statement
@@ -208,15 +208,77 @@ hold it, carries the flag through (same shape, agent `$Type`) rather than silent
 turning an agent task into a call microflow. The MCP backend sends it as
 `Workflows$AIAgentTaskActivity`, verified against Studio Pro 11.14.
 
-## Phase 3 — completion rules
+## Phase 3 — completion rules (implemented)
 
-gen carries `ConsensusCompletionCriteria` (FallbackOutcomePointer),
-`MajorityCompletionCriteria` (CompletionType Absolute|Relative,
-FallbackOutcomePointer), `ThresholdCompletionCriteria` (+ Threshold),
-`VetoCompletionCriteria` (VetoOutcomePointer) and `MicroflowCompletionCriteria`
-(Microflow). **Needed before syntax is designed:** a Studio Pro workflow with one
-multi-user task per rule, including both completion types for majority and
-threshold — pointer semantics and defaults cannot be read off gen.
+```sql
+multi user task Vote 'Vote on the request'
+  page HR.VotePage
+  participants 80 percent
+  decide by threshold 60 percent fallback 'Reject'
+  await all users
+  outcomes 'Approve' { } 'Reject' { };
+```
+
+`decide by consensus|majority more than half|majority most chosen|threshold <n>
+percent|votes [fallback '<outcome>']`, `decide by veto '<outcome>'`, `decide by
+microflow M`; `participants all|<n>|<n> percent`; `await all users`. Each clause
+omitted is what a rebuild has always written — all participants, consensus falling
+back to the first outcome, not waiting — so existing describe output is unchanged.
+
+### Reference documents
+
+The examples were built in Studio Pro 11.14 over MCP, checked clean, saved and
+committed to ako/TestApp (`workflow.ZzMxcliExample_Completion2`, now the reader
+fixture `mdl/backend/modelsdk/testdata/TestApp.ZzMxcliExample_Completion2.bson`).
+Stored:
+
+| MDL | CompletionCriteria | TargetUserInput |
+|-----|--------------------|-----------------|
+| `consensus fallback 'Fast'` | `ConsensusCompletionCriteria{FallbackOutcomePointer}` | |
+| `majority more than half fallback 'Fast'` | `MajorityCompletionCriteria{CompletionType: Absolute, FallbackOutcomePointer}` | |
+| `majority most chosen fallback 'Fast'` | `…{CompletionType: Relative, …}` | |
+| `threshold 60 percent fallback 'Fiurious'` | `ThresholdCompletionCriteria{CompletionType: Relative, FallbackOutcomePointer, Threshold: 60}` | |
+| `threshold 2 votes …` | `…{CompletionType: Absolute, …, Threshold: 2}` | |
+| `veto 'Fiurious'` | `VetoCompletionCriteria{VetoOutcomePointer}` | |
+| `microflow M` | `MicroflowCompletionCriteria{Microflow: "M"}` | |
+| `participants 80 percent` / `participants 3` / omitted | | `PercentageAmountUserInput{Percentage}` / `AbsoluteAmountUserInput{Amount}` / `AllUserInput` |
+
+Both pointers hold the **`$ID` of one of the task's own outcomes** (not its
+`PersistentId`); `AwaitAllUsers` is a bool on the task.
+
+### Measured (mxbuild 11.13.0, one task per shape)
+
+| Shape | Verdict |
+|-------|---------|
+| consensus / majority (both) / threshold without fallback | CE1866 |
+| veto without veto outcome | CE1867 |
+| microflow rule without microflow | CE0113 |
+| decision microflow returning Boolean | CE5012 |
+| decision microflow with no, context or WorkflowUserTask parameters | 0 errors |
+| threshold 0 or 101 percent, 0 or 5 votes; participants 0 or 150 percent, 0 | 0 errors |
+
+`check` refuses the first two rows and an outcome name that matches none
+(MDL-WF13, no project), and CE5012 when the script declares the microflow's return
+type. The numbers are not range-checked: the build accepts them, so a refusal
+would be a guess.
+
+### Guard
+
+A rewrite writes what the statement says, so each omitted clause resets a stored
+value. Refused when the statement declares fewer non-default rules, non-`all`
+participant counts or `await all users` than are stored — the last two were not
+guarded before this and a rewrite reset them silently. `replace activity` is
+refused when the replacement does not restate them.
+
+### MCP
+
+The multi-user task constructor takes `completionCriteria`, `majorityType`
+(MoreThanHalf|MostChosen), `thresholdType` (Percentage|AbsoluteNumber),
+`thresholdValue`, `fallbackOutcome` / `vetoOutcome` (outcome names),
+`participiantInput` (sic) / `participiantValue` and `awaitAllUsers`. Two quirks,
+both measured: PED's default is consensus with **no** fallback (CE1866), so mxcli
+always sends one; and the constructor **drops the fallback of a more-than-half
+majority**, so the backend reads the outcome's `$ID` afterwards and sets it.
 
 ## Phase 4 — event sub-processes and notify targets
 

@@ -528,6 +528,10 @@ func formatUserTask(a *workflows.UserTask, indent string) []string {
 		lines = append(lines, fmt.Sprintf("%s  description %s", indent, mdlQuoted(a.TaskDescription)))
 	}
 
+	if a.IsMulti {
+		lines = append(lines, formatMultiUserTaskCompletion(a, indent)...)
+	}
+
 	// Outcomes
 	if len(a.Outcomes) > 0 {
 		lines = append(lines, fmt.Sprintf("%s  outcomes", indent))
@@ -613,6 +617,61 @@ func sameStringSet(a, b []string) bool {
 		}
 	}
 	return len(set) == len(b)
+}
+
+// formatMultiUserTaskCompletion emits a multi-user task's `participants`,
+// `decide by` and `await all users` clauses, in grammar order. What a rebuild
+// writes anyway — all participants, consensus falling back to the first outcome,
+// not waiting — is omitted, so a task that never had them describes as before.
+func formatMultiUserTaskCompletion(a *workflows.UserTask, indent string) []string {
+	var lines []string
+	if t := a.TargetUserInput; t != nil {
+		switch t.Kind {
+		case "Absolute":
+			lines = append(lines, fmt.Sprintf("%s  participants %d", indent, t.Amount))
+		case "Percentage":
+			lines = append(lines, fmt.Sprintf("%s  participants %d percent", indent, t.Percentage))
+		}
+	}
+	if cc := a.CompletionCriteria; cc != nil {
+		fallback := ""
+		if cc.FallbackOutcome != "" {
+			fallback = " fallback " + mdlQuoted(cc.FallbackOutcome)
+		}
+		firstOutcome := ""
+		if len(a.Outcomes) > 0 {
+			firstOutcome = a.Outcomes[0].Value
+			if firstOutcome == "" {
+				firstOutcome = a.Outcomes[0].Caption
+			}
+		}
+		switch cc.Kind {
+		case "Consensus":
+			if cc.FallbackOutcome != firstOutcome || firstOutcome == "" {
+				lines = append(lines, fmt.Sprintf("%s  decide by consensus%s", indent, fallback))
+			}
+		case "Majority":
+			rule := "most chosen"
+			if cc.CompletionType == "Absolute" {
+				rule = "more than half"
+			}
+			lines = append(lines, fmt.Sprintf("%s  decide by majority %s%s", indent, rule, fallback))
+		case "Threshold":
+			unit := "votes"
+			if cc.CompletionType == "Relative" {
+				unit = "percent"
+			}
+			lines = append(lines, fmt.Sprintf("%s  decide by threshold %d %s%s", indent, cc.Threshold, unit, fallback))
+		case "Veto":
+			lines = append(lines, fmt.Sprintf("%s  decide by veto %s", indent, mdlQuoted(cc.VetoOutcome)))
+		case "Microflow":
+			lines = append(lines, fmt.Sprintf("%s  decide by microflow %s", indent, cc.Microflow))
+		}
+	}
+	if a.AwaitAllUsers {
+		lines = append(lines, indent+"  await all users")
+	}
+	return lines
 }
 
 // formatCallMicroflowTask formats a call microflow task for describe output.

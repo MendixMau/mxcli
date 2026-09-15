@@ -126,6 +126,9 @@ func (c *workflowTaskSignatureChecker) checkActivities(activities []ast.Workflow
 			errs = appendIfSet(errs, c.checkTargeting(label, n.Targeting.Microflow.String(), contextEntity))
 		}
 		errs = appendIfSet(errs, c.checkOnCreated(label, n.OnCreated.String(), contextEntity))
+		if n.Completion != nil && n.Completion.Rule == "microflow" {
+			errs = appendIfSet(errs, c.checkDecisionMicroflow(label, n.Completion.Microflow.String()))
+		}
 	})
 	return errs
 }

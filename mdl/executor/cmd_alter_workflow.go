@@ -28,6 +28,9 @@ func execAlterWorkflow(ctx *ExecContext, s *ast.AlterWorkflowStmt) error {
 		return err
 	}
 
+	if vs := completionRuleViolations(alterWorkflowAddedActivities(s), workflowLocation(s.Name)); len(vs) > 0 {
+		return mdlerrors.NewValidationf("%s\n  → %s", vs[0].Message, vs[0].Suggestion)
+	}
 	if workflowUsesAgentTask(alterWorkflowAddedActivities(s)) {
 		if err := checkFeature(ctx, "workflows", "ai_agent_task", "call agent microflow",
 			"AI agent tasks need Mendix 11.9 or later — use `call microflow` on older projects"); err != nil {

@@ -576,6 +576,10 @@ keyword
     // Agent editor
     | AGENT | AGENTS | KNOWLEDGE | BASES | CONSUMED | MCP | TOOL
 
+    // Workflow multi-user task completion — words, so still usable as names
+    | DECIDE | CONSENSUS | MAJORITY | MORE_KW | THAN | HALF | MOST | CHOSEN | THRESHOLD
+    | PERCENT_KW | VOTES | VETO | FALLBACK | PARTICIPANTS | AWAIT
+
     // Microflow / Nanoflow
     | MICROFLOW | MICROFLOWS | NANOFLOW | NANOFLOWS
     | BEGIN | END | IF | ELSE | ELSIF | ELSEIF | THEN | WHILE | LOOP

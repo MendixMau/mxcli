@@ -145,6 +145,11 @@ func validateWorkflowReferences(ctx *ExecContext, activities []ast.WorkflowActiv
 			if qn := n.OnCreated.String(); qn != "." && qn != "" && !knownMicroflow(qn) {
 				report("microflow", qn, "user task on created")
 			}
+			if n.Completion != nil && n.Completion.Rule == "microflow" {
+				if qn := n.Completion.Microflow.String(); qn != "." && qn != "" && !knownMicroflow(qn) {
+					report("microflow", qn, "multi user task decide by microflow")
+				}
+			}
 		}
 	})
 	return errs

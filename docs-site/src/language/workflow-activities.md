@@ -38,6 +38,46 @@ USER TASK ReviewTask 'Review the request'
   };
 ```
 
+## Multi-User Task
+
+A multi-user task gives the same task to several users and combines their
+outcomes into one. Three clauses, before `OUTCOMES`, say how:
+
+```sql
+MULTI USER TASK <name> '<caption>'
+  PAGE <Module>.<Page>
+  [PARTICIPANTS ALL | <n> | <n> PERCENT]
+  [DECIDE BY <rule>]
+  [AWAIT ALL USERS]
+  OUTCOMES '<outcome>' { <activities> } ...;
+```
+
+| Rule | Completes when | Needs |
+|------|----------------|-------|
+| `CONSENSUS` | everyone chose the same outcome | `FALLBACK '<outcome>'` |
+| `MAJORITY MORE THAN HALF` | more than half chose one outcome | `FALLBACK '<outcome>'` |
+| `MAJORITY MOST CHOSEN` | one outcome was chosen most | `FALLBACK '<outcome>'` |
+| `THRESHOLD <n> PERCENT` / `<n> VOTES` | an outcome reaches the threshold | `FALLBACK '<outcome>'` |
+| `VETO '<outcome>'` | anyone chooses the veto outcome | — |
+| `MICROFLOW <Module>.<Name>` | the microflow returns the outcome (String) | — |
+
+Example:
+
+```sql
+MULTI USER TASK Vote 'Vote on the request'
+  PAGE HR.VotePage
+  PARTICIPANTS 80 PERCENT
+  DECIDE BY THRESHOLD 60 PERCENT FALLBACK 'Reject'
+  AWAIT ALL USERS
+  OUTCOMES 'Approve' { } 'Reject' { };
+```
+
+Omitted, the task needs all participants, decides by consensus falling back to
+its first outcome, and does not wait for everyone. The fallback is required for
+consensus, majority and threshold, and the build does not check threshold or
+participant numbers against each other — `THRESHOLD 5 VOTES` with three users
+builds and never completes.
+
 ## Call Microflow
 
 Execute a microflow as part of the workflow. Optionally specify a comment and outcomes:
