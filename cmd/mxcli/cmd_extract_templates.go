@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mendixlabs/mxcli/sdk/mpr"
 	"github.com/spf13/cobra"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -52,25 +51,16 @@ func runExtractTemplates(cmd *cobra.Command, args []string) error {
 	projectPath, _ := cmd.Flags().GetString("project")
 	outputDir, _ := cmd.Flags().GetString("output")
 
-	// Open the project
-	// Deliberately still sdk/mpr, where every other reader in this package has
-	// moved to the backend (Phase 4a). FindCustomWidgetType is UNIMPLEMENTED on
-	// the codec backend — measured, it returns the "not implemented on the model
-	// engine" error — so porting this call would not fail to compile, it would
-	// fail at runtime for anyone extracting a widget template.
-	//
-	// Note what that error says: "This should be unreachable". It is unreachable
-	// only because this caller holds a concrete reader; porting it is precisely
-	// what would make it reachable. The census in #477 could not see this caller
-	// for the same reason it could not see project_tree.go.
-	//
-	// The fix is to implement FindCustomWidgetType on the codec backend, not to
-	// port this file; it is the last sdk/mpr importer in cmd/mxcli.
-	reader, err := mpr.Open(projectPath)
+	// Through the backend, like every other reader in this package. This was the
+	// last sdk/mpr holdout: FindCustomWidgetType was unimplemented on the codec
+	// engine, so the call reached the stored widget only via a concrete reader.
+	// It is implemented now (mdl/backend/modelsdk/widget_custom_find.go), over
+	// the shared walker in mdl/customwidgets.
+	reader, err := openProjectReadOnly(projectPath)
 	if err != nil {
 		return fmt.Errorf("failed to open project: %w", err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Disconnect() }()
 
 	// Get Mendix version
 	version, _ := reader.GetMendixVersion()
@@ -109,8 +99,15 @@ func runExtractTemplates(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		// Convert BSON to JSON-compatible map
-		typeMap, err := bsonDToMap(rawWidget.RawType)
+		// types.RawCustomWidgetType keeps these as `any` so mdl/types needs no BSON
+		// driver. Assert rather than cast: a wrong dynamic type is a bug in the
+		// backend, and reporting it beats panicking or writing an empty template.
+		rawTypeDoc, ok := rawWidget.RawType.(bson.D)
+		if !ok {
+			fmt.Printf("  [SKIP] %s: widget type is %T, want bson.D\n", w.name, rawWidget.RawType)
+			continue
+		}
+		typeMap, err := bsonDToMap(rawTypeDoc)
 		if err != nil {
 			fmt.Printf("  [SKIP] %s: failed to convert type BSON: %v\n", w.name, err)
 			continue
@@ -118,7 +115,12 @@ func runExtractTemplates(cmd *cobra.Command, args []string) error {
 
 		var objectMap map[string]any
 		if rawWidget.RawObject != nil {
-			objectMap, err = bsonDToMap(rawWidget.RawObject)
+			rawObjectDoc, ok := rawWidget.RawObject.(bson.D)
+			if !ok {
+				fmt.Printf("  [SKIP] %s: widget object is %T, want bson.D\n", w.name, rawWidget.RawObject)
+				continue
+			}
+			objectMap, err = bsonDToMap(rawObjectDoc)
 			if err != nil {
 				fmt.Printf("  [SKIP] %s: failed to convert object BSON: %v\n", w.name, err)
 				continue
