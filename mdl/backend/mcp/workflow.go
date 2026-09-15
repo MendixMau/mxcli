@@ -1272,11 +1272,21 @@ type wfLocation struct {
 // resolve finds an activity reference (caption or name, optional 1-based @position)
 // anywhere in the flow tree and returns its location plus the workflow's
 // activity-name set.
+//
+// A name match wins over a caption match: captions are consulted only when no
+// activity is named ref. A name is an activity's identity; a caption is a label
+// that may repeat another activity's name — buildJumpTo defaults a jump's
+// caption to its target — so pooling the two made every jump target ambiguous.
+// @N counts within the tier that was chosen. wfmutator resolves the same way.
 func (m *mcpWorkflowMutator) resolve(ref string, atPos int) (wfLocation, error) {
-	var matches []activityRefMatch
+	var byName, byCaption []activityRefMatch
 	taken := map[string]bool{}
-	if err := m.searchActivities("/flow/activities", ref, &matches, taken); err != nil {
+	if err := m.searchActivities("/flow/activities", ref, &byName, &byCaption, taken); err != nil {
 		return wfLocation{}, err
+	}
+	matches := byName
+	if len(matches) == 0 {
+		matches = byCaption
 	}
 	var pick activityRefMatch
 	switch {
@@ -1303,27 +1313,33 @@ func (m *mcpWorkflowMutator) resolve(ref string, atPos int) (wfLocation, error) 
 
 // searchActivities walks an activities array and every descendant sub-flow
 // (each activity's outcome flows, then its boundary-event flows, in order),
-// appending every activity whose name or caption equals ref and recording every
-// activity name it passes in taken. The depth-first, in-order traversal matches
-// DESCRIBE, so @N numbering lines up.
+// appending every activity whose name equals ref to byName, every other one
+// whose caption does to byCaption, and recording every activity name it passes
+// in taken. The depth-first, in-order traversal matches DESCRIBE, so @N
+// numbering lines up.
 //
 // Name collection rides along on the search rather than being its own pass
 // because each level costs a PED round-trip; the two consumers always want both.
-func (m *mcpWorkflowMutator) searchActivities(arrayPath, ref string, matches *[]activityRefMatch, taken map[string]bool) error {
+func (m *mcpWorkflowMutator) searchActivities(arrayPath, ref string, byName, byCaption *[]activityRefMatch, taken map[string]bool) error {
 	acts, err := m.readArrayRaw(arrayPath)
 	if err != nil {
 		return err
 	}
 	for i, a := range acts {
-		if name := mapString(a, "name"); name != "" {
+		name := mapString(a, "name")
+		if name != "" {
 			taken[name] = true
 		}
-		if mapString(a, "name") == ref || mapString(a, "caption") == ref {
-			*matches = append(*matches, activityRefMatch{arrayPath: arrayPath, index: i, name: mapString(a, "name")})
+		match := activityRefMatch{arrayPath: arrayPath, index: i, name: name}
+		switch {
+		case name == ref:
+			*byName = append(*byName, match)
+		case mapString(a, "caption") == ref:
+			*byCaption = append(*byCaption, match)
 		}
 		actPath := fmt.Sprintf("%s/%d", arrayPath, i)
 		for _, sub := range m.subFlowArrays(actPath, mapString(a, "$Type")) {
-			if err := m.searchActivities(sub, ref, matches, taken); err != nil {
+			if err := m.searchActivities(sub, ref, byName, byCaption, taken); err != nil {
 				return err
 			}
 		}

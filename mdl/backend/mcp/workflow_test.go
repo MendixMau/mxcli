@@ -350,6 +350,61 @@ func wfMutatorFake(t *testing.T) (*fakePED, *mcpWorkflowMutator) {
 	return f, &mcpWorkflowMutator{backend: b, moduleName: "M", workflowName: "WF"}
 }
 
+// jumpShadowFake scripts a flow holding an activity and a jump back to it. The
+// jump carries the shape buildJumpTo writes when the MDL gives no caption:
+// name "JumpTo", caption = the target's name.
+func jumpShadowFake(t *testing.T) (*fakePED, *mcpWorkflowMutator) {
+	t.Helper()
+	acts := `[{"$Type":"Workflows$SingleUserTaskActivity","name":"bugSplitJump","caption":"Split the jump"},
+		{"$Type":"Workflows$CallMicroflowTask","name":"Other","caption":"Twin"},
+		{"$Type":"Workflows$CallMicroflowTask","name":"Other2","caption":"Twin"},
+		{"$Type":"Workflows$JumpToActivity","name":"JumpTo","caption":"bugSplitJump","targetActivity":"bugSplitJump"}]`
+	f := newFakePED(t, func(name string, args map[string]any) (string, bool) {
+		if name == "ped_check_errors" {
+			return "No errors found.", false
+		}
+		if name != "ped_read_document" {
+			return "SUCCESS", false
+		}
+		paths, _ := args["paths"].([]any)
+		p, _ := paths[0].(string)
+		v := "null"
+		if p == "/flow/activities" {
+			v = acts
+		}
+		return fmt.Sprintf(`{"results":[{"path":%q,"result":%s}]}`, p, v), false
+	})
+	b := &Backend{client: f.connectClient(t)}
+	return f, &mcpWorkflowMutator{backend: b, moduleName: "M", workflowName: "WF"}
+}
+
+// Measured live on Studio Pro 11.14: `insert boundary event on bugSplitJump`
+// failed with `ambiguous activity "bugSplitJump" (2 matches)` because the jump's
+// caption matched the reference as well as the target's name.
+func TestWFResolve_NameBeatsJumpCaption(t *testing.T) {
+	f, m := jumpShadowFake(t)
+	if err := m.InsertBoundaryEvent("bugSplitJump", 0, "NonInterruptingTimer", "addHours([%CurrentDateTime%], 1)", nil); err != nil {
+		t.Fatal(err)
+	}
+	if ops := wfUpdateOps(t, f); !strings.Contains(ops, `"path":"/flow/activities/0/boundaryEvents"`) {
+		t.Errorf("boundary event not added to the named activity: %s", ops)
+	}
+
+	// Captions still resolve when no name matches ...
+	_, m2 := jumpShadowFake(t)
+	loc, err := m2.resolve("Split the jump", 0)
+	if err != nil || loc.index != 0 {
+		t.Errorf("caption fallback: index %d, err %v", loc.index, err)
+	}
+	// ... and two caption-only matches are still ambiguous, addressable by @N.
+	if _, err := m2.resolve("Twin", 0); err == nil || !strings.Contains(err.Error(), "ambiguous") {
+		t.Errorf("two caption matches should be ambiguous, got %v", err)
+	}
+	if loc, err := m2.resolve("Twin", 2); err != nil || loc.index != 2 {
+		t.Errorf("Twin@2: index %d, err %v", loc.index, err)
+	}
+}
+
 func wfUpdateOps(t *testing.T, f *fakePED) string {
 	t.Helper()
 	call, ok := f.callByName("ped_update_document")
