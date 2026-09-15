@@ -64,13 +64,25 @@ import (
 // that hold a concrete *mpr.Reader / *mpr.Writer (the api/ package, examples/,
 // and cmd/mxcli commands that open a reader directly) — none of which route
 // through this engine.
+// Every remaining entry is a BYPASS, and all six are the same kind of caller:
+// a raw-unit debugging or export command that holds a concrete reader on
+// purpose. ACCEPTED as deliberate rather than queued for porting (2026-09-15,
+// closing Phase 3 of docs/plans/2026-09-14-retire-legacy-engine.md) — routing a
+// raw-BSON dumper through an interface that speaks the semantic model would
+// either widen that interface with raw accessors or make the tools worse at the
+// one thing they exist for.
+//
+// So this map is now a STANDING RECORD, not a to-do list. A new entry is still
+// a finding: it means a NEW bypass appeared, or a method was added to
+// FullBackend that nothing calls — establish which (see the three causes above)
+// rather than adding a row to match the failure.
 var unreachableUnimplemented = map[string]string{
-	"ExportJSON":               "BYPASS: examples/read_project calls it on the sdk reader",
-	"FindCustomWidgetType":     "BYPASS: cmd/mxcli/cmd_extract_templates.go holds a concrete reader",
-	"FindAllCustomWidgetTypes": "BYPASS: reached only via the reader, inside modelsdk/mpr itself",
-	"GetProjectRootID":         "BYPASS: callers hold a reader; this package uses b.reader.GetProjectRootID directly",
-	"ListAllUnitIDs":           "BYPASS: cmd/mxcli/diag.go holds a concrete reader; infrastructure_write.go uses b.reader",
-	"ListRawUnits":             "BYPASS: the bson dump/discover/describe commands hold a concrete reader",
+	"ExportJSON":               "BYPASS, accepted: examples/read_project calls it on the sdk reader",
+	"FindCustomWidgetType":     "BYPASS, accepted: cmd/mxcli/cmd_extract_templates.go holds a concrete reader",
+	"FindAllCustomWidgetTypes": "BYPASS, accepted: reached only via the reader, inside modelsdk/mpr itself",
+	"GetProjectRootID":         "BYPASS, accepted: callers hold a reader; this package uses b.reader.GetProjectRootID directly",
+	"ListAllUnitIDs":           "BYPASS, accepted: cmd/mxcli/diag.go holds a concrete reader; infrastructure_write.go uses b.reader",
+	"ListRawUnits":             "BYPASS, accepted: the bson dump/discover/describe commands hold a concrete reader",
 }
 
 func TestNoReachableUnimplementedBackendMethods(t *testing.T) {

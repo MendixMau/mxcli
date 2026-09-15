@@ -1,11 +1,11 @@
 # Implementation Plan — Retire the legacy engine
 
 **Date:** 2026-09-14
-**Status:** In progress — Phases 1, 2 and the api/ + MCP steps of Phase 3 have landed
-(2026-09-15). What remains is the rest of Phase 3 (the `cmd/mxcli` commands that hold a concrete
-`sdk/mpr` reader on purpose) and Phase 4 (the mongo-driver migration, which those gate).
-See [§7 What landed](#7-what-landed) for the record of what each phase actually did, including the
-two places the plan was wrong.
+**Status:** Phases 1–3 complete (2026-09-15). Phase 3 closed by *deciding* rather than by porting:
+the six remaining abstraction bypasses are raw-unit debugging commands and are **accepted as
+deliberate** — see [§7.4](#phase-3-closed-the-last-six-bypasses-are-accepted). Phase 4 (the
+mongo-driver migration) is the only phase outstanding, and it is what gates deleting `sdk/mpr`.
+See [§7 What landed](#7-what-landed) for the record, including the two places the plan was wrong.
 **Continues:** [`2026-06-05-adopt-modelsdk-engine.md`](2026-06-05-adopt-modelsdk-engine.md), which
 stops at the cutover. That plan still reads as though `legacy` were the default; it is not, and has
 not been since the codec engine took over. This plan covers what the earlier one deferred to
@@ -342,3 +342,26 @@ bson/diag/extract-templates commands and `examples/read_project`, which hold a c
 deliberately. Whether those should be ported at all is the open question for the rest of Phase 3;
 they are debugging tools whose whole job is raw access, so "leave them" is a defensible answer that
 the earlier framing did not allow for.
+
+### Phase 3 closed — the last six bypasses are accepted (2026-09-15)
+
+After the orphans and duplicates were deleted, the census held six entries and they were all the
+same kind of caller: `cmd/mxcli`'s `bson dump` / `bson discover` / `diag` / `extract-templates` and
+`examples/read_project`. Every one is a **raw-unit debugging or export command**, holding a concrete
+`sdk/mpr` reader because raw access is the thing it exists to provide.
+
+Porting them was considered and **declined**. The backend interface speaks the semantic model by
+[ADR-0005](../13-decisions/0005-semantic-model-interface-currency.md); routing a BSON dumper through
+it would either widen that interface with raw accessors — undoing the decision — or make the tools
+worse at their only job. The earlier framing ("the list shrinks by closing a bypass") did not offer
+this option, which is a second way that framing was too narrow: some bypasses are correct.
+
+`unreachableUnimplemented` therefore becomes a **standing record rather than a to-do list**, and its
+header says so. It keeps its value as a tripwire: a *new* entry still means either a new bypass
+appeared or a method was added that nothing calls, and the fix depends on which — establish the
+cause rather than adding a row to silence the failure.
+
+**`sdk/mpr` does not go away with this.** Those six commands still import it, as does the workflow
+serializer that #469 extended. What Phase 3 delivered is that no *engine* path reaches it — the
+executor, the backends and `api/` are all clean. Removing the serializer is a separate question,
+downstream of Phase 4.
