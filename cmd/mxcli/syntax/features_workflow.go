@@ -431,7 +431,25 @@ func init() {
 			"-- purpose and works on every version.",
 		Example:    "notification DocumentsReceived comment 'Documents received';",
 		MinVersion: "11.11.0",
-		SeeAlso:    []string{"workflow.event-subprocess", "workflow.boundary-event"},
+		SeeAlso:    []string{"workflow.event-subprocess", "workflow.boundary-event", "workflow.notify"},
+	})
+
+	Register(SyntaxFeature{
+		Path:    "workflow.notify",
+		Summary: "Notify a running workflow — resume the element the notification targets",
+		Keywords: []string{
+			"notify workflow", "notify", "notify target", "resume workflow", "trigger event sub-process",
+		},
+		Syntax: "[$Notified =] NOTIFY WORKFLOW $Workflow TARGET Module.Workflow.ElementName;\n\n" +
+			"-- A microflow statement. The target names a notification-started event\n" +
+			"-- sub-process's start, a notification activity, a notification boundary event\n" +
+			"-- or a wait for notification; mxcli looks up which it is and refuses an element\n" +
+			"-- a notification cannot reach (a timer start, a user task). The target is\n" +
+			"-- required: without one the build fails CE0166 (MDL-WF16). $Notified is a\n" +
+			"-- Boolean. Before Mendix 11.7 only a wait for notification can be named.",
+		Example:    "$Cancelled = notify workflow $Workflow target HR.Leave.espCancelStart;",
+		MinVersion: "11.7.0",
+		SeeAlso:    []string{"workflow.event-subprocess", "workflow.notification", "workflow.boundary-event"},
 	})
 
 	Register(SyntaxFeature{

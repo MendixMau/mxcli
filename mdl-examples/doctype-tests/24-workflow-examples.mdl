@@ -792,3 +792,25 @@ begin
   };
 end workflow;
 /
+
+-- @version: 11.11+
+-- ############################################################################
+-- PART K: NOTIFY WORKFLOW — targets (Mendix 11.11+ for these elements)
+-- ############################################################################
+--
+-- A notify names the element it resumes: a notification-started event
+-- sub-process's start, a notification activity, a notification boundary event or
+-- a wait for notification. Without a target the build fails (CE0166).
+
+create microflow WFTest.ACT_NotifyOrder (
+  $Workflow: System.Workflow
+)
+returns boolean as $Cancelled
+begin
+  $Cancelled = notify workflow $Workflow target WFTest.WithNotifications.CancelStart;
+  $Audited = notify workflow $Workflow target WFTest.WithNotifications.AuditStart;
+  $Received = notify workflow $Workflow target WFTest.WithNotifications.DocumentsReceived;
+  $Withdrawn = notify workflow $Workflow target WFTest.WithNotifications.Withdrawn;
+  return $Cancelled and $Audited and $Received and $Withdrawn;
+end;
+/

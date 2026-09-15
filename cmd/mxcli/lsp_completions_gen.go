@@ -591,6 +591,7 @@ var mdlGeneratedKeywords = []protocol.CompletionItem{
 	{Label: "OUTCOME", Kind: protocol.CompletionItemKindKeyword, Detail: "Keyword"},
 	{Label: "OUTCOMES", Kind: protocol.CompletionItemKindKeyword, Detail: "Keyword"},
 	{Label: "TARGETING", Kind: protocol.CompletionItemKindKeyword, Detail: "Keyword"},
+	{Label: "TARGET", Kind: protocol.CompletionItemKindKeyword, Detail: "Keyword"},
 	{Label: "NOTIFICATION", Kind: protocol.CompletionItemKindKeyword, Detail: "Keyword"},
 	{Label: "TIMER", Kind: protocol.CompletionItemKindKeyword, Detail: "Keyword"},
 	{Label: "JUMP", Kind: protocol.CompletionItemKindKeyword, Detail: "Keyword"},

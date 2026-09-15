@@ -1,6 +1,6 @@
 # Proposal: Workflow constructs only Studio Pro could author
 
-**Status:** Phases 1–3 and 4a (event sub-processes, notification events) implemented; 4b (`notify workflow … target`) designed
+**Status:** Phases 1–4 implemented (4a event sub-processes and notification events, 4b `notify workflow … target`)
 **Date:** 2026-09-14
 
 ## Problem Statement
@@ -378,17 +378,56 @@ backend refuses each shape the constructor would rewrite, naming the ending it
 needs, and re-adds a single user task's notification events after every create
 and update. The timer-event losses predate this phase and are tracked separately.
 
-## Phase 4b — notify targets
+## Phase 4b — notify targets (implemented)
 
-`NotifyWorkflowAction.NotifyTarget` (11.7.0) names what a microflow notifies:
-`Workflows$(Non)InterruptingNotificationEventSubProcessStartActivityTarget`,
-`NotifyNotificationActivityTarget`, `NotifyWaitForNotificationActivityTarget`
-(each `Activity: "Module.Workflow.name"`) and `NotifyNotificationBoundaryEventTarget`
-(`BoundaryEvent: …`). Reference: ako/TestApp `workflow.ZzMxcliExample_Notify`.
-Syntax: `$Notified = notify workflow $Workflow target HR.Leave.espCancelStart;`.
-Two bugs to fix with it: the reader takes the output variable from gen's
-`VariableName` key where Studio Pro stores `OutputVariableName`, and a rewrite drops
-the target.
+### Reference document (ako/TestApp `workflow.ZzMxcliExample_Notify`, Studio Pro 11.14)
+
+One notify action per target type, each `{ErrorHandlingType, NotifyTarget,
+OutputVariableName, WorkflowVariable}`:
+
+| Element named | `NotifyTarget.$Type` | Name under |
+|---|---|---|
+| interrupting notification start | `Workflows$InterruptingNotificationEventSubProcessStartActivityTarget` | `Activity` |
+| non-interrupting notification start | `Workflows$NonInterruptingNotificationEventSubProcessStartActivityTarget` | `Activity` |
+| notification activity | `Workflows$NotifyNotificationActivityTarget` | `Activity` |
+| wait for notification | `Workflows$NotifyWaitForNotificationActivityTarget` | `Activity` |
+| notification boundary event | `Workflows$NotifyNotificationBoundaryEventTarget` | `BoundaryEvent` |
+
+The name is `Module.Workflow.ElementName`. Before 11.7 the action held the name
+directly as `Activity` (a wait for notification only).
+
+### MDL syntax
+
+```sql
+$Notified = notify workflow $Workflow target HR.Leave.espCancelStart;
+```
+
+The statement names the element, not its kind; mxcli looks the element up in the
+stored workflow and writes the matching type, refusing an element a notification
+cannot reach (a timer-started sub-process's start, a user task, a timer boundary
+event) with the names that would work.
+
+### Measured (mxbuild, one notify per shape)
+
+| Shape | 11.6 | 11.10 | 11.13 |
+|---|---|---|---|
+| no target | CE0166 "'Activity' required" | CE0166 "'Target' required" | CE0166 "'Target' required" |
+| output variable under `OutputVariableName` | defined | defined | defined |
+| output variable under gen's `VariableName`, or absent | CE0109 undefined | CE0109 | CE0109 |
+| every target type, microflow built by mxcli | | | 0 errors |
+
+So the target is required, not optional — every notify mxcli wrote before this
+failed the build — and gen's `VariableName` binding is simply wrong (the 11.6
+metamodel stores `outputVariableName` too): fixed as a storage-name override. A
+notify with no target is MDL-WF16, refused by check and exec. That also covers
+the rewrite: describe used to drop the target, and a statement without one is now
+refused rather than written.
+
+### MCP
+
+`notifyTarget` is `{$Type, activity | boundaryEvent: "<qualified name>"}` (ped_get_schema,
+Studio Pro 11.14); the action was unmapped before, so a notify could not be written
+over MCP at all.
 
 ## Test plan (phase 1)
 

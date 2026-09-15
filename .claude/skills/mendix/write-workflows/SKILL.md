@@ -322,7 +322,13 @@ workflow / its tasks. They are easy to miss — there is no `complete task`:
 - `set task outcome $Task 'Approve';` — completes a `System.WorkflowUserTask` with a
   named outcome. This is how a microflow (e.g. a task page's button) finishes a task
   and does the domain work; the outcome branches still record which one was chosen.
-- `open user task $Task`, `notify workflow $Wf`, `lock workflow $Wf`, and
+- `$Notified = notify workflow $Wf target Module.Workflow.Name;` resumes the element
+  it names — a notification-started event sub-process, a notification activity, a
+  notification boundary event or a wait for notification. **The target is
+  required**: a notify without one fails the build (CE0166, MDL-WF16). Name the
+  element as `Module.Workflow.ElementName`; mxcli works out which kind it is and
+  refuses one a notification cannot reach (a timer start, a user task).
+- `open user task $Task`, `lock workflow $Wf`, and
   `workflow operation abort|pause|restart|retry|continue $Wf` are also statements.
 
 A common shape: the task page's buttons call a microflow that does the change and
