@@ -355,6 +355,12 @@ same kind of caller: `cmd/mxcli`'s `bson dump` / `bson discover` / `diag` / `ext
 `examples/read_project`. Every one is a **raw-unit debugging or export command**, holding a concrete
 `sdk/mpr` reader because raw access is the thing it exists to provide.
 
+> **Corrected 2026-09-15 (§7.6).** "All the bypasses are raw tools" was wrong, and the census is
+> why: it lists only methods with **no implementation**, so a caller holding a concrete reader while
+> calling only *implemented* methods never appears in it. `cmd/mxcli/project_tree.go` is exactly
+> that — 36 semantic reads, every one on `FullBackend` — and it is a bypass the census could not
+> see. **The complete list of bypasses is the `sdk/mpr` importer list, not the census.**
+
 Porting them was considered and **declined**. The backend interface speaks the semantic model by
 [ADR-0005](../13-decisions/0005-semantic-model-interface-currency.md); routing a BSON dumper through
 it would either widen that interface with raw accessors — undoing the decision — or make the tools
@@ -434,3 +440,33 @@ does.
 **4a, then the `modelsdk.go` decision, then 4c (delete `sdk/mpr`), then 4b.** 4a is a proven move
 that deletes 41k lines; 4b is internal churn whose payoff is gated on 4a finishing anyway. Doing 4b
 first would convert a mutator layer that 4c might reshape.
+
+### Phase 4a, first slice — `cmd/mxcli`'s readers (2026-09-15)
+
+Five files off `sdk/mpr`, and the slice split into two ports rather than one, because the Phase 3
+decision ("raw tools keep raw access") does not mean "raw tools keep `sdk/mpr`":
+
+- **Raw tools → `modelsdk/mpr`**, the **v2 raw reader**. `bson dump`, `bson discover` and `diag`
+  moved by import swap alone: `ListRawUnits`, `GetRawUnitByName`, `GetRawMicroflowByName`,
+  `ListAllUnitIDs` and `ContentsDir` have **identical signatures** on both readers, and
+  `RawUnitInfo` is field-for-field identical (`modelsdk/mpr` aliases `types.RawUnitInfo`;
+  `sdk/mpr` declares a duplicate struct, which its own rule in CLAUDE.md forbids). This honours
+  Phase 3 *and* moves those files to v2 — 4a and 4b at once for them.
+- **Semantic bypass → the backend.** `project_tree.go` and `debug_resolve.go`. The first calls 36
+  semantic reads; the second needs `ParseMicroflowBSON`, which is a backend method, so straddling
+  two readers would have been the alternative.
+
+**A regression the port introduced, caught only by a baseline diff.** `project-tree` silently lost
+`System.VerifyPassword` — 131 bytes out of 78KB of JSON. The System module's Java actions are
+platform built-ins with **no stored unit**; `sdk/mpr` synthesized them and the codec backend did
+not. The definitions now live in `modelsdk/meta` beside the virtual System module's entities, both
+codec listings append them, and `sdk/mpr` delegates instead of holding a second copy.
+
+The technique is the transferable part: **build a binary from the pre-port commit first**
+(`git stash -u; make build; cp bin/mxcli /tmp/before`) and require byte-identical output from every
+command whose reader changed. No test caught this and none would have. Generalising: a
+**synthesized** element is what a reader swap loses, because it lives in one reader's code rather
+than in the data — grep the old reader for `virtual`, `not stored in`, and `Build*` helpers before
+trusting any port.
+
+**Importers: 27 → 22.**
