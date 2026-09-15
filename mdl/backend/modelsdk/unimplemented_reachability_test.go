@@ -19,6 +19,11 @@
 // routed through the abstraction, which made them reachable and therefore worth
 // implementing. See docs/plans/2026-09-14-retire-legacy-engine.md, Phase 3.
 //
+// Struck off so far, each by closing the bypass rather than by deleting surface:
+// AddAttribute and UpdateAttribute (api/ routed through the abstraction), then
+// GetDomainModelByID, GetWorkflow and ListNavigationDocuments (the MCP backend
+// composing this one for its reads).
+//
 // This test does not repeat that measurement (a build per method takes minutes).
 // It pins its OUTPUT: the set of methods *Backend leaves to the stub must be
 // exactly the set measured unreachable. A new stub, or a rename that drops an
@@ -44,7 +49,6 @@ import (
 // and cmd/mxcli commands that open a reader directly) — none of which route
 // through this engine.
 var unreachableUnimplemented = map[string]string{
-	"GetDomainModelByID":       "the MPR and MCP backends call it on their own reader",
 	"ExportJSON":               "examples/read_project calls it on the sdk reader",
 	"FindCustomWidgetType":     "cmd/mxcli/cmd_extract_templates.go holds a concrete reader",
 	"FindAllCustomWidgetTypes": "reached only via the reader, inside modelsdk/mpr itself",
@@ -52,8 +56,6 @@ var unreachableUnimplemented = map[string]string{
 	"GetUnitTypes":             "no caller at all outside the MPR delegation",
 	"ListAllUnitIDs":           "cmd/mxcli/diag.go holds a concrete reader; infrastructure_write.go uses b.reader",
 	"ListRawUnits":             "the bson dump/discover/describe commands hold a concrete reader",
-	"ListNavigationDocuments":  "the MCP backend and sdk/mpr call it on their own reader",
-	"GetWorkflow":              "the MCP backend calls it on its own reader",
 	"UpdateLayout":             "ALTER LAYOUT goes through the page mutator, not this method",
 	"SerializeWidget":          "the child serializer is a separate type (codecChildSerializer), not Backend",
 	"SerializeClientAction":    "same as SerializeWidget",

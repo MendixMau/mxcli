@@ -100,6 +100,24 @@ func (b *Backend) Connect(path string) error {
 	return nil
 }
 
+// ConnectReadOnly opens a project for reading only, leaving the writer nil.
+//
+// For a caller that must not take a lock on a file something else owns — the MCP
+// backend reads the local .mpr while Studio Pro has it open, and sends its writes
+// to Studio Pro rather than to disk. Every write method here already guards on a
+// nil writer, so a write attempted through a read-only backend is refused with
+// "not connected for writing" rather than silently locking the project.
+func (b *Backend) ConnectReadOnly(path string) error {
+	r, err := mmpr.OpenWithOptions(path, mmpr.OpenOptions{ReadOnly: true})
+	if err != nil {
+		return err
+	}
+	b.reader = r
+	b.writer = nil
+	b.path = path
+	return nil
+}
+
 // Disconnect closes the modelsdk reader.
 func (b *Backend) Disconnect() error {
 	if b.reader == nil {
