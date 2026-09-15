@@ -783,6 +783,24 @@ CONDITION: C O N D I T I O N;
 OFF: O F F;
 USERS: U S E R S;
 GROUPS: G R O U P S;
+// Multi-user task completion: `participants …`, `decide by …`, `await all users`.
+DECIDE: D E C I D E;
+CONSENSUS: C O N S E N S U S;
+MAJORITY: M A J O R I T Y;
+// MORE_KW: `more` is a reserved lexer command name in ANTLR.
+MORE_KW: M O R E;
+THAN: T H A N;
+HALF: H A L F;
+MOST: M O S T;
+CHOSEN: C H O S E N;
+THRESHOLD: T H R E S H O L D;
+// PERCENT_KW is the WORD "percent"; PERCENT is the '%' operator.
+PERCENT_KW: P E R C E N T;
+VOTES: V O T E S;
+VETO: V E T O;
+FALLBACK: F A L L B A C K;
+PARTICIPANTS: P A R T I C I P A N T S;
+AWAIT: A W A I T;
 
 // Data transformer tokens
 DATA: D A T A;

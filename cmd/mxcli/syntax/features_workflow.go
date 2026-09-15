@@ -157,6 +157,8 @@ func init() {
 		Keywords: []string{
 			"multi user task", "multi-user task", "several users", "multiple assignees",
 			"assessors", "voting", "parallel approval", "group approval",
+			"decide by", "consensus", "majority", "threshold", "veto", "fallback",
+			"participants", "await all users", "completion criteria",
 		},
 		// The grammar has accepted MULTI USER TASK since issue #8, and a team
 		// shipped one fanning out to eight assessors — but there was no topic for
@@ -170,11 +172,23 @@ func init() {
 			"  [ENTITY Module.Entity]\n" +
 			"  [DUE DATE '<expression>']\n" +
 			"  [DESCRIPTION '<text>']\n" +
+			"  [PARTICIPANTS ALL | <n> | <n> PERCENT]\n" +
+			"  [DECIDE BY <rule>]\n" +
+			"  [AWAIT ALL USERS]\n" +
 			"  OUTCOMES '<outcome1>' { <activities> } '<outcome2>' { <activities> };\n\n" +
-			"-- Same clauses, task-page rule and targeting rule as USER TASK.\n" +
-			"-- MDL has no clause for a multi-user task's completion settings (how the\n" +
-			"-- individual answers decide the outcome); set those in Studio Pro.",
-		Example: "MULTI USER TASK ExpertAssessment 'Expert assessment'\n  PAGE MOC.AssessmentPage\n  TARGETING MICROFLOW MOC.GetAssessors\n  OUTCOMES 'Approve' { } 'Reject' { };",
+			"-- Rules:\n" +
+			"--   DECIDE BY CONSENSUS FALLBACK '<outcome>'\n" +
+			"--   DECIDE BY MAJORITY MORE THAN HALF FALLBACK '<outcome>'\n" +
+			"--   DECIDE BY MAJORITY MOST CHOSEN FALLBACK '<outcome>'\n" +
+			"--   DECIDE BY THRESHOLD <n> PERCENT | <n> VOTES FALLBACK '<outcome>'\n" +
+			"--   DECIDE BY VETO '<outcome>'\n" +
+			"--   DECIDE BY MICROFLOW Module.Decide      -- returns String (else CE5012)\n" +
+			"-- The fallback is required for consensus, majority and threshold (CE1866); a\n" +
+			"-- veto needs its outcome (CE1867); both must name one of the task's outcomes\n" +
+			"-- (MDL-WF13). Omitted: all participants, consensus on the first outcome, not\n" +
+			"-- waiting. The build does not range-check thresholds or participant counts.\n" +
+			"-- Same page and targeting rules as USER TASK.",
+		Example: "MULTI USER TASK ExpertAssessment 'Expert assessment'\n  PAGE MOC.AssessmentPage\n  TARGETING MICROFLOW MOC.GetAssessors\n  PARTICIPANTS 80 PERCENT\n  DECIDE BY THRESHOLD 60 PERCENT FALLBACK 'Reject'\n  AWAIT ALL USERS\n  OUTCOMES 'Approve' { } 'Reject' { };",
 		SeeAlso: []string{"workflow.user-task", "workflow.user-task.targeting"},
 	})
 

@@ -66,6 +66,29 @@ type WorkflowUserTaskNode struct {
 	IsMultiUser     bool                        // Issue #8: true if MULTI USER TASK
 	BoundaryEvents  []WorkflowBoundaryEventNode // Issue #7
 	TaskDescription string                      // from DESCRIPTION 'text'
+
+	// Multi-user task only.
+	Participants  *WorkflowParticipantsNode   // `participants …`; nil = all
+	Completion    *WorkflowCompletionRuleNode // `decide by …`; nil = consensus on the first outcome
+	AwaitAllUsers bool                        // `await all users`
+}
+
+// WorkflowParticipantsNode is `participants all | N | N percent`.
+type WorkflowParticipantsNode struct {
+	Kind  string // "all", "number" or "percent"
+	Value int
+}
+
+// WorkflowCompletionRuleNode is `decide by …` on a multi-user task.
+type WorkflowCompletionRuleNode struct {
+	Rule          string // "consensus", "majority", "threshold", "veto" or "microflow"
+	Majority      string // "more than half" or "most chosen"
+	Threshold     int
+	ThresholdUnit string // "percent" or "votes"
+	Fallback      string // outcome named by `fallback '…'`; "" when absent
+	HasFallback   bool
+	Veto          string // outcome named by `veto '…'`
+	Microflow     QualifiedName
 }
 
 func (n *WorkflowUserTaskNode) workflowActivityNode() {}

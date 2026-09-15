@@ -65,6 +65,9 @@ func execCreateWorkflow(ctx *ExecContext, s *ast.CreateWorkflowStmt) error {
 	// Note this runs BEFORE findOrCreateModule, which auto-creates a module on
 	// demand: without it a typo'd module name silently produced a new module
 	// rather than an error.
+	if vs := ValidateWorkflowCompletionRules(s); len(vs) > 0 {
+		return mdlerrors.NewValidationf("%s\n  → %s", vs[0].Message, vs[0].Suggestion)
+	}
 	if vs := ValidateWorkflowEventTypes(s); len(vs) > 0 {
 		return mdlerrors.NewValidationf("%s\n  → %s", vs[0].Message, vs[0].Suggestion)
 	}
@@ -382,6 +385,51 @@ func buildWorkflowEventHandlers(ctx *ExecContext, nodes []ast.WorkflowEventHandl
 	return out, nil
 }
 
+// buildTargetUserInput maps `participants …`; nil (omitted) stays nil — all users.
+func buildTargetUserInput(p *ast.WorkflowParticipantsNode) *workflows.TargetUserInput {
+	if p == nil {
+		return nil
+	}
+	switch p.Kind {
+	case "number":
+		return &workflows.TargetUserInput{Kind: "Absolute", Amount: p.Value}
+	case "percent":
+		return &workflows.TargetUserInput{Kind: "Percentage", Percentage: p.Value}
+	default:
+		return &workflows.TargetUserInput{Kind: "All"}
+	}
+}
+
+// buildCompletionCriteria maps `decide by …`; nil (omitted) stays nil — consensus
+// falling back to the first outcome, which is what a rebuild has always written.
+// `more than half` / `percent` are Studio Pro's Absolute majority and Relative
+// threshold (measured on ako/TestApp, 11.14.0).
+func buildCompletionCriteria(r *ast.WorkflowCompletionRuleNode) *workflows.CompletionCriteria {
+	if r == nil {
+		return nil
+	}
+	switch r.Rule {
+	case "majority":
+		ct := "Relative"
+		if r.Majority == "more than half" {
+			ct = "Absolute"
+		}
+		return &workflows.CompletionCriteria{Kind: "Majority", CompletionType: ct, FallbackOutcome: r.Fallback}
+	case "threshold":
+		ct := "Absolute"
+		if r.ThresholdUnit == "percent" {
+			ct = "Relative"
+		}
+		return &workflows.CompletionCriteria{Kind: "Threshold", CompletionType: ct, Threshold: r.Threshold, FallbackOutcome: r.Fallback}
+	case "veto":
+		return &workflows.CompletionCriteria{Kind: "Veto", VetoOutcome: r.Veto}
+	case "microflow":
+		return &workflows.CompletionCriteria{Kind: "Microflow", Microflow: r.Microflow.String()}
+	default:
+		return &workflows.CompletionCriteria{Kind: "Consensus", FallbackOutcome: r.Fallback}
+	}
+}
+
 func buildUserTask(n *ast.WorkflowUserTaskNode) *workflows.UserTask {
 	task := &workflows.UserTask{}
 	task.ID = model.ID(generateWorkflowUUID())
@@ -390,6 +438,11 @@ func buildUserTask(n *ast.WorkflowUserTaskNode) *workflows.UserTask {
 	task.DueDate = n.DueDate
 	task.TaskDescription = n.TaskDescription
 	task.IsMulti = n.IsMultiUser
+	if n.IsMultiUser {
+		task.AwaitAllUsers = n.AwaitAllUsers
+		task.TargetUserInput = buildTargetUserInput(n.Participants)
+		task.CompletionCriteria = buildCompletionCriteria(n.Completion)
+	}
 
 	if n.Page.Module != "" {
 		task.Page = n.Page.Module + "." + n.Page.Name

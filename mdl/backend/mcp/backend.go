@@ -70,6 +70,11 @@ type Backend struct {
 	// workflowConstructorTakesContext.
 	workflowCtorContext *bool
 
+	// multiTaskPageCtor caches whether the server's MultiUserTaskActivity
+	// constructor takes the page as a `taskPage` element (Studio Pro 11.14)
+	// rather than a bare `pageReference`; nil until probed.
+	multiTaskPageCtor *bool
+
 	// capsCache memoizes the session's resolved capability set. Every authoring
 	// gate consults it and resolution costs a tools/list round-trip, so it is
 	// computed once per connection.

@@ -91,6 +91,48 @@ func workflowEventHandlersFromGen(items []element.Element) []*workflows.Workflow
 	return out
 }
 
+// completionCriteriaFromGen reads a multi-user task's CompletionCriteria, turning
+// its outcome pointers ($IDs) back into outcome values.
+func completionCriteriaFromGen(el element.Element, outcomes []*workflows.UserTaskOutcome) *workflows.CompletionCriteria {
+	value := func(id element.ID) string {
+		for _, o := range outcomes {
+			if string(o.ID) == string(id) {
+				if o.Value != "" {
+					return o.Value
+				}
+				return o.Caption
+			}
+		}
+		return ""
+	}
+	switch c := el.(type) {
+	case *genWf.ConsensusCompletionCriteria:
+		return &workflows.CompletionCriteria{Kind: "Consensus", FallbackOutcome: value(c.FallbackOutcomeRefID())}
+	case *genWf.MajorityCompletionCriteria:
+		return &workflows.CompletionCriteria{Kind: "Majority", CompletionType: c.CompletionType(), FallbackOutcome: value(c.FallbackOutcomeRefID())}
+	case *genWf.ThresholdCompletionCriteria:
+		return &workflows.CompletionCriteria{Kind: "Threshold", CompletionType: c.CompletionType(), Threshold: int(c.Threshold()), FallbackOutcome: value(c.FallbackOutcomeRefID())}
+	case *genWf.VetoCompletionCriteria:
+		return &workflows.CompletionCriteria{Kind: "Veto", VetoOutcome: value(c.VetoOutcomeRefID())}
+	case *genWf.MicroflowCompletionCriteria:
+		return &workflows.CompletionCriteria{Kind: "Microflow", Microflow: c.MicroflowQualifiedName()}
+	}
+	return nil
+}
+
+// targetUserInputFromGen reads a multi-user task's TargetUserInput.
+func targetUserInputFromGen(el element.Element) *workflows.TargetUserInput {
+	switch t := el.(type) {
+	case *genWf.AbsoluteAmountUserInput:
+		return &workflows.TargetUserInput{Kind: "Absolute", Amount: int(t.Amount())}
+	case *genWf.PercentageAmountUserInput:
+		return &workflows.TargetUserInput{Kind: "Percentage", Percentage: int(t.Percentage())}
+	case *genWf.AllUserInput:
+		return &workflows.TargetUserInput{Kind: "All"}
+	}
+	return nil
+}
+
 // workflowFlowFromGen converts a gen Flow to the semantic Flow.
 func workflowFlowFromGen(g *genWf.Flow) *workflows.Flow {
 	f := &workflows.Flow{}
@@ -148,6 +190,9 @@ func workflowActivityFromGen(el element.Element) workflows.WorkflowActivity {
 		setWfBase(&t.BaseWorkflowActivity, a.ID(), a.Name(), a.Caption(), a.Annotation(), "Workflows$MultiUserTaskActivity")
 		t.BoundaryEvents = boundaryEventsFromGen(a.BoundaryEventsItems())
 		t.Outcomes = userTaskOutcomesFromGen(a.OutcomesItems())
+		t.AwaitAllUsers = a.AwaitAllUsers()
+		t.CompletionCriteria = completionCriteriaFromGen(a.CompletionCriteria(), t.Outcomes)
+		t.TargetUserInput = targetUserInputFromGen(a.TargetUserInput())
 		return t
 	case *genWf.CallMicroflowTask:
 		t := &workflows.CallMicroflowTask{Microflow: a.MicroflowQualifiedName()}

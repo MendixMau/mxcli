@@ -46,10 +46,8 @@ func checkNoDroppedWorkflowConstructs(ctx *ExecContext, workflowID model.ID, qua
 	}
 	raw = plainRawUnit(raw)
 
-	// Constructs MDL cannot express at all. A rebuild writes the default for
-	// each — measured on ako/TestApp (11.14.0): a completion rule becomes
-	// Consensus on the first outcome — so a rewrite loses them without a word. Refused outright, like
-	// an event sub-process, and every reason is listed at once.
+	// Constructs MDL cannot express at all — a rewrite would lose them without a
+	// word. Refused outright, and every reason is listed at once.
 	var cannotExpress []string
 	if n := countEventSubProcesses(raw); n > 0 {
 		cannotExpress = append(cannotExpress, fmt.Sprintf("%d event sub-process(es), which it would delete", n))
@@ -92,6 +90,32 @@ func checkNoDroppedWorkflowConstructs(ctx *ExecContext, workflowID model.ID, qua
 				"  Restate them (`call agent microflow …`), which `describe workflow %s` now emits, or use ALTER "+
 				"WORKFLOW to change one activity at a time.",
 			qualifiedName, len(stored), authored, strings.Join(stored, "\n  - "), qualifiedName))
+	}
+
+	// A multi-user task's completion rule, participant count and "wait for all
+	// users" are expressible now (`decide by`, `participants`, `await all users`).
+	// A rewrite writes what the statement says, and each omitted clause means the
+	// default — consensus on the first outcome, all participants, not waiting — so
+	// a statement that does not restate stored values resets them. Participants
+	// and await were not guarded at all before; a rewrite reset both silently.
+	storedRules, storedParticipants, storedAwait := rawMultiUserTaskSettings(raw)
+	authoredRules, authoredParticipants, authoredAwait := countAuthoredMultiUserSettings(stmt.Activities)
+	for _, g := range []struct {
+		stored   []string
+		authored int
+		what     string
+		restate  string
+	}{
+		{storedRules, authoredRules, "multi-user task(s) with a completion rule other than consensus on the first outcome", "`decide by …`"},
+		{storedParticipants, authoredParticipants, "multi-user task(s) that need only some participants to respond", "`participants …`"},
+		{storedAwait, authoredAwait, "multi-user task(s) that wait for all users", "`await all users`"},
+	} {
+		if len(g.stored) > g.authored {
+			return mdlerrors.NewUnsupported(fmt.Sprintf(
+				"workflow %s has %d %s but this statement declares %d — rewriting it would reset the difference to the default:\n  - %s\n"+
+					"  Restate them (%s), which `describe workflow %s` now emits, or use ALTER WORKFLOW to change one activity at a time.",
+				qualifiedName, len(g.stored), g.what, g.authored, strings.Join(g.stored, "\n  - "), g.restate, qualifiedName))
+		}
 	}
 
 	// Ends inside branches. MDL could not state one until `end workflow`, and
@@ -208,9 +232,8 @@ func countAuthoredBoundaryEvents(activities []ast.WorkflowActivityNode) int {
 }
 
 // studioProOnlyWorkflowState lists what a stored workflow holds that a rebuild
-// from MDL would reset: a workflow event handler subscribed to no
-// event types (the grammar has no empty list), and per activity a completion rule
-// other than the one mxcli writes.
+// from MDL would reset: a workflow event handler subscribed to no event types
+// (the grammar has no empty list).
 func studioProOnlyWorkflowState(raw map[string]any) []string {
 	var out []string
 	for _, h := range rawList(raw["OnWorkflowEvent"]) {
@@ -228,20 +251,17 @@ func studioProOnlyWorkflowState(raw map[string]any) []string {
 			out = append(out, fmt.Sprintf("workflow event handler %s subscribes to no event types, which MDL cannot state", rawHandlerLabel(hm)))
 		}
 	}
-	walkRawDocs(raw, func(d map[string]any) {
-		out = append(out, rawActivityState(d)...)
-	})
 	return out
 }
 
-// rawActivityState lists what one stored activity holds that rebuilding it would
-// reset. Both the workflow rewrite and REPLACE ACTIVITY ask.
-func rawActivityState(d map[string]any) []string {
-	var out []string
+// rawCompletionRule describes a stored multi-user task's completion rule when it
+// is not what an omitted `decide by` writes (consensus falling back to the first
+// outcome); "" otherwise.
+func rawCompletionRule(d map[string]any) string {
 	name, _ := d["Name"].(string)
 	cc, ok := d["CompletionCriteria"].(map[string]any)
 	if !ok {
-		return out
+		return ""
 	}
 	kind, _ := cc["$Type"].(string)
 	var outcomes []map[string]any
@@ -252,20 +272,98 @@ func rawActivityState(d map[string]any) []string {
 	}
 	switch kind {
 	case "Workflows$ConsensusCompletionCriteria":
-		// What mxcli writes: Consensus falling back to the first outcome.
 		if len(outcomes) > 0 && reflect.DeepEqual(cc["FallbackOutcomePointer"], outcomes[0]["$ID"]) {
-			return out
+			return ""
 		}
-		fallback := "another outcome"
+		fallback := "no outcome"
 		for _, o := range outcomes {
 			if reflect.DeepEqual(cc["FallbackOutcomePointer"], o["$ID"]) {
 				fallback = "outcome '" + rawOutcomeLabel(o) + "'"
 			}
 		}
-		out = append(out, fmt.Sprintf("multi user task '%s' falls back to %s when consensus fails, which it would move to the first outcome", name, fallback))
+		return fmt.Sprintf("multi user task '%s' falls back to %s when consensus fails", name, fallback)
 	default:
 		rule := strings.ToLower(strings.TrimSuffix(strings.TrimPrefix(kind, "Workflows$"), "CompletionCriteria"))
-		out = append(out, fmt.Sprintf("multi user task '%s' decides by %s, which it would reset to consensus", name, rule))
+		return fmt.Sprintf("multi user task '%s' decides by %s", name, rule)
+	}
+}
+
+// rawParticipants describes a stored multi-user task that needs only some of its
+// targeted users to respond; "" when it needs all of them.
+func rawParticipants(d map[string]any) string {
+	t, ok := d["TargetUserInput"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	name, _ := d["Name"].(string)
+	switch t["$Type"] {
+	case "Workflows$AbsoluteAmountUserInput":
+		return fmt.Sprintf("multi user task '%s' needs %v participants", name, t["Amount"])
+	case "Workflows$PercentageAmountUserInput":
+		return fmt.Sprintf("multi user task '%s' needs %v percent of participants", name, t["Percentage"])
+	}
+	return ""
+}
+
+func rawAwaitsAllUsers(d map[string]any) bool {
+	await, _ := d["AwaitAllUsers"].(bool)
+	return await
+}
+
+// rawMultiUserTaskSettings labels every stored multi-user task setting a rewrite
+// resets when the statement omits it.
+func rawMultiUserTaskSettings(raw map[string]any) (rules, participants, await []string) {
+	walkRawDocs(raw, func(d map[string]any) {
+		if t, _ := d["$Type"].(string); t != "Workflows$MultiUserTaskActivity" {
+			return
+		}
+		if r := rawCompletionRule(d); r != "" {
+			rules = append(rules, r)
+		}
+		if p := rawParticipants(d); p != "" {
+			participants = append(participants, p)
+		}
+		if rawAwaitsAllUsers(d) {
+			name, _ := d["Name"].(string)
+			await = append(await, fmt.Sprintf("multi user task '%s' waits for all users", name))
+		}
+	})
+	return rules, participants, await
+}
+
+func countAuthoredMultiUserSettings(activities []ast.WorkflowActivityNode) (rules, participants, await int) {
+	walkWorkflowActivities(activities, func(a ast.WorkflowActivityNode) {
+		n, ok := a.(*ast.WorkflowUserTaskNode)
+		if !ok || !n.IsMultiUser {
+			return
+		}
+		if n.Completion != nil {
+			rules++
+		}
+		if n.Participants != nil && n.Participants.Kind != "all" {
+			participants++
+		}
+		if n.AwaitAllUsers {
+			await++
+		}
+	})
+	return rules, participants, await
+}
+
+// rawReplaceLosses lists what a stored activity holds that its replacement does
+// not restate, so REPLACE ACTIVITY would reset it.
+func rawReplaceLosses(d map[string]any, replacement ast.WorkflowActivityNode) []string {
+	var out []string
+	mut, _ := replacement.(*ast.WorkflowUserTaskNode)
+	isMulti := mut != nil && mut.IsMultiUser
+	if r := rawCompletionRule(d); r != "" && (!isMulti || mut.Completion == nil) {
+		out = append(out, r+", which the replacement does not restate (add `decide by …`)")
+	}
+	if p := rawParticipants(d); p != "" && (!isMulti || mut.Participants == nil || mut.Participants.Kind == "all") {
+		out = append(out, p+", which the replacement does not restate (add `participants …`)")
+	}
+	if rawAwaitsAllUsers(d) && (!isMulti || !mut.AwaitAllUsers) {
+		out = append(out, "it waits for all users, which the replacement does not restate (add `await all users`)")
 	}
 	return out
 }
@@ -303,7 +401,7 @@ func validateAlterReplaceKeepsStudioProState(ctx *ExecContext, s *ast.AlterWorkf
 		var reasons []string
 		walkRawDocs(raw, func(d map[string]any) {
 			if n, _ := d["Name"].(string); n != "" && n == act.GetName() {
-				reasons = append(reasons, rawActivityState(d)...)
+				reasons = append(reasons, rawReplaceLosses(d, o.NewActivity)...)
 				if mf := rawOnCreatedMicroflow(d); mf != "" && !restatesOnCreated(o.NewActivity) {
 					reasons = append(reasons, fmt.Sprintf(
 						"it runs on-created microflow %s, which the replacement does not restate (add `on created microflow %s`)", mf, mf))

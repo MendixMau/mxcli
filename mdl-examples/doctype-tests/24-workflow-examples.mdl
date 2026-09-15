@@ -662,3 +662,65 @@ begin
       false -> { };
 end workflow;
 /
+
+-- @version: any
+-- ############################################################################
+-- PART H: MULTI-USER TASK COMPLETION — participants, decide by, await all users
+-- ############################################################################
+--
+-- A fallback is required for consensus, majority and threshold (CE1866), a veto
+-- needs its outcome (CE1867), and a decision microflow returns String (CE5012).
+-- Omitted clauses mean all participants, consensus on the first outcome, and not
+-- waiting for everyone.
+
+create microflow WFTest.ACT_DecideOrder (
+  $OrderContext: WFTest.OrderContext
+)
+returns string as $Outcome
+begin
+  return 'Approve';
+end;
+/
+
+create workflow WFTest.CompletionRules
+  parameter $OrderContext: WFTest.OrderContext
+begin
+  multi user task ConsensusVote 'Consensus'
+    page WFTest.TaskPage
+    decide by consensus fallback 'Reject'
+    outcomes 'Approve' { } 'Reject' { };
+
+  multi user task MajorityVote 'Majority'
+    page WFTest.TaskPage
+    decide by majority more than half fallback 'Approve'
+    outcomes 'Approve' { } 'Reject' { };
+
+  multi user task MostChosenVote 'Most chosen'
+    page WFTest.TaskPage
+    decide by majority most chosen fallback 'Reject'
+    outcomes 'Approve' { } 'Reject' { };
+
+  multi user task ThresholdVote 'Threshold'
+    page WFTest.TaskPage
+    participants 80 percent
+    decide by threshold 60 percent fallback 'Reject'
+    outcomes 'Approve' { } 'Reject' { };
+
+  multi user task VotesVote 'Votes'
+    page WFTest.TaskPage
+    participants 3
+    decide by threshold 2 votes fallback 'Reject'
+    await all users
+    outcomes 'Approve' { } 'Reject' { };
+
+  multi user task VetoVote 'Veto'
+    page WFTest.TaskPage
+    decide by veto 'Reject'
+    outcomes 'Approve' { } 'Reject' { };
+
+  multi user task MicroflowVote 'Microflow'
+    page WFTest.TaskPage
+    decide by microflow WFTest.ACT_DecideOrder
+    outcomes 'Approve' { } 'Reject' { };
+end workflow;
+/

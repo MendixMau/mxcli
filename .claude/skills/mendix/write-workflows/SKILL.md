@@ -329,9 +329,8 @@ documented in `system-module`.
 ## Platform rules
 
 - **Some workflow state has no MDL spelling, and a rewrite refuses rather than
-  reset it.** An event sub-process, a workflow event handler subscribed to no
-  event types, and a multi-user task's completion rule other than consensus
-  falling back to its first outcome are set in Studio Pro.
+  reset it.** An event sub-process and a workflow event handler subscribed to no
+  event types are set in Studio Pro.
   `create or modify` on a workflow that holds any of them is refused with the
   list, and so is `alter workflow … replace activity` on an activity that holds
   one. Change such a workflow with `alter workflow … set activity …` (it edits
@@ -356,6 +355,24 @@ documented in `system-module`.
   An outcome left **empty** does not stop anything — it rejoins the main flow.
   `comment '…'` sets the End's caption, as on every workflow activity.
 
+- **A multi-user task says who must respond and how their outcomes decide**,
+  in this clause order before `outcomes`:
+  `participants all | <n> | <n> percent`, then `decide by …`, then
+  `await all users`. The rules (`decide by`):
+  `consensus fallback '<outcome>'`, `majority more than half fallback '…'`,
+  `majority most chosen fallback '…'`, `threshold <n> percent|votes fallback '…'`,
+  `veto '<outcome>'`, `microflow Module.Decide`. Omitted means all participants,
+  consensus falling back to the first outcome, and not waiting. Measured on
+  mxbuild 11.13:
+  - consensus, majority and threshold **need a fallback** (`CE1866`) and a veto
+    needs its outcome (`CE1867`); `check` refuses a missing one, and a name
+    that is not one of the task's outcomes (`MDL-WF13`);
+  - the decision microflow must **return String** (`CE5012`); its parameters
+    are free;
+  - thresholds and participant counts are **not range-checked** by the build
+    (0, 101 percent, more votes than users all build), so check them yourself.
+  A rewrite that does not restate a stored rule, participant count or `await all
+  users` is refused — each omitted clause would reset it.
 - **An AI agent task is `call agent microflow`** (Mendix 11.9+) — the call
   microflow statement stored as `Workflows$AIAgentTaskActivity`, with the same
   `as`, `comment`, `with (…)`, `outcomes` and boundary events. The microflow is

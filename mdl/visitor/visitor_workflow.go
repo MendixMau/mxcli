@@ -3,6 +3,7 @@
 package visitor
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/antlr4-go/antlr/v4"
@@ -510,8 +511,15 @@ func buildWorkflowUserTask(ctx parser.IWorkflowUserTaskStmtContext) *ast.Workflo
 	}
 
 	node := &ast.WorkflowUserTaskNode{
-		Name:        taskName,
-		IsMultiUser: utCtx.MULTI() != nil,
+		Name:          taskName,
+		IsMultiUser:   utCtx.MULTI() != nil,
+		AwaitAllUsers: utCtx.AWAIT() != nil,
+	}
+	if pc, ok := utCtx.WorkflowParticipantsClause().(*parser.WorkflowParticipantsClauseContext); ok && pc != nil {
+		node.Participants = buildWorkflowParticipants(pc)
+	}
+	if cc, ok := utCtx.WorkflowCompletionClause().(*parser.WorkflowCompletionClauseContext); ok && cc != nil {
+		node.Completion = buildWorkflowCompletionRule(cc)
 	}
 
 	// Caption is the first STRING_LITERAL
@@ -907,4 +915,58 @@ func parseInt(s string) int {
 		}
 	}
 	return n
+}
+
+// buildWorkflowParticipants reads `participants all | N | N percent`.
+func buildWorkflowParticipants(ctx *parser.WorkflowParticipantsClauseContext) *ast.WorkflowParticipantsNode {
+	if ctx.ALL() != nil {
+		return &ast.WorkflowParticipantsNode{Kind: "all"}
+	}
+	n := &ast.WorkflowParticipantsNode{Kind: "number"}
+	if ctx.PERCENT_KW() != nil {
+		n.Kind = "percent"
+	}
+	if num := ctx.NUMBER_LITERAL(); num != nil {
+		n.Value, _ = strconv.Atoi(num.GetText())
+	}
+	return n
+}
+
+// buildWorkflowCompletionRule reads `decide by …`.
+func buildWorkflowCompletionRule(ctx *parser.WorkflowCompletionClauseContext) *ast.WorkflowCompletionRuleNode {
+	r := &ast.WorkflowCompletionRuleNode{}
+	switch {
+	case ctx.CONSENSUS() != nil:
+		r.Rule = "consensus"
+	case ctx.MAJORITY() != nil:
+		r.Rule = "majority"
+		r.Majority = "most chosen"
+		if ctx.MORE_KW() != nil {
+			r.Majority = "more than half"
+		}
+	case ctx.THRESHOLD() != nil:
+		r.Rule = "threshold"
+		r.ThresholdUnit = "votes"
+		if ctx.PERCENT_KW() != nil {
+			r.ThresholdUnit = "percent"
+		}
+		if num := ctx.NUMBER_LITERAL(); num != nil {
+			r.Threshold, _ = strconv.Atoi(num.GetText())
+		}
+	case ctx.VETO() != nil:
+		r.Rule = "veto"
+		if s := ctx.STRING_LITERAL(); s != nil {
+			r.Veto = unquoteString(s.GetText())
+		}
+	case ctx.MICROFLOW() != nil:
+		r.Rule = "microflow"
+		if qn := ctx.QualifiedName(); qn != nil {
+			r.Microflow = buildQualifiedName(qn)
+		}
+	}
+	if fb, ok := ctx.WorkflowFallbackClause().(*parser.WorkflowFallbackClauseContext); ok && fb != nil && fb.STRING_LITERAL() != nil {
+		r.Fallback = unquoteString(fb.STRING_LITERAL().GetText())
+		r.HasFallback = true
+	}
+	return r
 }

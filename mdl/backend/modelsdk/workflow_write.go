@@ -308,7 +308,7 @@ func userTaskToGen(a *workflows.UserTask) element.Element {
 	}
 	addBool(g, "AutoAssignSingleTargetUser", false)
 	if a.IsMulti {
-		addBool(g, "AwaitAllUsers", false)
+		addBool(g, "AwaitAllUsers", a.AwaitAllUsers)
 	}
 	if len(a.BoundaryEvents) > 0 {
 		addPartList(g, "BoundaryEvents", boundaryEventsToGen(a.BoundaryEvents))
@@ -322,13 +322,7 @@ func userTaskToGen(a *workflows.UserTask) element.Element {
 		}
 	}
 	if a.IsMulti {
-		fallbackID := mmpr.GenerateID()
-		if len(a.Outcomes) > 0 {
-			fallbackID = string(a.Outcomes[0].ID)
-		}
-		cc := newElem("Workflows$ConsensusCompletionCriteria", "")
-		addIDRef(cc, "FallbackOutcomePointer", model.ID(fallbackID))
-		addPart(g, "CompletionCriteria", cc)
+		addPart(g, "CompletionCriteria", completionCriteriaToGen(a))
 	}
 	addStr(g, "DueDate", a.DueDate)
 	addStr(g, "Name", a.Name)
@@ -352,10 +346,86 @@ func userTaskToGen(a *workflows.UserTask) element.Element {
 	addPart(g, "TaskName", workflowStringTemplate(taskName))
 	addPart(g, "TaskPage", pageReferenceElem(a.Page))
 	if a.IsMulti {
-		addPart(g, "TargetUserInput", newElem("Workflows$AllUserInput", ""))
+		addPart(g, "TargetUserInput", targetUserInputToGen(a.TargetUserInput))
 	}
 	addPart(g, "UserTargeting", userTargetingToGen(a.UserSource))
 	return g
+}
+
+// completionCriteriaToGen builds a multi-user task's CompletionCriteria in the
+// shape ako/TestApp (Studio Pro 11.14.0) stores: FallbackOutcomePointer and
+// VetoOutcomePointer hold the $ID of one of the task's own outcomes. With no rule
+// it is consensus falling back to the first outcome, as every rebuild has written.
+// An outcome name that matches none is left unset rather than pointed at a guess;
+// check reports it (CE1866 / CE1867).
+func completionCriteriaToGen(a *workflows.UserTask) element.Element {
+	outcomeID := func(value string) (model.ID, bool) {
+		for _, o := range a.Outcomes {
+			if o.Value == value || (o.Value == "" && o.Caption == value) {
+				return o.ID, true
+			}
+		}
+		return "", false
+	}
+	cc := a.CompletionCriteria
+	if cc == nil {
+		g := newElem("Workflows$ConsensusCompletionCriteria", "")
+		if len(a.Outcomes) > 0 {
+			addIDRef(g, "FallbackOutcomePointer", a.Outcomes[0].ID)
+		}
+		return g
+	}
+	setFallback := func(g *element.Base) {
+		if id, ok := outcomeID(cc.FallbackOutcome); ok && cc.FallbackOutcome != "" {
+			addIDRef(g, "FallbackOutcomePointer", id)
+		}
+	}
+	switch cc.Kind {
+	case "Majority":
+		g := newElem("Workflows$MajorityCompletionCriteria", "")
+		addStr(g, "CompletionType", cc.CompletionType)
+		setFallback(g)
+		return g
+	case "Threshold":
+		g := newElem("Workflows$ThresholdCompletionCriteria", "")
+		addStr(g, "CompletionType", cc.CompletionType)
+		setFallback(g)
+		addInt32(g, "Threshold", int32(cc.Threshold))
+		return g
+	case "Veto":
+		g := newElem("Workflows$VetoCompletionCriteria", "")
+		if id, ok := outcomeID(cc.VetoOutcome); ok {
+			addIDRef(g, "VetoOutcomePointer", id)
+		}
+		return g
+	case "Microflow":
+		g := newElem("Workflows$MicroflowCompletionCriteria", "")
+		addStr(g, "Microflow", cc.Microflow)
+		return g
+	default:
+		g := newElem("Workflows$ConsensusCompletionCriteria", "")
+		setFallback(g)
+		return g
+	}
+}
+
+// targetUserInputToGen builds a multi-user task's TargetUserInput.
+func targetUserInputToGen(t *workflows.TargetUserInput) element.Element {
+	if t == nil {
+		return newElem("Workflows$AllUserInput", "")
+	}
+	switch t.Kind {
+	case "Absolute":
+		g := newElem("Workflows$AbsoluteAmountUserInput", "")
+		addInt32(g, "Amount", int32(t.Amount))
+		return g
+	case "Percentage":
+		g := newElem("Workflows$PercentageAmountUserInput", "")
+		addInt32(g, "Percentage", int32(t.Percentage))
+		return g
+	default:
+		return newElem("Workflows$AllUserInput", "")
+	}
 }
 
 func callMicroflowTaskToGen(a *workflows.CallMicroflowTask) element.Element {

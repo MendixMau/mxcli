@@ -123,6 +123,7 @@ func ValidateWorkflow(stmt *ast.CreateWorkflowStmt) []linter.Violation {
 	out = append(out, ValidateWorkflowJumpTargets(stmt)...)
 	out = append(out, ValidateWorkflowEnds(stmt)...)
 	out = append(out, ValidateWorkflowEventTypes(stmt)...)
+	out = append(out, ValidateWorkflowCompletionRules(stmt)...)
 	return out
 }
 

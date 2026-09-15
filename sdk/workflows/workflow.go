@@ -134,6 +134,29 @@ type UserTask struct {
 	UserTaskEntity  string             `json:"userTaskEntity,omitempty"`  // Qualified name of user task entity
 	OnCreated       string             `json:"onCreated,omitempty"`       // Microflow called on task creation
 	BoundaryEvents  []*BoundaryEvent   `json:"boundaryEvents,omitempty"`  // Boundary events (e.g., timers)
+
+	// Multi-user task only.
+	CompletionCriteria *CompletionCriteria `json:"completionCriteria,omitempty"` // nil = consensus on the first outcome
+	TargetUserInput    *TargetUserInput    `json:"targetUserInput,omitempty"`    // nil = all targeted users
+	AwaitAllUsers      bool                `json:"awaitAllUsers,omitempty"`
+}
+
+// CompletionCriteria is how a multi-user task turns its participants' outcomes
+// into one outcome. Outcomes are named by value; storage points at their $ID.
+type CompletionCriteria struct {
+	Kind            string `json:"kind"`                     // Consensus, Majority, Threshold, Veto or Microflow
+	CompletionType  string `json:"completionType,omitempty"` // Absolute or Relative (Majority, Threshold)
+	Threshold       int    `json:"threshold,omitempty"`      // percent (Relative) or votes (Absolute)
+	FallbackOutcome string `json:"fallbackOutcome,omitempty"`
+	VetoOutcome     string `json:"vetoOutcome,omitempty"`
+	Microflow       string `json:"microflow,omitempty"` // must return String (CE5012)
+}
+
+// TargetUserInput is how many of a multi-user task's targeted users must respond.
+type TargetUserInput struct {
+	Kind       string `json:"kind"` // All, Absolute or Percentage
+	Amount     int    `json:"amount,omitempty"`
+	Percentage int    `json:"percentage,omitempty"`
 }
 
 // ActivityType returns the type name.
