@@ -16,7 +16,7 @@ the codec), [ADR-0002](../13-decisions/0002-backend-abstraction.md) (the seam th
 Retiring the legacy engine is **three separable removals wearing one name**, and the whole value of
 writing this down is refusing to treat them as one job. Deleting the legacy *backend*
 (`mdl/backend/mpr`, 2,808 lines) is small, unblocked and reversible — that is Phase 1 and it can
-start today. Deleting the legacy *serializer* underneath it (`sdk/mpr`, 41,243 lines) is not a
+start today. Deleting the legacy *serializer* underneath it (`sdk/mpr`, 41,418 lines) is not a
 serializer problem at all: it is blocked by two callers that **bypass the backend abstraction**
 rather than by the serializer's size, and measuring them (§Phase 3) put that work at a 17-method
 port plus six unimplemented methods, not a rewrite. The mongo-driver v1→v2 migration the earlier
@@ -32,9 +32,9 @@ still do. But the split does not fall where that plan implies:
 | Package | mongo-driver v1 | v2 | What it is |
 |---|---|---|---|
 | `modelsdk/` | **0** | **117** | the codec engine |
-| `sdk/mpr` | **113** | **0** | the legacy serializer |
+| `sdk/mpr` | **114** | **0** | the legacy serializer |
 | `mdl/backend/modelsdk` | 44 | 45 | the adapter where the two meet |
-| `mdl/executor` | 17 | 5 | |
+| `mdl/executor` | 18 | 5 | |
 
 The driver split maps almost exactly onto the **serializer** split, not onto the engine flag. The
 codec is already wholly on v2; `sdk/mpr` is wholly on v1; the adapter straddles both because it
@@ -44,7 +44,7 @@ the driver migration at all** — what unblocks v2 is deleting `sdk/mpr`, which 
 Stating this is the point of the plan. Sequenced the other way round, Phase 1 looks like it owes a
 41k-line migration and never gets started.
 
-## 3. What is already true (verified 2026-09-14, not assumed)
+## 3. What is already true (verified 2026-09-15 against main, not assumed)
 
 Every one of these was checked rather than inherited from the earlier plan:
 
@@ -182,7 +182,7 @@ are almost entirely the MCP protocol surface and are untouched by this.
 ### Phase 4 — mongo-driver v1 → v2 *(Effort: L, Risk: Med — gated on Phase 3)*
 
 Reachable once Phase 3's step 4 settles whether anything still needs `sdk/mpr`. With it gone the
-remaining v1 files are the `mdl/backend/modelsdk` adapter's 44 and `mdl/executor`'s 17 — both exist
+remaining v1 files are the `mdl/backend/modelsdk` adapter's 44 and `mdl/executor`'s 18 — both exist
 to bridge the two worlds and shrink as the semantic types move to v2, so the real size of this
 phase is not knowable until Phase 3 lands. Not worth sequencing before then.
 
