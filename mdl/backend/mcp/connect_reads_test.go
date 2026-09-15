@@ -14,6 +14,7 @@ package mcp
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	modelsdkbackend "github.com/mendixlabs/mxcli/mdl/backend/modelsdk"
@@ -33,11 +34,22 @@ func localProject(t *testing.T) string {
 	return filepath.Join(dst, "minimal.mpr")
 }
 
+// backendFor returns an unconnected Backend pointed at the fake Studio Pro.
+//
+// The dial address is passed explicitly, as connectClient does. An empty one
+// lets defaultDial rewrite 127.0.0.1 to host.docker.internal wherever that name
+// resolves — correct for a real Studio Pro on the host, but inside a devcontainer
+// it sends the request to the Docker host instead of the httptest listener in
+// this container, and Connect fails with "connection refused".
+func backendFor(ped *fakePED) *Backend {
+	return New(ped.srv.URL+"/mcp", strings.TrimPrefix(ped.srv.URL, "http://"))
+}
+
 // connected returns a Backend wired to a fake Studio Pro and the local fixture.
 func connected(t *testing.T) *Backend {
 	t.Helper()
 	ped := newFakePED(t, func(string, map[string]any) (string, bool) { return "{}", false })
-	b := New(ped.srv.URL+"/mcp", "")
+	b := backendFor(ped)
 	if err := b.Connect(localProject(t)); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -138,7 +150,7 @@ func TestConnect_GetWorkflowReadsASeededWorkflow(t *testing.T) {
 	}
 
 	ped := newFakePED(t, func(string, map[string]any) (string, bool) { return "{}", false })
-	b := New(ped.srv.URL+"/mcp", "")
+	b := backendFor(ped)
 	if err := b.Connect(path); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
@@ -235,7 +247,7 @@ func TestConnect_TheSameWriteSucceedsReadWrite(t *testing.T) {
 // lifecycle and a double teardown is cheap to get wrong.
 func TestConnect_DisconnectIsIdempotent(t *testing.T) {
 	ped := newFakePED(t, func(string, map[string]any) (string, bool) { return "{}", false })
-	b := New(ped.srv.URL+"/mcp", "")
+	b := backendFor(ped)
 	if err := b.Connect(localProject(t)); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
