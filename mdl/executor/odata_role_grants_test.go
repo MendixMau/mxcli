@@ -5,12 +5,10 @@
 package executor
 
 import (
-	"sort"
 	"testing"
 
 	"github.com/mendixlabs/mxcli/mdl/backend"
 	modelsdkbackend "github.com/mendixlabs/mxcli/mdl/backend/modelsdk"
-	mprbackend "github.com/mendixlabs/mxcli/mdl/backend/mpr"
 	"github.com/mendixlabs/mxcli/mdl/visitor"
 	"github.com/mendixlabs/mxcli/model"
 	"go.mongodb.org/mongo-driver/bson"
@@ -104,65 +102,50 @@ func storedODataService(t *testing.T, factory func() backend.FullBackend) map[st
 	return raw
 }
 
-// The two OData writers must serialize the same key set.
+// A published OData service must keep its role grants when it is written.
 //
-// mxcli-formula1 §41: the §26 role-grant fix went into sdk/mpr/writer_odata.go,
-// and the modelsdk writer had no reference to AllowedModuleRoles at all — so a
-// `create or modify odata service` on that engine kept revoking the grants for a
-// whole release. Nothing noticed, because every existing test exercised one
-// writer or the other, never the two against each other.
+// This was a cross-ENGINE parity test: mxcli-formula1 §41, where the §26
+// role-grant fix went into sdk/mpr/writer_odata.go and the modelsdk writer had
+// no reference to AllowedModuleRoles at all, so `create or modify odata service`
+// on that engine revoked the grants for a whole release. Nothing noticed,
+// because every test exercised one writer or the other and never the two
+// against each other.
 //
-// The doctype gate cannot stand in for this. A published service with no allowed
-// roles is 0 errors under `mx check` on Mendix 11.12 (measured, not assumed), so
-// the build is blind to the symptom; the loss is only visible in the stored
-// document. That is why this asserts on BSON rather than on a check result.
+// The legacy engine is gone (docs/plans/2026-09-14-retire-legacy-engine.md), so
+// the comparison has nothing to compare and the differential half is dropped
+// rather than faked against itself. What is kept is the property the comparison
+// was a means to: the grant is in the stored document after a write. That still
+// needs its own test, because the doctype gate cannot see it — a published
+// service with no allowed roles is 0 errors under `mx check` on Mendix 11.12
+// (measured, not assumed), so the build is blind to the symptom and the loss is
+// only visible in the BSON.
 //
-// Asserted as the general property, not the one field: whatever legacy writes,
-// modelsdk writes too.
-func TestODataService_EngineWriteParity(t *testing.T) {
-	legacy := storedODataService(t, func() backend.FullBackend { return mprbackend.New() })
-	msdk := storedODataService(t, func() backend.FullBackend { return modelsdkbackend.New() })
+// Asserted by VALUE, not presence: an empty marker array satisfies a key-set
+// check while still having revoked the grant, which is exactly how a key-set
+// comparison would have passed over the original bug.
+func TestODataService_KeepsRoleGrants(t *testing.T) {
+	doc := storedODataService(t, func() backend.FullBackend { return modelsdkbackend.New() })
 
-	var missing []string
-	for k := range legacy {
-		if _, ok := msdk[k]; !ok {
-			missing = append(missing, k)
-		}
+	roles, ok := doc["AllowedModuleRoles"]
+	if !ok {
+		t.Fatal("AllowedModuleRoles absent — the grant was dropped by the writer")
 	}
-	sort.Strings(missing)
-	if len(missing) > 0 {
-		t.Errorf("modelsdk drops %d key(s) the mpr engine writes: %v\n"+
-			"The document is serialized wholesale, so a key the serializer omits is "+
-			"not left alone — it is deleted on the next modify.", len(missing), missing)
+	// The readers hand this back under different static types (bson.A on one
+	// path, a plain []any on the other), so accept both rather than pinning an
+	// incidental difference.
+	var arr []any
+	switch v := roles.(type) {
+	case bson.A:
+		arr = v
+	case []any:
+		arr = v
+	default:
+		t.Fatalf("AllowedModuleRoles is %T, want an array", roles)
 	}
-
-	// The reported field, by value rather than presence: an empty marker array
-	// satisfies a key-set check while still having revoked the grant.
-	for name, doc := range map[string]map[string]any{"legacy": legacy, "modelsdk": msdk} {
-		roles, ok := doc["AllowedModuleRoles"]
-		if !ok {
-			t.Errorf("%s: AllowedModuleRoles absent", name)
-			continue
-		}
-		// The two readers hand back the same array under different static
-		// types (bson.A on one path, a plain []any on the other), so accept both
-		// rather than pinning an incidental difference.
-		var arr []any
-		switch v := roles.(type) {
-		case bson.A:
-			arr = v
-		case []any:
-			arr = v
-		default:
-			t.Errorf("%s: AllowedModuleRoles is %T, want an array", name, roles)
-			continue
-		}
-		if len(arr) != 2 {
-			t.Errorf("%s: AllowedModuleRoles = %v, want marker + the granted role", name, arr)
-			continue
-		}
-		if arr[1] != "PTest.Admin" {
-			t.Errorf("%s: granted role = %v, want PTest.Admin", name, arr[1])
-		}
+	if len(arr) != 2 {
+		t.Fatalf("AllowedModuleRoles = %v, want marker + the granted role", arr)
+	}
+	if arr[1] != "PTest.Admin" {
+		t.Errorf("granted role = %v, want PTest.Admin", arr[1])
 	}
 }
