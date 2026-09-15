@@ -827,6 +827,26 @@ func mapMicroflowAction(a microflows.MicroflowAction) (map[string]any, error) {
 			m["node"] = act.LogNodeName
 		}
 		return m, nil
+	case *microflows.NotifyWorkflowAction:
+		// ped_get_schema, Studio Pro 11.14: workflowVariable, outputVariableName and
+		// notifyTarget, whose reference is a qualified name under `activity` — or
+		// `boundaryEvent` for a boundary-event target.
+		m := map[string]any{
+			"$Type":              "Microflows$NotifyWorkflowAction",
+			"workflowVariable":   act.WorkflowVariable,
+			"outputVariableName": act.OutputVariableName,
+		}
+		if act.ErrorHandlingType != "" {
+			m["errorHandlingType"] = string(act.ErrorHandlingType)
+		}
+		if t := act.Target; t != nil {
+			key := "activity"
+			if t.Key() == "BoundaryEvent" {
+				key = "boundaryEvent"
+			}
+			m["notifyTarget"] = map[string]any{"$Type": t.TypeName, key: t.Name}
+		}
+		return m, nil
 	default:
 		return nil, fmt.Errorf("microflow action %T is not yet supported by the MCP backend", a)
 	}
