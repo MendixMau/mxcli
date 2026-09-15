@@ -53,6 +53,19 @@ func runExtractTemplates(cmd *cobra.Command, args []string) error {
 	outputDir, _ := cmd.Flags().GetString("output")
 
 	// Open the project
+	// Deliberately still sdk/mpr, where every other reader in this package has
+	// moved to the backend (Phase 4a). FindCustomWidgetType is UNIMPLEMENTED on
+	// the codec backend — measured, it returns the "not implemented on the model
+	// engine" error — so porting this call would not fail to compile, it would
+	// fail at runtime for anyone extracting a widget template.
+	//
+	// Note what that error says: "This should be unreachable". It is unreachable
+	// only because this caller holds a concrete reader; porting it is precisely
+	// what would make it reachable. The census in #477 could not see this caller
+	// for the same reason it could not see project_tree.go.
+	//
+	// The fix is to implement FindCustomWidgetType on the codec backend, not to
+	// port this file; it is the last sdk/mpr importer in cmd/mxcli.
 	reader, err := mpr.Open(projectPath)
 	if err != nil {
 		return fmt.Errorf("failed to open project: %w", err)

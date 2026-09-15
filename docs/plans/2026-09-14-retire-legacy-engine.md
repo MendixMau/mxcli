@@ -532,3 +532,37 @@ fixture ships only an **online** profile, so the offline rule is inert on it eit
 has to seed one — and Mendix **fixes the legal profile names** (`Responsive`/`Phone`/`Tablet` plus
 the `*Offline` variants), so an invented name is refused by the executor. The stock-fixture control
 runs first, so a reader that invented a profile is caught before the positive assertion.
+
+### Phase 4a, fourth slice — the rest of `cmd/mxcli` (2026-09-15)
+
+Five files — `cmd_new`, `setup` (two readers, not one), `serve`, `sync_java_deps`,
+`cmd_check_post_migration` — plus one refused. **Importers 13 → 8.** Every method they call is
+on `FullBackend`; `catalog.CatalogReader` already documents itself as satisfied by it, and
+`executor.NewContainerHierarchyFromBackend` already existed. `openProjectReadOnly` is now this
+package's one way in, and the two inline `ConnectReadOnly` sites from the first slice use it too.
+
+**`cmd_extract_templates.go` stays on `sdk/mpr`, deliberately.** It calls
+`FindCustomWidgetType`, which is **unimplemented on the codec backend** — measured at runtime, it
+returns *"not implemented on the model engine. This should be unreachable."* Porting it would have
+compiled and failed for anyone extracting a widget template.
+
+> The type error was the lucky part. `RawType`/`RawObject` are `bson.D` on `sdk/mpr` and `any` on
+> `types.RawCustomWidgetType`, so the port would not build — and **the one-line cast that silences
+> that is the only thing standing between this and a runtime break.** When a port hits a type
+> mismatch at a backend boundary, check whether the method is implemented *before* reconciling the
+> types.
+
+Note the direction: the unimplemented method's error says *"should be unreachable"*, and porting a
+caller to the backend is exactly what **makes** it reachable. §7.5's census blind spot — callers
+holding a concrete reader are invisible — cuts both ways.
+
+**A measurement trap worth naming**, because it looked like a regression and was not: a baseline
+diff of `check --post-migration` showed 50 lines disappearing. The **first** run built and cached a
+catalog inside the project, and the second reused it. Each binary needs its own fresh copy of the
+fixture — the same discipline a write port needs, because a command that caches into the project
+directory makes consecutive runs non-independent even when nothing is being written on purpose.
+
+With that fixed the run is **63 identical lines**, catalog build and legacy-widget scan included.
+But "No legacy native widgets found" is §7.7's fail-open shape again — a reader handing back zero
+pages prints it too — so `openProjectReadOnly` has tests asserting the reads the commands depend on
+actually return data.
