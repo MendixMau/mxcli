@@ -566,3 +566,41 @@ With that fixed the run is **63 identical lines**, catalog build and legacy-widg
 But "No legacy native widgets found" is §7.7's fail-open shape again — a reader handing back zero
 pages prints it too — so `openProjectReadOnly` has tests asserting the reads the commands depend on
 actually return data.
+
+### Phase 4a, fifth slice — `FindCustomWidgetType`, and `cmd/mxcli` is clear (2026-09-15)
+
+The refusal from the fourth slice, resolved. **Importers 8 → 7**, and **nothing that ships in the
+binary imports `sdk/mpr` any more**.
+
+**The implementation was never missing.** `modelsdk/mpr.Reader` has had `FindCustomWidgetType`,
+`FindAllCustomWidgetTypes` and the `collectCustomWidgets` walker all along — and its version
+populates `UnitName`/`WidgetName`, which the one I started writing from scratch would have left
+empty. Only the *wiring* onto `Backend` was absent, which is precisely what the old error meant by
+*"this should be unreachable"*.
+
+> **Grep for an existing implementation before writing one.** A method listed in
+> `unimplemented_gen.go` says nothing about whether the logic exists a layer down.
+
+**A straight delegation then extracted 0 of 6 templates**, reporting for each widget:
+
+```
+[SKIP] Combo box: widget type is bson.D, want bson.D
+```
+
+`modelsdk/mpr` builds `RawType`/`RawObject` with the **v2** BSON driver; `sdk/mpr` and every caller
+use **v1**. They are unrelated Go types that print under the same name, and
+`types.RawCustomWidgetType` declares the fields `any` — so neither the compiler nor the error text
+can tell them apart.
+
+> An `any` field crossing an engine boundary can carry the right type **name** and the wrong
+> **package**. When an assertion fails with identical names on both sides of "want", the question is
+> which import path each came from. A cast written to silence it panics at runtime.
+
+Fixed by converting at the boundary with the package's existing `v2ToV1BSON`, as
+`widget_pluggable_write.go` already does for writes. Verified: all six templates extract
+**byte-for-byte identically** to the pre-change binary, `datagrid.json` at 1.2 MB included.
+
+Two maintenance notes. `unimplemented_gen.go` **still emits the stub** after a method is implemented
+— the generator writes a complete fallback set and `Backend`'s own method shadows it — so the thing
+to update is `unreachableUnimplemented` in `unimplemented_reachability_test.go`, which fails loudly
+when a listed method becomes implemented. It did, which is how the stale entry was caught.
