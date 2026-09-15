@@ -604,3 +604,39 @@ Two maintenance notes. `unimplemented_gen.go` **still emits the stub** after a m
 — the generator writes a complete fallback set and `Backend`'s own method shadows it — so the thing
 to update is `unreachableUnimplemented` in `unimplemented_reachability_test.go`, which fails loudly
 when a listed method becomes implemented. It did, which is how the stale entry was caught.
+
+### Phase 4a, sixth slice — the last seven, and the count reaches **zero** (2026-09-15)
+
+`examples/` (5) and `scripts/mprsnapshot` (2). **Importers 7 → 0.**
+
+Three shapes, not one. Four examples held the **writer** (`mpr.NewWriter` → `Backend.Connect`,
+`Close` → `Disconnect`, and `writer.Reader()` dropped because the backend is both halves, with
+`CreateEntity`/`CreateAssociation`/`DeleteEntity`/`DeleteAssociation`/`CreatePage` identical in
+signature on both). Two held a **reader**. The rest were two utilities, `GenerateID` and
+`BlobToUUID` — and `sdk/mpr`'s copies are already one-line delegations to `mdl/types`, so pointing
+the call sites at `types` is **provably** the same function rather than a same-named one, which is
+the distinction §7.9's v1/v2 BSON trap turned on.
+
+Verified per shape. `mprsnapshot` is a canonicalisation tool, so its output is the evidence:
+**identical in all four modes** — default (2,870 lines), `-refs` (12,707), `-canon` (374) and
+`-all` (43,979). The write examples cannot be diffed that way, so `add_entities` was run under both
+binaries and the resulting projects compared with `mprsnapshot`: every element path and type
+matches, and once UUIDs are normalised the only remaining difference is the domain model's content
+**hash**, which digests bytes that embed those UUIDs. Fresh identities on new elements are required
+(§"A GUID Is the Database's Identity"), so that is the correct result, not a discrepancy.
+
+**The count is now guarded.** `TestNothingImportsTheLegacyEngine` (`mdl/backend/`) parses every
+`.go` file's imports and fails naming any file that imports `sdk/mpr`. Without it the invariant
+lived in this document and a habit, and one import would restore exactly the blind spot Phase 4a
+existed to close — a caller holding a concrete reader is invisible to the census.
+
+> A zero-count invariant needs **two positive controls** or it passes vacuously forever, because
+> every way of breaking it is silent: a wrong root, an over-broad skip rule and an import-parsing
+> mistake all report "0 importers". So assert that a plausible number of files was scanned (2,551)
+> **and** that the detector can see imports at all, by counting one the repo definitely has
+> (`mdl/backend`, 120 files). Only then does 0 mean zero — the same reasoning as
+> `scripts/check-tunnel-deps.sh`, which proves chisel *is* in the linux graph before proving it is
+> absent from the others.
+
+**Phase 4a is complete.** `sdk/mpr` has no importers outside itself; deleting it is now a
+scheduling decision rather than a risk assessment.
