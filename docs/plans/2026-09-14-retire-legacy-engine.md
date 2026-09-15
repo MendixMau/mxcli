@@ -183,7 +183,12 @@ are almost entirely the MCP protocol surface and are untouched by this.
 
 **Only after step 4 is `sdk/mpr`'s fate a question at all**, and by then it is a small one.
 
-### Phase 4 — mongo-driver v1 → v2 *(Effort: L, Risk: Med — gated on Phase 3)*
+### Phase 4 — mongo-driver v1 → v2 *(superseded by §7.5)*
+
+> **This section's premise did not survive Phase 3.** It opens "with [`sdk/mpr`] gone", and Phase 3
+> closed by *keeping* it. Its sizing is also wrong on its own terms: the v1 files in `mdl/` do not
+> "exist to bridge the two worlds", and do not shrink when `sdk/mpr` goes. See **§7.5**, which
+> re-measures and splits this into two independent migrations. Kept unedited for the record.
 
 Reachable once Phase 3's step 4 settles whether anything still needs `sdk/mpr`. With it gone the
 remaining v1 files are the `mdl/backend/modelsdk` adapter's 44 and `mdl/executor`'s 18 — both exist
@@ -361,7 +366,71 @@ header says so. It keeps its value as a tripwire: a *new* entry still means eith
 appeared or a method was added that nothing calls, and the fix depends on which — establish the
 cause rather than adding a row to silence the failure.
 
-**`sdk/mpr` does not go away with this.** Those six commands still import it, as does the workflow
-serializer that #469 extended. What Phase 3 delivered is that no *engine* path reaches it — the
-executor, the backends and `api/` are all clean. Removing the serializer is a separate question,
-downstream of Phase 4.
+**`sdk/mpr` does not go away with this — and it is imported far more widely than the census
+suggests.** The census tracks `FullBackend` *methods* with no caller through a backend value; it
+says nothing about who imports the package. Measured: **28 non-test files** import `sdk/mpr`,
+including `cmd/mxcli/docker/` (7 files in the run/build pipeline), two `mdl/executor` validators,
+and — most consequentially — **`modelsdk.go`, the published library's root API**, whose `Reader` and
+`Writer` are type *aliases* to `sdk/mpr`'s. An earlier draft of this section said "those six
+commands still import it", which was wrong by a factor of four and pointed at the wrong files.
+
+What Phase 3 delivered is narrower and still worth having: no *engine* path reaches `sdk/mpr`. The
+executor's write paths, the backends and `api/` are clean. Removing the serializer is Phase 4's
+job, and §7.5 measures what that actually takes.
+
+### Phase 4 re-measured — it is two independent migrations, not one (2026-09-15)
+
+§4's Phase 4 assumed one job, gated on `sdk/mpr` being gone. Measuring it after Phase 3 closed
+shows **two migrations that do not gate each other**, and the one worth doing first is not the
+driver migration at all.
+
+**Where v1 actually lives** (249 files import v1, 174 import v2; only **6** import both, all of them
+in `mdl/backend/modelsdk`, and the crossing is safe because the interchange is *bytes* — v1
+`Marshal` → `v2.Raw`, and BSON bytes carry no driver version):
+
+| tree | v1 | v2 | what it is |
+|---|---|---|---|
+| `modelsdk/` | 0 | 116 | the codec — already pure v2 |
+| `sdk/` | 117 | 0 | the legacy serializer |
+| `mdl/` | 107 | 58 | mixed; the mutator layer is v1 |
+| `cmd/`, `examples/`, `scripts/`, `model/` | 25 | 0 | callers |
+
+#### 4a — port the 28 `sdk/mpr` callers (the one that pays)
+
+**23 of the 28 use only `mpr.Open`.** The dependency is overwhelmingly on one read-only
+constructor, not on the serializer's 41k lines. The rest use `mpr.NewWriter` (6) or a small helper
+(`GenerateID`, `BlobToUUID`, `MPRVersionV`, `ParseMicroflowBSON`).
+
+The naive objection is that `sdk/mpr.Reader` has **140 methods** and `modelsdk/mpr.Reader` has
+**47**, so the port looks impossible. That is the same wrong comparison the MCP port already
+disproved: `modelsdk/mpr` is a *raw/unit* reader and the semantic decoding is a layer up, on the
+**codec backend**. Every method these callers invoke — `ListModules`, `GetDomainModel`,
+`ListMicroflows`, `GetProjectSecurity` … — is a `FullBackend` method.
+
+So 4a is **the MCP port repeated**: swap `mpr.Open(path)` for `modelsdkbackend.New()` +
+`ConnectReadOnly(path)`. That move is already written, already tested, and already has a read-only
+guard with a revert control.
+
+**Its one real gate is `modelsdk.go`.** The published library's `Reader` and `Writer` are type
+aliases to `sdk/mpr`'s, so the root API *is* the legacy serializer. Changing it is a breaking change
+of a different order from `api.New`'s — that one had zero in-repo callers and a fluent surface that
+did not move; this one is the documented entry point in README and CLAUDE.md. **Decide this before
+starting 4a**, not during.
+
+#### 4b — convert `mdl/`'s mutator layer to v2
+
+`mdl/backend/modelsdk` has **19 non-test v1 files**, using `bson.D` (70), `bson.A` (25),
+`bson.M` (14), `Marshal`/`Unmarshal` (29). These are not a bridge to `sdk/mpr` and **do not shrink
+when it goes** — §4's sizing claim is wrong here. They are v1 because the *mutator layer's*
+currency is v1 `bson.D`: `pagemutator`, `wfmutator` and `widgetobj` all declare their `deps`
+interfaces in those terms, and the codec backend implements them.
+
+That makes 4b independent of 4a and of the serializer entirely. It is also the half with **no
+user-visible benefit until both are done**, since v1 leaves `go.mod` only when the last importer
+does.
+
+#### Recommended order
+
+**4a, then the `modelsdk.go` decision, then 4c (delete `sdk/mpr`), then 4b.** 4a is a proven move
+that deletes 41k lines; 4b is internal churn whose payoff is gated on 4a finishing anyway. Doing 4b
+first would convert a mutator layer that 4c might reshape.
