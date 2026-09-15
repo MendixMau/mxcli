@@ -399,6 +399,31 @@ paths, so the rules are Studio Pro's. The MCP backend:
 A notification event's jump outside a split is still refused: restoring it the
 way a timer's is has not been measured.
 
+#### List operations: one batch is not applied in the order sent
+
+`create or modify workflow` stored its activities reversed, left an old activity
+in and dropped a new one; `alter workflow … replace activity` changed nothing.
+Raw PED calls on a probe workflow (Studio Pro 11.14), each read back:
+
+| Batch on a list | Stored |
+|---|---|
+| [S, a, b, E]: remove @2, @1, add C, B, A each @1 — what a rewrite sent | S, B, A, a, E |
+| add P @1, Q @1 | P, Q in that order |
+| on [S, P, Q, …]: add R @1, S2 @2 | S, R, P, S2, Q |
+| on [S, R, P, S2, E]: add I1 @2, I2 @3 — what a multi-activity insert sent | S, R, I1, P, I2, S2, E |
+| on [S, I1, P, I2, E]: remove @2, add K1 @2, K2 @3 — what a replace sent | S, I1, P, K2, I2, E |
+| index-less adds A, B to empty event sub-processes / boundary events | reversed |
+| adds in one update, the removes in the next | as intended |
+
+Every row fits one rule: a batch's ops run highest index first, and at one index
+the adds go in as a block, in op order, before the removes. The MCP backend
+therefore never adds to and removes from a list in one batch: a rewrite adds the
+statement's flow middles (at 1), event sub-processes and handlers (at 0) in their
+own order, then removes the stored ones in a second update; a replace adds after
+the activity, then removes it. Adding first means a failure between the two leaves
+duplicates, not a workflow without its activities. The fake PED's list simulator
+(`pedListSim`) implements the rule and replays every row above.
+
 ## Phase 4b — notify targets (implemented)
 
 ### Reference document (ako/TestApp `workflow.ZzMxcliExample_Notify`, Studio Pro 11.14)

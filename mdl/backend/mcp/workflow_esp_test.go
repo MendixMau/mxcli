@@ -269,12 +269,17 @@ func TestUpdateWorkflow_ReplacesEventSubProcesses(t *testing.T) {
 	if err := b.UpdateWorkflow(wf); err != nil {
 		t.Fatalf("UpdateWorkflow: %v", err)
 	}
-	call, ok := f.callByName("ped_update_document")
-	if !ok {
+	var ops []any
+	for _, c := range f.calls {
+		if c.Name == "ped_update_document" {
+			ops = append(ops, c.Args["operations"].([]any)...)
+		}
+	}
+	if len(ops) == 0 {
 		t.Fatal("no ped_update_document sent")
 	}
 	var adds, removes int
-	for _, o := range call.Args["operations"].([]any) {
+	for _, o := range ops {
 		entry := o.(map[string]any)
 		if path, _ := entry["path"].(string); !strings.HasPrefix(path, "/eventSubProcesses") {
 			continue

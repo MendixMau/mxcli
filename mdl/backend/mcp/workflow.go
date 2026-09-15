@@ -116,44 +116,54 @@ func (b *Backend) UpdateWorkflow(wf *workflows.Workflow) error {
 		return err
 	}
 
-	var ops []pedOpEntry
-	// Drop the original middle activities (indices 1..n-2, high→low; index 0 is
-	// Start and n-1 is End, both preserved — PED refuses to remove either). Then
-	// insert the new middles just after Start. Each insert targets index 1 (always
-	// valid, since Start holds index 0) — an index-less add appends *after* End, and
-	// an explicit incrementing index is validated against the array's *original*
-	// length so it can't grow the flow. Inserting in REVERSE order at index 1
-	// leaves the middles in their intended sequence.
-	for i := n - 2; i >= 1; i-- {
-		ops = append(ops, removeAtOp("/flow/activities", i))
+	storedESPs, err := b.workflowListCount(qn, "/eventSubProcesses")
+	if err != nil {
+		return err
 	}
-	for i := len(middles) - 1; i >= 0; i-- {
-		afterStart := 1
-		ops = append(ops, pedOpEntry{Path: "/flow/activities", Operation: pedOperation{Type: "add", Value: middles[i], Index: &afterStart}})
+
+	// The statement's elements replace the stored ones in TWO updates: adds, then
+	// removes. Measured on Studio Pro 11.14, one ped_update_document batch applies
+	// every add first — each index counted against the list as it was before the
+	// batch, adds at the same index kept in op order — and only then the removes,
+	// against the result. The single batch this used to send (removes, then the
+	// middles in reverse at index 1) therefore stored the middles reversed, and a
+	// remove landed on a just-added activity: [Start, a, b, End] rewritten as A, B,
+	// C came back Start, B, A, a, End. So each list gets its new elements at one
+	// index, in the statement's order, and its stored elements — now after them —
+	// are removed afterwards. Adding first also means a failed second update
+	// leaves duplicates rather than a workflow with its activities deleted.
+	var adds, removes []pedOpEntry
+	// Flow: PED keeps the workflow's structural Start/End (it refuses to remove
+	// either) and refuses an index-less add (it would land after End), so the
+	// executor's leading Start and trailing End were stripped and the middles go
+	// in just after Start. The stored middles, at 1..n-2, then sit len(middles)
+	// further on.
+	for _, mid := range middles {
+		adds = append(adds, addAtOp("/flow/activities", 1, mid))
+	}
+	for i := n - 2; i >= 1; i-- {
+		removes = append(removes, removeAtOp("/flow/activities", i+len(middles)))
 	}
 
 	// Event handlers: replace the stored list with the statement's. The executor's
 	// rewrite guard has already refused a statement declaring fewer than are stored.
-	for i := storedHandlers - 1; i >= 0; i-- {
-		ops = append(ops, removeAtOp("/onWorkflowEvent", i))
+	handlers := mapWorkflowEventHandlers(wf.EventHandlers)
+	for _, h := range handlers {
+		adds = append(adds, addAtOp("/onWorkflowEvent", 0, h))
 	}
-	for _, h := range mapWorkflowEventHandlers(wf.EventHandlers) {
-		ops = append(ops, pedOpEntry{Path: "/onWorkflowEvent", Operation: pedOperation{Type: "add", Value: h}})
+	for i := storedHandlers - 1; i >= 0; i-- {
+		removes = append(removes, removeAtOp("/onWorkflowEvent", i+len(handlers)))
 	}
 
 	// Event sub-processes: replaced whole, like the handlers — the rewrite guard
 	// has already refused a statement declaring fewer than are stored. Removing a
 	// container (not its start event) is the one-call form Studio Pro's
 	// workflow-update skill allows.
-	if storedESPs, err := b.workflowListCount(qn, "/eventSubProcesses"); err != nil {
-		return err
-	} else {
-		for i := storedESPs - 1; i >= 0; i-- {
-			ops = append(ops, removeAtOp("/eventSubProcesses", i))
-		}
-	}
 	for _, e := range esps {
-		ops = append(ops, pedOpEntry{Path: "/eventSubProcesses", Operation: pedOperation{Type: "add", Value: e}})
+		adds = append(adds, addAtOp("/eventSubProcesses", 0, e))
+	}
+	for i := storedESPs - 1; i >= 0; i-- {
+		removes = append(removes, removeAtOp("/eventSubProcesses", i+len(esps)))
 	}
 
 	title := wf.WorkflowName
@@ -161,7 +171,7 @@ func (b *Backend) UpdateWorkflow(wf *workflows.Workflow) error {
 		title = wf.Name
 	}
 	set := func(path string, v any) {
-		ops = append(ops, pedOpEntry{Path: path, Operation: pedOperation{Type: "set", Value: v}})
+		adds = append(adds, pedOpEntry{Path: path, Operation: pedOperation{Type: "set", Value: v}})
 	}
 	set("/title", title)
 	set("/workflowName/text", wf.WorkflowName)
@@ -172,8 +182,13 @@ func (b *Backend) UpdateWorkflow(wf *workflows.Workflow) error {
 		set("/parameter/entity", wf.Parameter.EntityRef)
 	}
 
-	if err := b.pedUpdateDoc(workflowDocType, qn, ops...); err != nil {
+	if err := b.pedUpdateDoc(workflowDocType, qn, adds...); err != nil {
 		return err
+	}
+	if len(removes) > 0 {
+		if err := b.pedUpdateDoc(workflowDocType, qn, removes...); err != nil {
+			return fmt.Errorf("workflow %s now holds both the statement's elements and the stored ones it replaces: %w", qn, err)
+		}
 	}
 	if err := b.applyMoreThanHalfFallbacks(qn, wf); err != nil {
 		return err
@@ -676,6 +691,8 @@ func timerBoundaryEventOps(be *workflows.BoundaryEvent, evPath string, inSplit b
 		return nil, err
 	}
 	el["isInsideOfParallelSplit"] = false
+	// One batch is safe here although PED applies its adds first: the index-less
+	// add appends after the End, so the End is still at `last` when it is removed.
 	activities := evPath + "/flow/activities"
 	return append(ops, removeAtOp(activities, last), pedOpEntry{Path: activities, Operation: pedOperation{Type: "add", Value: el}}), nil
 }
@@ -1722,14 +1739,17 @@ func (m *mcpWorkflowMutator) InsertAfterActivity(activityRef string, atPos int, 
 	}
 	arrayPath, idx := loc.arrayPath, loc.index
 	wfnames.Dedup(activities, loc.taken)
+	// Every activity at the same index, in order: a batch counts each add's index
+	// against the list before the batch (UpdateWorkflow), so the incrementing
+	// indices this used to send interleaved the activities with the ones after
+	// the anchor — measured, I1@2, I2@3 after R stored R, I1, P, I2.
 	ops := make([]pedOpEntry, 0, len(activities))
-	for i, a := range activities {
+	for _, a := range activities {
 		mapped, err := mapWorkflowActivity(a)
 		if err != nil {
 			return err
 		}
-		at := idx + 1 + i
-		ops = append(ops, pedOpEntry{Path: arrayPath, Operation: pedOperation{Type: "add", Value: mapped, Index: &at}})
+		ops = append(ops, addAtOp(arrayPath, idx+1, mapped))
 	}
 	return m.apply(ops...)
 }
@@ -1748,9 +1768,8 @@ func (m *mcpWorkflowMutator) ReplaceActivity(activityRef string, atPos int, acti
 		return err
 	}
 	arrayPath, idx := loc.arrayPath, loc.index
-	// Free the outgoing activity's name before deduplicating: the remove and the
-	// adds go to PED in one call, so the replaced activity is gone by the time
-	// any name is resolved, and a replacement reusing its name is the ordinary
+	// Free the outgoing activity's name before deduplicating: it is removed as
+	// part of this replace, so a replacement reusing its name is the ordinary
 	// in-place edit rather than a collision (issue #944).
 	delete(loc.taken, loc.name)
 	wfnames.Dedup(activities, loc.taken)
@@ -1762,15 +1781,22 @@ func (m *mcpWorkflowMutator) ReplaceActivity(activityRef string, atPos int, acti
 		}
 		mapped = append(mapped, mm)
 	}
-	// Replace = remove the slot then add the new activities at it. (A set on the
-	// array index — a whole-element replace — is rejected by PED, like a
-	// whole-element set of a nested constructor.)
-	ops := []pedOpEntry{removeAtOp(arrayPath, idx)}
-	for i, mm := range mapped {
-		at := idx + i
-		ops = append(ops, pedOpEntry{Path: arrayPath, Operation: pedOperation{Type: "add", Value: mm, Index: &at}})
+	// Replace = add the new activities just after the old one, then remove it, in
+	// two updates. (A set on the array index — a whole-element replace — is
+	// rejected by PED, like a whole-element set of a nested constructor.) One batch
+	// does not work: PED applies its adds before its removes (UpdateWorkflow), so
+	// the remove at the slot took the first added activity — measured, replacing P
+	// with K1, K2 stored P, K2, and a one-activity replace changed nothing.
+	if len(mapped) > 0 {
+		adds := make([]pedOpEntry, 0, len(mapped))
+		for _, mm := range mapped {
+			adds = append(adds, addAtOp(arrayPath, idx+1, mm))
+		}
+		if err := m.apply(adds...); err != nil {
+			return err
+		}
 	}
-	return m.apply(ops...)
+	return m.apply(removeAtOp(arrayPath, idx))
 }
 
 // --- outcome / path / branch ops (all live in an activity's `outcomes` array) ---
@@ -1985,6 +2011,13 @@ func (o pedOutcomeElem) valueBool() bool {
 	var b bool
 	_ = json.Unmarshal(o.Value, &b)
 	return b
+}
+
+// addAtOp inserts v at idx of the list at path. Within one batch the index is
+// counted against the list as it was before the batch, and adds at one index keep
+// their order (UpdateWorkflow) — so a run of elements goes in at a single index.
+func addAtOp(path string, idx int, v any) pedOpEntry {
+	return pedOpEntry{Path: path, Operation: pedOperation{Type: "add", Value: v, Index: &idx}}
 }
 
 func removeAtOp(path string, idx int) pedOpEntry {

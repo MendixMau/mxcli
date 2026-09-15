@@ -552,18 +552,23 @@ func TestUpdateWorkflow_ReplacesFlowAndProperties(t *testing.T) {
 	if err := b.UpdateWorkflow(wf); err != nil {
 		t.Fatalf("UpdateWorkflow: %v", err)
 	}
-	call, ok := f.callByName("ped_update_document")
-	if !ok {
+	// Adds and removes go in separate updates (see UpdateWorkflow).
+	var ops []any
+	for _, c := range f.calls {
+		if c.Name == "ped_update_document" {
+			ops = append(ops, c.Args["operations"].([]any)...)
+		}
+	}
+	if len(ops) == 0 {
 		t.Fatal("no ped_update_document sent")
 	}
-	ops, _ := call.Args["operations"].([]any)
 	var adds, removes int
 	for _, o := range ops {
 		op, _ := o.(map[string]any)["operation"].(map[string]any)
 		switch op["type"] {
 		case "add":
 			adds++
-			// Middles are inserted just after Start (index 1), in reverse order.
+			// Middles are inserted just after Start (index 1), in statement order.
 			if idx, _ := op["index"].(float64); idx != 1 {
 				t.Errorf("flow-replace add must target index 1, got %v", op["index"])
 			}
