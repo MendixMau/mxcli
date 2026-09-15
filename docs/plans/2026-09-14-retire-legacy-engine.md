@@ -13,14 +13,15 @@ the codec), [ADR-0002](../13-decisions/0002-backend-abstraction.md) (the seam th
 
 ## 1. The plan in one paragraph
 
-Retiring the legacy engine is **three independent removals wearing one name**, and the whole value
-of writing this down is refusing to treat them as one job. Deleting the legacy *backend*
-(`mdl/backend/mpr`, 2,808 lines) is small, unblocked, and reversible. Deleting the legacy
-*serializer* underneath it (`sdk/mpr`, 41,243 lines) is fifteen times larger and is gated on
-migrating consumers that never touched the engine seam at all — the public `api/` package, the MCP
-backend, eight `cmd/mxcli` commands. The mongo-driver v1→v2 migration the earlier plan promised at
-cutover is **gated on the second, not the first**, which is the opposite of what that plan assumed.
-Phase 1 can start today; Phases 2 and 3 need decisions that are not this plan's to make.
+Retiring the legacy engine is **three separable removals wearing one name**, and the whole value of
+writing this down is refusing to treat them as one job. Deleting the legacy *backend*
+(`mdl/backend/mpr`, 2,808 lines) is small, unblocked and reversible — that is Phase 1 and it can
+start today. Deleting the legacy *serializer* underneath it (`sdk/mpr`, 41,243 lines) is not a
+serializer problem at all: it is blocked by two callers that **bypass the backend abstraction**
+rather than by the serializer's size, and measuring them (§Phase 3) put that work at a 17-method
+port plus six unimplemented methods, not a rewrite. The mongo-driver v1→v2 migration the earlier
+plan promised at cutover is **gated on the second, not the first** — the opposite of what that plan
+assumed, and the reason it never started.
 
 ## 2. Why this is not one job (the measurement that reorders everything)
 
@@ -38,8 +39,7 @@ still do. But the split does not fall where that plan implies:
 The driver split maps almost exactly onto the **serializer** split, not onto the engine flag. The
 codec is already wholly on v2; `sdk/mpr` is wholly on v1; the adapter straddles both because it
 converts between semantic types and gen documents. So **deleting the legacy backend does not move
-the driver migration at all** — what unblocks v2 is deleting `sdk/mpr`, and that is Phase 3, behind
-a decision about the public API.
+the driver migration at all** — what unblocks v2 is deleting `sdk/mpr`, which is Phase 3.
 
 Stating this is the point of the plan. Sequenced the other way round, Phase 1 looks like it owes a
 41k-line migration and never gets started.
@@ -103,39 +103,88 @@ rather than after it:
   multi-backend future in which legacy is one of the backends.
 - CLAUDE.md's `--engine` line, and the flag's help text.
 
-### Phase 3 — Decide the fate of `sdk/mpr` *(Effort: L, Risk: Med — NOT scheduled here)*
+### Phase 3 — Route the bypass sites through the backend abstraction *(Effort: M, Risk: Low–Med)*
 
-This is where the size is, and this plan deliberately does not schedule it: **it is a product
-decision about the public API, not a cleanup.**
+**Revised 2026-09-15 after measuring it.** The first draft called this "decide the fate of
+`sdk/mpr`", sized it L, and gated it on a product decision about breaking the public API. Measuring
+the two consumers overturned all three.
 
-`sdk/mpr` is 41,243 lines and has consumers that never routed through the engine seam:
+#### The `unreachableUnimplemented` list is a census of who bypasses the abstraction
 
-| Consumer | Why it matters |
+`mdl/backend/modelsdk/unimplemented_reachability_test.go` pins 16 `FullBackend` methods as having no
+caller *through a backend value*. Read its reason column as a map rather than a list and it names
+exactly the sites that hold a concrete `sdk/mpr` reader or writer instead:
+
+| Bypass site | Methods it is the reason for |
 |---|---|
-| `api/` (9 files, 3,287 lines) | the public fluent API — `modelsdk.Open` / `OpenForWriting` |
-| `mdl/backend/mcp` | a **shipped, live backend**; breaking it breaks Studio Pro integration |
-| 8 `cmd/mxcli` commands | `bson dump`/`compare`/`discover`, `extract-templates`, `new`, … — these hold a concrete reader on purpose |
-| `examples/`, `scripts/mprsnapshot` | |
+| `api/` | `AddAttribute`, `UpdateAttribute`, `ExportJSON` |
+| `mdl/backend/mcp` | `GetDomainModelByID`, `GetWorkflow`, `ListNavigationDocuments` |
+| `cmd/mxcli` commands holding a reader | `FindCustomWidgetType`, `ListAllUnitIDs`, `ListRawUnits`, … |
 
-Three options, and the answer is not obvious:
+These methods are on the interface *because* those callers exist, and they are unreachable
+*because* those callers do not use a backend value. That circularity is the actual finding: the list
+is not dead weight to delete, it is the work item. Close the bypasses and the methods either become
+reachable and implemented, or become genuinely deletable.
 
-- **(a) Keep `sdk/mpr` as a reader-only SDK.** Cheapest. Leaves the tree on two drivers
-  indefinitely, which means v2's improvements stay out of reach and every new file has to pick a
-  driver.
-- **(b) Port the consumers to `modelsdk/mpr` and delete `sdk/mpr`.** Unblocks the driver migration.
-  Costs an `api/` rewrite and therefore a breaking change to the one thing mxcli publishes as a
-  library.
-- **(c) Reimplement `api/` on the codec** and keep its signatures, absorbing the cost inside the
-  package. Most work, least disruption to users.
+#### `api/` — 3,287 lines, but a 17-method surface
 
-**The prerequisite either way** is knowing whether anything outside this repository depends on
-`api/`. That is a question for the maintainer, not a measurement.
+`api/` **does not import `mdl/backend` at all** (measured: zero files). It is not "dependent on the
+legacy backend"; it sidesteps the abstraction entirely, holding a concrete `*mpr.Writer` handed to
+`api.New`. The whole dependency is five symbols — `mpr.NewWriter`, `Writer`, `Reader`, `Open`,
+`GenerateID` — and seventeen methods called through them.
+
+Of those seventeen, **fifteen are already implemented on the modelsdk backend** and all seventeen
+are already declared on `FullBackend`:
+
+    already on modelsdk   GetModuleByName, GetDomainModel, ListModules, UpdateEnumeration,
+                          ListPages, ListMicroflows, DeleteAttribute, ListLayouts,
+                          ListEnumerations, GetModule, CreatePage, CreateMicroflow,
+                          CreateEnumeration, CreateEntity, CreateAssociation
+    missing               AddAttribute, UpdateAttribute
+
+and the two missing ones are missing *because `api/` is their only caller*. The template for
+implementing them already exists: `ALTER ENTITY` does attribute mutation through the mutator.
+
+So the port is: change `api.New` to take a `backend.FullBackend`, swap seventeen call sites, and
+implement two methods. The public signatures of the builders (`CreateEntity(...).persistent()
+.WithStringAttribute(...)`) need not change at all. **A breaking change to the published library is
+not required**, so "does anything outside this repo depend on `api/`?" stops being a gate and
+becomes a courtesy check on one parameter type (§5, decision D).
+
+#### `mdl/backend/mcp` — stays, and is compatible
+
+The MCP backend is in active use and its usage is expected to grow, so it is a fixed constraint
+rather than something to migrate away. That constraint is satisfiable: its entire `sdk/mpr`
+dependency is **one call**, `mpr.Open(path)`, for a deliberately read-only reader — writes already
+go over MCP to Studio Pro, which is the whole point of the backend.
+
+The naive port fails and the reason is worth recording: MCP calls **37 methods** on that reader and
+`modelsdk/mpr.Reader` has **7** of them. But that is the wrong comparison — `modelsdk/mpr` is a
+unit/raw reader, and the semantic decoding lives one layer up. Against the modelsdk **backend**,
+**33 of the 37 are already implemented**; the gaps are `GetDomainModelByID`, `GetWorkflow`,
+`ListNavigationDocuments` (the three the census above already attributes to MCP) and `Close`, which
+is lifecycle rather than a read.
+
+So MCP composes the codec backend for its reads instead of opening its own reader. Its 15,619 lines
+are almost entirely the MCP protocol surface and are untouched by this.
+
+#### Sequence
+
+1. Implement the six methods the census attributes to `api/` and MCP.
+2. Point MCP's reads at a composed codec backend; delete its `mpr.Open`.
+3. Change `api.New` to accept `backend.FullBackend`; swap the seventeen call sites.
+4. Re-run the reachability probe. What remains unreachable is the `cmd/mxcli` bson/diag commands,
+   which hold a concrete reader **on purpose** — decide then whether they justify keeping a
+   reader-only `sdk/mpr`, or whether they move too.
+
+**Only after step 4 is `sdk/mpr`'s fate a question at all**, and by then it is a small one.
 
 ### Phase 4 — mongo-driver v1 → v2 *(Effort: L, Risk: Med — gated on Phase 3)*
 
-Only reachable via 3(b) or 3(c). With `sdk/mpr` gone the remaining v1 files are the
-`mdl/backend/modelsdk` adapter's 44 and `mdl/executor`'s 17, both of which exist to bridge the two
-worlds and shrink as the semantic types move to v2. Not worth sequencing until Phase 3 resolves.
+Reachable once Phase 3's step 4 settles whether anything still needs `sdk/mpr`. With it gone the
+remaining v1 files are the `mdl/backend/modelsdk` adapter's 44 and `mdl/executor`'s 17 — both exist
+to bridge the two worlds and shrink as the semantic types move to v2, so the real size of this
+phase is not knowable until Phase 3 lands. Not worth sequencing before then.
 
 ## 5. Decisions to confirm before Phase 1 starts
 
@@ -149,6 +198,14 @@ worlds and shrink as the semantic types move to v2. Not worth sequencing until P
 - **C. Does `mxcli bson compare` still make sense?** It is a user-facing command whose purpose was
   comparing engine output. It may have a second life as a Studio-Pro-vs-mxcli diff, which is a
   different feature wearing the same name.
+- **D. Does `api.New`'s signature change, or does it keep taking a concrete writer?** This is the
+  only user-visible question in Phase 3 and it is much narrower than the first draft implied: the
+  builder surface is unaffected either way (§Phase 3). Taking `backend.FullBackend` is the honest
+  shape; keeping a concrete parameter and adapting inside preserves source compatibility for any
+  out-of-tree caller.
+
+**Fixed constraint, not a decision:** `mdl/backend/mcp` stays. It is in active use and its usage is
+expected to grow. Phase 3 is written to satisfy that rather than to migrate away from it.
 
 ## 6. What could go wrong
 
@@ -169,4 +226,6 @@ worlds and shrink as the semantic types move to v2. Not worth sequencing until P
 1. Answer decisions A and B (§5). They are one-line answers and they gate the diff's shape.
 2. Phase 1 as a single PR, with the CI matrix change in it.
 3. Phase 2 in the same PR — the stale docs are wrong the moment Phase 1 lands.
-4. Open Phase 3 as a **proposal**, not a plan: it needs the `api/` decision before a sequence exists.
+4. Phase 3 is now sequenced in place (it was going to be a proposal until measuring it shrank it).
+   Its first step — implementing the six methods the census attributes to `api/` and MCP — is
+   independent of Phases 1–2 and could be done first or in parallel.
