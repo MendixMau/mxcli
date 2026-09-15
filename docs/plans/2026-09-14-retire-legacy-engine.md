@@ -470,3 +470,34 @@ than in the data — grep the old reader for `virtual`, `not stored in`, and `Bu
 trusting any port.
 
 **Importers: 27 → 22.**
+
+### Phase 4a, second slice — `cmd/mxcli/docker` (2026-09-15)
+
+Seven files plus five test files. **Importers 22 → 15.** Everything the package used —
+`GetProjectSecurity`, `GetProjectSettings`, `ListModuleSettings`, `ListUnits`, `GetRawUnitBytes`,
+`ProjectVersion`, `Version`, `AddDemoUser`, `SetProjectDemoUsersEnabled`, `UpdateRawUnit` — was
+already on `FullBackend`; only `Close` (→ `Disconnect`) and `Reader()` (unnecessary, the backend is
+both) had to change. Two package-local helpers, `openReadOnly` and `openForWriting`, are now the
+only way this package opens a project.
+
+One semantic check before porting the writers, because getting it wrong would be silent: both
+`sdk/mpr.Writer.UpdateRawUnit` and `modelsdk/mpr.Writer.UpdateRawUnit` call `updateUnit` with **no
+options**, i.e. the ordinary translation-carrying path, so the harvest's behaviour is unchanged.
+`UpdateRawUnitOwningTranslations` is the other case and neither uses it.
+
+**The verification lesson, which is the opposite of the last slice's.** A baseline diff said
+`docker check` left all 421 files byte-identical — and proved nothing, because the run had not
+written anything: the widget harvest is a no-op on a clean fixture. *A byte-identical baseline diff
+is strong evidence for a read port and near-worthless for a write port, because the natural control
+(nothing changed) is also what a no-op produces.*
+
+`go test -coverprofile` + `go tool cover -func`, grepped for the ported functions, answers "did my
+port's code even run" in one command where a passing suite does not. It separated `applyHarvest`
+(**76.9%**, genuinely exercised including its `UpdateRawUnit`) from `ensureDemoUsers` (**0.0%**) in
+the same package — so the gap was specific, not a general absence of tests. `ensureDemoUsers` now
+has tests and sits at **76.5%**.
+
+Two traps inside that fix, both already familiar: the shared fixture **already has two demo users**,
+so a create-path test that skipped when any existed would never run (#808's shape — set the
+precondition up, don't skip past it); and the read-back must use a **fresh connection**, since
+asserting on the value the writer still holds passes against a write that never reached disk.
