@@ -31,33 +31,42 @@ func (b *Backend) ListWorkflows() ([]*workflows.Workflow, error) {
 	}
 	out := make([]*workflows.Workflow, 0, len(units))
 	for _, u := range units {
-		g := u.Element
-		w := &workflows.Workflow{
-			ContainerID:         model.ID(u.ContainerID),
-			Name:                g.Name(),
-			Documentation:       g.Documentation(),
-			ExportLevel:         g.ExportLevel(),
-			Excluded:            g.Excluded(),
-			OverviewPage:        g.OverviewPageQualifiedName(),
-			DueDate:             g.DueDate(),
-			WorkflowName:        workflowTemplateText(g.WorkflowName()),
-			WorkflowDescription: workflowTemplateText(g.WorkflowDescription()),
-		}
-		w.ID = model.ID(g.ID())
-		w.TypeName = "Workflows$Workflow"
-		w.Annotation = annotationText(g.Annotation())
-		if p, ok := g.Parameter().(*genWf.Parameter); ok && p != nil {
-			wp := &workflows.WorkflowParameter{EntityRef: p.EntityQualifiedName()}
-			wp.ID = model.ID(p.ID())
-			w.Parameter = wp
-		}
-		if f, ok := g.Flow().(*genWf.Flow); ok && f != nil {
-			w.Flow = workflowFlowFromGen(f)
-		}
-		w.EventHandlers = workflowEventHandlersFromGen(g.OnWorkflowEventItems())
-		out = append(out, w)
+		out = append(out, workflowFromGen(u.Element, model.ID(u.ContainerID)))
 	}
 	return out, nil
+}
+
+// workflowFromGen converts one gen workflow to the semantic type.
+//
+// Extracted from ListWorkflows so GetWorkflow can share it: a single-item read
+// that decodes separately from the listing is free to drift from it, and that
+// drift shows up as the same workflow looking different depending on which call
+// fetched it.
+func workflowFromGen(g *genWf.Workflow, containerID model.ID) *workflows.Workflow {
+	w := &workflows.Workflow{
+		ContainerID:         containerID,
+		Name:                g.Name(),
+		Documentation:       g.Documentation(),
+		ExportLevel:         g.ExportLevel(),
+		Excluded:            g.Excluded(),
+		OverviewPage:        g.OverviewPageQualifiedName(),
+		DueDate:             g.DueDate(),
+		WorkflowName:        workflowTemplateText(g.WorkflowName()),
+		WorkflowDescription: workflowTemplateText(g.WorkflowDescription()),
+	}
+	w.ID = model.ID(g.ID())
+	w.TypeName = "Workflows$Workflow"
+	w.Annotation = annotationText(g.Annotation())
+	if p, ok := g.Parameter().(*genWf.Parameter); ok && p != nil {
+		wp := &workflows.WorkflowParameter{EntityRef: p.EntityQualifiedName()}
+		wp.ID = model.ID(p.ID())
+		w.Parameter = wp
+	}
+	if f, ok := g.Flow().(*genWf.Flow); ok && f != nil {
+		w.Flow = workflowFlowFromGen(f)
+	}
+	w.EventHandlers = workflowEventHandlersFromGen(g.OnWorkflowEventItems())
+	return w
 }
 
 // workflowEventHandlersFromGen converts a workflow's OnWorkflowEvent handlers.
@@ -143,6 +152,13 @@ func workflowActivityFromGen(el element.Element) workflows.WorkflowActivity {
 	case *genWf.CallMicroflowTask:
 		t := &workflows.CallMicroflowTask{Microflow: a.MicroflowQualifiedName()}
 		setWfBase(&t.BaseWorkflowActivity, a.ID(), a.Name(), a.Caption(), a.Annotation(), "Workflows$CallMicroflowTask")
+		t.BoundaryEvents = boundaryEventsFromGen(a.BoundaryEventsItems())
+		t.Outcomes = conditionOutcomesFromGen(a.OutcomesItems())
+		t.ParameterMappings = microflowParamMappingsFromGen(a.ParameterMappingsItems())
+		return t
+	case *genWf.AIAgentTaskActivity:
+		t := &workflows.CallMicroflowTask{IsAgent: true, Microflow: a.MicroflowQualifiedName()}
+		setWfBase(&t.BaseWorkflowActivity, a.ID(), a.Name(), a.Caption(), a.Annotation(), "Workflows$AIAgentTaskActivity")
 		t.BoundaryEvents = boundaryEventsFromGen(a.BoundaryEventsItems())
 		t.Outcomes = conditionOutcomesFromGen(a.OutcomesItems())
 		t.ParameterMappings = microflowParamMappingsFromGen(a.ParameterMappingsItems())

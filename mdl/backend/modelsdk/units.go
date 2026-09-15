@@ -21,10 +21,10 @@ func (b *Backend) GetRawUnit(id model.ID) (map[string]any, error) {
 }
 
 // GetRawUnitBytes returns a unit's raw BSON. Both this and UpdateRawUnit already
-// existed on the reader/writer and are used throughout this package; they were simply
-// never exposed as Backend methods, so the embedded `unimplemented` stub answered and
-// every caller going through the interface got "not implemented yet — rerun with
-// MXCLI_ENGINE=legacy". That is what gated `mxcli widget sync --apply` to the legacy
+// existed on the reader/writer and are used throughout this package; they were
+// simply never exposed as Backend methods, so the embedded `unimplemented` stub
+// answered and every caller going through the interface was told to fall back to
+// the legacy engine. That is what gated `mxcli widget sync --apply` to that
 // engine while its read-only plan ran on both.
 func (b *Backend) GetRawUnitBytes(id model.ID) ([]byte, error) {
 	return b.reader.GetRawUnitBytes(string(id))

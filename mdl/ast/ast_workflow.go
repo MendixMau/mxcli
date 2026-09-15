@@ -87,6 +87,7 @@ type WorkflowUserTaskOutcomeNode struct {
 // WorkflowCallMicroflowNode represents a CALL MICROFLOW activity.
 type WorkflowCallMicroflowNode struct {
 	Name              string // explicit activity name (`as <name>`); see ako/mxcli#408
+	Agent             bool   // `call agent microflow`: an AI agent task (Workflows$AIAgentTaskActivity)
 	Microflow         QualifiedName
 	Caption           string
 	Outcomes          []WorkflowConditionOutcomeNode

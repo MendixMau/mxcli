@@ -74,6 +74,12 @@ func execCreateWorkflow(ctx *ExecContext, s *ast.CreateWorkflowStmt) error {
 			return err
 		}
 	}
+	if workflowUsesAgentTask(s.Activities) {
+		if err := checkFeature(ctx, "workflows", "ai_agent_task", "call agent microflow",
+			"AI agent tasks need Mendix 11.9 or later — use `call microflow` on older projects"); err != nil {
+			return err
+		}
+	}
 
 	if refErrors := validateWorkflowStatementRefs(ctx, s, nil); len(refErrors) > 0 {
 		return mdlerrors.NewValidationf("workflow '%s' has reference errors:\n  - %s",
@@ -443,7 +449,7 @@ func buildUserTask(n *ast.WorkflowUserTaskNode) *workflows.UserTask {
 }
 
 func buildCallMicroflowTask(n *ast.WorkflowCallMicroflowNode) *workflows.CallMicroflowTask {
-	task := &workflows.CallMicroflowTask{}
+	task := &workflows.CallMicroflowTask{IsAgent: n.Agent}
 	task.ID = model.ID(generateWorkflowUUID())
 	task.Name = n.Microflow.Name
 	task.Caption = n.Caption

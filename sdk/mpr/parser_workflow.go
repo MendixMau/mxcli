@@ -206,12 +206,17 @@ var workflowActivityParsers map[string]func(map[string]any) workflows.WorkflowAc
 
 func init() {
 	workflowActivityParsers = map[string]func(map[string]any) workflows.WorkflowActivity{
-		"Workflows$EndWorkflowActivity":         func(r map[string]any) workflows.WorkflowActivity { return parseEndWorkflowActivity(r) },
-		"Workflows$UserTask":                    func(r map[string]any) workflows.WorkflowActivity { return parseUserTask(r) },
-		"Workflows$SingleUserTaskActivity":      func(r map[string]any) workflows.WorkflowActivity { return parseUserTask(r) },
-		"Workflows$MultiUserTaskActivity":       func(r map[string]any) workflows.WorkflowActivity { return parseMultiUserTask(r) },
-		"Workflows$CallMicroflowTask":           func(r map[string]any) workflows.WorkflowActivity { return parseCallMicroflowTask(r) },
-		"Workflows$CallMicroflowActivity":       func(r map[string]any) workflows.WorkflowActivity { return parseCallMicroflowTask(r) },
+		"Workflows$EndWorkflowActivity":    func(r map[string]any) workflows.WorkflowActivity { return parseEndWorkflowActivity(r) },
+		"Workflows$UserTask":               func(r map[string]any) workflows.WorkflowActivity { return parseUserTask(r) },
+		"Workflows$SingleUserTaskActivity": func(r map[string]any) workflows.WorkflowActivity { return parseUserTask(r) },
+		"Workflows$MultiUserTaskActivity":  func(r map[string]any) workflows.WorkflowActivity { return parseMultiUserTask(r) },
+		"Workflows$CallMicroflowTask":      func(r map[string]any) workflows.WorkflowActivity { return parseCallMicroflowTask(r) },
+		"Workflows$CallMicroflowActivity":  func(r map[string]any) workflows.WorkflowActivity { return parseCallMicroflowTask(r) },
+		"Workflows$AIAgentTaskActivity": func(r map[string]any) workflows.WorkflowActivity {
+			t := parseCallMicroflowTask(r)
+			t.IsAgent = true
+			return t
+		},
 		"Workflows$CallWorkflowActivity":        func(r map[string]any) workflows.WorkflowActivity { return parseCallWorkflowActivity(r) },
 		"Workflows$ExclusiveSplitActivity":      func(r map[string]any) workflows.WorkflowActivity { return parseExclusiveSplitActivity(r) },
 		"Workflows$ParallelSplitActivity":       func(r map[string]any) workflows.WorkflowActivity { return parseParallelSplitActivity(r) },

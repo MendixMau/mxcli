@@ -11,21 +11,21 @@ import (
 
 	modelsdk "github.com/mendixlabs/mxcli"
 	"github.com/mendixlabs/mxcli/mdl/backend"
-	mprbackend "github.com/mendixlabs/mxcli/mdl/backend/mpr"
 	"go.mongodb.org/mongo-driver/bson"
 )
 
-// Both engines, because the reconcile they call is a separate implementation in
-// each (mdl/backend/modelsdk and sdk/mpr) and a marketplace update runs under
-// whichever --engine selects. A defect fixed in one of those parallel writers
-// stays latent in the other until something switches engines — which is how
-// mendixlabs/mxcli#1047 reached two engines at once.
+// This ran over both engines while the legacy sdk/mpr writer existed, because
+// the reconcile below was a separate implementation in each and a defect fixed
+// in one stayed latent in the other until something switched engines — which is
+// how mendixlabs/mxcli#1047 reached two engines at once. Legacy is gone
+// (docs/plans/2026-09-14-retire-legacy-engine.md), so that class of divergence
+// is gone with it and one entry remains. The loop is kept because these tests
+// read as a matrix and a second backend would otherwise have to reintroduce it.
 var engines = []struct {
 	name    string
 	backend func() backend.FullBackend
 }{
 	{"modelsdk", testBackend},
-	{"legacy", func() backend.FullBackend { return mprbackend.New() }},
 }
 
 // A marketplace update copies the incoming module's units in verbatim, so an

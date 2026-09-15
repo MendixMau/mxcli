@@ -329,9 +329,9 @@ documented in `system-module`.
 ## Platform rules
 
 - **Some workflow state has no MDL spelling, and a rewrite refuses rather than
-  reset it.** An event sub-process, an AI agent task, a workflow event handler
-  subscribed to no event types, and a multi-user task's completion rule other
-  than consensus falling back to its first outcome are set in Studio Pro.
+  reset it.** An event sub-process, a workflow event handler subscribed to no
+  event types, and a multi-user task's completion rule other than consensus
+  falling back to its first outcome are set in Studio Pro.
   `create or modify` on a workflow that holds any of them is refused with the
   list, and so is `alter workflow … replace activity` on an activity that holds
   one. Change such a workflow with `alter workflow … set activity …` (it edits
@@ -356,6 +356,14 @@ documented in `system-module`.
   An outcome left **empty** does not stop anything — it rejoins the main flow.
   `comment '…'` sets the End's caption, as on every workflow activity.
 
+- **An AI agent task is `call agent microflow`** (Mendix 11.9+) — the call
+  microflow statement stored as `Workflows$AIAgentTaskActivity`, with the same
+  `as`, `comment`, `with (…)`, `outcomes` and boundary events. The microflow is
+  where the agent is invoked. Measured on mxbuild 11.13 against the identical
+  call microflow, one rule differs: **its microflow must take a parameter**
+  (`CE1590 "Missing parameter"`), usually the context object mapped with
+  `with (Param = '$WorkflowContext')`. Return Boolean or an enumeration to
+  branch on the answer.
 - **Handler microflows have fixed signatures** (measured, mxbuild 11.13):
   - `on created microflow` takes exactly `System.WorkflowUserTask` and the context
     entity, in either order — anything else is `CE6683` — and returns nothing

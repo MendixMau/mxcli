@@ -153,6 +153,11 @@ func (a *SystemTask) ActivityType() string { return "SystemTask" }
 // CallMicroflowTask represents a call-microflow activity in a workflow.
 type CallMicroflowTask struct {
 	BaseWorkflowActivity
+	// IsAgent marks an AI agent task (Workflows$AIAgentTaskActivity, Mendix
+	// 11.9+). It stores exactly the call-microflow shape under a different
+	// $Type, so it is this type with a flag rather than a type of its own —
+	// every walker, validator and catalog edge applies to it unchanged.
+	IsAgent           bool                `json:"isAgent,omitempty"`
 	Microflow         string              `json:"microflow,omitempty"` // Qualified name of the microflow to call
 	Outcomes          []ConditionOutcome  `json:"outcomes,omitempty"`  // Condition-based outcomes
 	ParameterMappings []*ParameterMapping `json:"parameterMappings,omitempty"`
