@@ -1,0 +1,18 @@
+-- NEGATIVE TEST (.fail.mdl) — EXPECTED to fail `mxcli check` with MDL-WF11.
+--
+-- `return` is how a microflow ends. In a workflow body it builds nothing, so
+-- before MDL-WF11 an author who reached for it (an LLM, reliably) would have got
+-- a branch that silently fell through into the main flow. A workflow ends with
+-- `end workflow;` — which, like a microflow's `return`, ends the whole workflow
+-- rather than the block it is written in.
+
+create persistent entity WFEND.Ctx ( Title: string(50) );
+create page WFEND.TaskPage ( title: 'T', layout: Atlas_Core.Atlas_Default, params: { $WorkflowUserTask: System.WorkflowUserTask } ) { };
+
+create workflow WFEND.ReturnInWorkflow parameter $Ctx: WFEND.Ctx
+begin
+  user task Review 'Review' page WFEND.TaskPage
+    outcomes
+      'Reject' { return; }
+      'Approve' { };
+end workflow;

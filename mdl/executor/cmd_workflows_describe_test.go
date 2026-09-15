@@ -3,6 +3,8 @@
 package executor
 
 import (
+	"github.com/mendixlabs/mxcli/mdl/ast"
+	"github.com/mendixlabs/mxcli/mdl/visitor"
 	"strings"
 	"testing"
 
@@ -296,5 +298,72 @@ func TestContextExprNormalizer_AliasesDeclaredParameterName(t *testing.T) {
 				t.Errorf("rewrite(%q) with declared %q = %q, want %q", tc.expr, tc.declared, got, tc.want)
 			}
 		})
+	}
+}
+
+// Describe output must re-parse with every boundary event intact. The integration
+// round trips compare describe output but never feed it back, which is how an
+// activity with two boundary events described into MDL that did not parse.
+func TestWorkflowDescribe_TwoBoundaryEventsReparse(t *testing.T) {
+	events := func() []*workflows.BoundaryEvent {
+		return []*workflows.BoundaryEvent{
+			{EventType: "InterruptingTimer", TimerDelay: "addDays([%CurrentDateTime%], 3)"},
+			{EventType: "NonInterruptingTimer", TimerDelay: "addDays([%CurrentDateTime%], 1)"},
+		}
+	}
+	task := &workflows.UserTask{Page: "M.P", Outcomes: []*workflows.UserTaskOutcome{{Value: "Ok"}, {Value: "No"}}}
+	task.Name, task.Caption = "T", "Task"
+	task.BoundaryEvents = events()
+	wait := &workflows.WaitForNotificationActivity{}
+	wait.Name, wait.Caption = "w1", "Wait"
+	wait.BoundaryEvents = events()
+
+	for name, act := range map[string]workflows.WorkflowActivity{"user task": task, "wait for notification": wait} {
+		t.Run(name, func(t *testing.T) {
+			body := strings.Join(formatSingleActivity(act, "  "), "\n")
+			src := "create workflow M.W parameter $C: M.E\nbegin\n" + body + "\nend workflow;"
+			prog, errs := visitor.Build(src)
+			if len(errs) > 0 {
+				t.Fatalf("describe output does not parse: %v\n%s", errs, src)
+			}
+			var n int
+			switch a := prog.Statements[0].(*ast.CreateWorkflowStmt).Activities[0].(type) {
+			case *ast.WorkflowUserTaskNode:
+				n = len(a.BoundaryEvents)
+			case *ast.WorkflowWaitForNotificationNode:
+				n = len(a.BoundaryEvents)
+			}
+			if n != 2 {
+				t.Errorf("boundary events after re-parse = %d, want 2\n%s", n, src)
+			}
+		})
+	}
+}
+
+// A workflow whose branch ends the workflow described as if it did not: every
+// EndWorkflowActivity was skipped as "implicit", nested ones included, so Studio
+// Pro's `Reject -> End` came out as `'Reject' { }` — which, re-executed, falls
+// through into the main flow. Only the main flow's own End is implicit.
+func TestDescribeWorkflow_NestedEndIsEmitted(t *testing.T) {
+	end := func(caption string) *workflows.Flow {
+		e := &workflows.EndWorkflowActivity{}
+		e.Name = "end1"
+		e.Caption = caption
+		return &workflows.Flow{Activities: []workflows.WorkflowActivity{e}}
+	}
+	decision := &workflows.ExclusiveSplitActivity{Expression: "$WorkflowContext/Flag"}
+	decision.Name = "decision1"
+	decision.Caption = "Decision"
+	decision.Outcomes = []workflows.ConditionOutcome{
+		&workflows.BooleanConditionOutcome{Value: true, Flow: end("Rejected")},
+		&workflows.BooleanConditionOutcome{Value: false, Flow: end("End")},
+	}
+
+	out := strings.Join(formatSingleActivity(decision, "  "), "\n")
+	if !strings.Contains(out, "end workflow comment 'Rejected';") {
+		t.Errorf("a captioned nested End must describe as `end workflow comment 'Rejected';`, got:\n%s", out)
+	}
+	if strings.Count(out, "end workflow") != 2 || !strings.Contains(out, "end workflow;") {
+		t.Errorf("a nested End with the default caption must describe as a bare `end workflow;`, got:\n%s", out)
 	}
 }

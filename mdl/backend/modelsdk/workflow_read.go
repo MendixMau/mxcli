@@ -54,9 +54,32 @@ func (b *Backend) ListWorkflows() ([]*workflows.Workflow, error) {
 		if f, ok := g.Flow().(*genWf.Flow); ok && f != nil {
 			w.Flow = workflowFlowFromGen(f)
 		}
+		w.EventHandlers = workflowEventHandlersFromGen(g.OnWorkflowEventItems())
 		out = append(out, w)
 	}
 	return out, nil
+}
+
+// workflowEventHandlersFromGen converts a workflow's OnWorkflowEvent handlers.
+func workflowEventHandlersFromGen(items []element.Element) []*workflows.WorkflowEventHandler {
+	var out []*workflows.WorkflowEventHandler
+	for _, el := range items {
+		h, ok := el.(*genWf.WorkflowEventHandler)
+		if !ok || h == nil {
+			continue
+		}
+		wh := &workflows.WorkflowEventHandler{
+			Description:   h.Description(),
+			Documentation: h.Documentation(),
+			EventTypes:    append([]string(nil), h.EventTypesItems()...),
+		}
+		wh.ID = model.ID(h.ID())
+		if mh, ok := h.MicroflowEventHandler().(*genWf.MicroflowEventHandler); ok && mh != nil {
+			wh.Microflow = mh.MicroflowQualifiedName()
+		}
+		out = append(out, wh)
+	}
+	return out
 }
 
 // workflowFlowFromGen converts a gen Flow to the semantic Flow.
@@ -157,6 +180,17 @@ func workflowActivityFromGen(el element.Element) workflows.WorkflowActivity {
 				t.Outcomes = append(t.Outcomes, out)
 			}
 		}
+		return t
+	case *genWf.WaitForNotificationActivity:
+		// A wait for notification carries boundary events, like a user task or a
+		// call microflow. It had no case here, so it went through
+		// workflowSimpleActivityFromGen, which reads only the name and caption:
+		// describe printed it with every timer — and any `end workflow` inside
+		// one — gone, while the legacy engine read them. Measured on 11.13.0,
+		// both engines write them and mxbuild accepts them.
+		t := &workflows.WaitForNotificationActivity{}
+		setWfBase(&t.BaseWorkflowActivity, a.ID(), a.Name(), a.Caption(), a.Annotation(), "Workflows$WaitForNotificationActivity")
+		t.BoundaryEvents = boundaryEventsFromGen(a.BoundaryEventsItems())
 		return t
 	default:
 		return workflowSimpleActivityFromGen(el)

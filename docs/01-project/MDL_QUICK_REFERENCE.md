@@ -659,11 +659,15 @@ Nested folders use `/` separator: `'Parent/Child/Grandchild'`. Missing folders a
 |-----------|--------|-------|
 | Show workflows | `show workflows [in module];` | List all or filter by module |
 | Describe workflow | `describe workflow Module.Name;` | Full MDL output |
-| Create workflow | `create [or modify] workflow Module.Name [folder 'path'] parameter $Ctx: Module.Entity begin ... end workflow;` | See activity types below |
+| Create workflow | `create [or modify] workflow Module.Name [folder 'path'] parameter $Ctx: Module.Entity [on workflow events (<type>, ...) microflow Mod.MF [as '<text>']] [on any workflow event microflow Mod.MF [as '<text>']] begin ... end workflow;` | See activity types and event handlers below |
 | Drop workflow | `drop workflow Module.Name;` | |
 
 **Workflow Activity Types:**
-- `user task <name> '<caption>' [page Mod.Page] [targeting [users|groups] microflow Mod.MF] [targeting [users|groups] xpath '<expr>'] [outcomes '<out>' { } ...];`
+- `[multi] user task <name> '<caption>' [page Mod.Page] [targeting [users|groups] microflow Mod.MF] [targeting [users|groups] xpath '<expr>'] [on created microflow Mod.MF] [outcomes '<out>' { } ...];`
+  - The **task page** must take a `System.WorkflowUserTask` parameter — none at all is CE7410, none of that type is CE7412; extra parameters are allowed.
+  - A **targeting microflow** takes exactly `System.Workflow` + the context entity (or a generalization of it), in either order — anything else is CE6677. Users targeting returns a list of `System.User`, groups a list of `System.WorkflowGroup`.
+  - An **on-created microflow** takes exactly `System.WorkflowUserTask` + the context entity, in either order (CE6683), and returns nothing (CE5012).
+  - `check --references` reports these before anything is written; `exec` refuses the workflow statement itself (Mendix 11+).
 - `call microflow Mod.MF [as <name>] [comment '<text>'] [with (<Param> = '<expr>', ...)] [outcomes '<out>' -> { } ...];`
 - `call workflow Mod.WF [as <name>] [comment '<text>'] [with (<Param> = '<expr>', ...)];`
 - `decision [<name>] ['<expression>'] outcomes <true|false|'Module.Enum.Value'> -> { } ...;`
@@ -671,7 +675,25 @@ Nested folders use `/` separator: `'Parent/Child/Grandchild'`. Missing folders a
 - `jump to <activity-name>;`
 - `wait for timer [<name>] ['<expr>'];`
 - `wait for notification [<name>];`
-- `end;`
+- `end workflow [comment '<caption>'];` — only inside a `{ }` block; ends the whole workflow
+
+**Workflow event handlers.** `on workflow events (UserTaskStarted, UserTaskEnded)
+microflow Mod.MF as 'Task audit'` in the header runs the microflow for each listed
+event; the microflow takes exactly `System.WorkflowEvent`, `System.WorkflowRecord`
+and `System.WorkflowActivityRecord` (CE6691). The build does not check event type
+names — an invented one builds and never fires — so mxcli refuses an unknown name
+(MDL-WF12) and one the project's Mendix version lacks. `on any workflow event`
+stores every type the version has (Studio Pro stores the list, not a flag) and
+needs 11.6+. Types: `mxcli syntax workflow.event-handlers`.
+
+**Ending a workflow early.** `end workflow` inside an outcome, a decision branch, a
+call-microflow outcome or an interrupting boundary-event path ends the whole
+workflow — the workflow counterpart of a microflow's `return` (which a workflow
+refuses, MDL-WF11). It must be the last statement of its block (MDL-WF09, CE6671),
+is refused under a parallel split or a non-interrupting boundary path (MDL-WF08,
+CE1844), and when every path of an activity ends — in `end workflow` or `jump to` —
+nothing may follow it, including the end of the main flow (MDL-WF10, CE6689). The
+main flow needs none: the body's closing `end workflow` is its End.
 
 **Activity names.** Every activity has a name, and `jump to` resolves against it
 — Mendix stores `JumpToActivity.TargetActivity` as a name string, not a pointer.

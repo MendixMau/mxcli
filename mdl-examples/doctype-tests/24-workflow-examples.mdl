@@ -529,3 +529,93 @@ begin
   wait for notification waitForNotification1;
 end workflow;
 /
+
+
+-- ############################################################################
+-- PART E: END WORKFLOW — ending the workflow from inside a branch
+-- ############################################################################
+--
+-- `end workflow [comment '<caption>'];` is legal as the last statement of a
+-- user-task outcome, a decision branch, a call-microflow outcome or an
+-- interrupting boundary-event path, at any depth. It ends the whole workflow.
+-- The main flow needs none — the body's closing `end workflow` is its End.
+-- See docs/11-proposals/PROPOSAL_workflow_end_activity.md.
+
+create workflow WFTest.EndInBranches
+  parameter $OrderContext: WFTest.OrderContext
+begin
+  decision decision1 '$WorkflowContext/Total > 1000'
+    outcomes
+      true -> {
+        user task ManagerReview 'Manager review'
+          page WFTest.TaskPage
+          outcomes
+            'Reject' { end workflow comment 'Rejected by manager'; }
+            'Approve' { };
+      }
+      false -> { };
+
+  user task FinalCheck 'Final check'
+    page WFTest.TaskPage
+    outcomes
+      'Cancel' { end workflow; }
+      'Confirm' { }
+    boundary event interrupting timer 'addDays([%CurrentDateTime%], 3)' {
+      end workflow comment 'Expired';
+    };
+
+  wait for timer timer1 'addHours([%CurrentDateTime%], 1)';
+end workflow;
+/
+
+alter workflow WFTest.EndInBranches
+  insert outcome 'Withdraw' on FinalCheck {
+    end workflow comment 'Withdrawn';
+  };
+
+-- ############################################################################
+-- PART F: HANDLERS — on-created microflows and workflow event handlers
+-- ############################################################################
+--
+-- `on created microflow` runs when a user task is created; it takes the task
+-- and the context object, in either order, and returns nothing (CE6683,
+-- CE5012). A header `on workflow events (…) microflow …` handler runs for each
+-- listed event and takes System.WorkflowEvent, System.WorkflowRecord and
+-- System.WorkflowActivityRecord, in any order (CE6691). `on any workflow event`
+-- stores every event type the project's Mendix version has, which is what
+-- Studio Pro stores when every box is ticked. Measured on mxbuild 11.13.0;
+-- see docs/11-proposals/PROPOSAL_workflow_studio_pro_constructs.md.
+
+create microflow WFTest.ACT_TaskCreated (
+  $OrderContext: WFTest.OrderContext,
+  $WorkflowUserTask: System.WorkflowUserTask
+)
+begin
+end;
+/
+
+create microflow WFTest.ACT_AuditWorkflowEvent (
+  $WorkflowEvent: System.WorkflowEvent,
+  $WorkflowRecord: System.WorkflowRecord,
+  $WorkflowActivityRecord: System.WorkflowActivityRecord
+)
+begin
+end;
+/
+
+create workflow WFTest.WithHandlers
+  parameter $OrderContext: WFTest.OrderContext
+  on workflow events (UserTaskStarted, UserTaskEnded) microflow WFTest.ACT_AuditWorkflowEvent as 'Task audit'
+  on any workflow event microflow WFTest.ACT_AuditWorkflowEvent as 'OnAnyEvent'
+begin
+  user task Review 'Review the order'
+    page WFTest.TaskPage
+    on created microflow WFTest.ACT_TaskCreated
+    outcomes 'Approve' { } 'Reject' { };
+
+  multi user task Vote 'Vote on the order'
+    page WFTest.TaskPage
+    on created microflow WFTest.ACT_TaskCreated
+    outcomes 'Yes' { } 'No' { };
+end workflow;
+/

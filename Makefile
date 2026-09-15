@@ -35,7 +35,7 @@ GO_BUILD_FLAGS = -trimpath
 # Clean version for VS Code extension (must be valid semver: major.minor.patch)
 VSCE_VERSION = $(shell echo "$(VERSION)" | sed 's/^v//; s/-.*//' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$$' || echo "0.0.0")
 
-.PHONY: build build-debug size release clean test engine-diff test-mdl check-mdl check-skill-mdl check-findings check-wiki-pages digest-status check-tunnel-deps check-widget-versions grammar completions sync-skills sync-skill-packs sync-commands sync-lint-rules sync-changelog sync-all docs documentation docs-site docs-serve vscode-ext vscode-install source-tree sbom sbom-report lint lint-go lint-ts fmt vet
+.PHONY: build build-debug size release clean test engine-diff test-mdl check-mdl check-skill-mdl check-findings check-wiki-pages digest-status check-tunnel-deps check-widget-versions grammar completions sync-skills sync-skill-packs sync-commands sync-lint-rules sync-changelog sync-all docs documentation docs-site docs-serve vscode-ext vscode-install source-tree sbom sbom-report lint lint-go lint-ts fmt fmt-check vet
 
 # Helper: copy file only if content differs (avoids mtime updates that invalidate go build cache)
 # Usage: $(call copy-if-changed,src,dst)
@@ -320,8 +320,34 @@ check-widget-versions: build
 lint: lint-go lint-ts
 
 # Lint Go code
-lint-go: fmt vet
+#
+# Depends on fmt-check, which VERIFIES, not on fmt, which rewrites. `go fmt ./...`
+# edits in place and then exits 0, so this target could never fail on an
+# unformatted file: main carried one indefinitely
+# (mdl/executor/cmd_microflows_helpers.go, whose doc comment gofmt rewrote --
+# `''` is the legacy godoc digraph for a closing curly quote, and the comment was
+# about doubled quotes). Locally the rewrite also dirtied the tree on every
+# `make build`, which is a trap for `git add -A`.
+lint-go: fmt-check vet
 	@echo "Go lint passed"
+
+# Verify Go formatting without rewriting anything. `make fmt` is the fixer.
+#
+# Tracked files only: the ANTLR parser under mdl/grammar/parser is generated at
+# build time and deliberately not committed. The empty-list guard is a positive
+# control -- a check that inspected nothing must fail loudly rather than pass.
+fmt-check:
+	@files=$$(git ls-files '*.go' | grep -v '/parser/'); \
+	if [ -z "$$files" ]; then \
+		echo "fmt-check: found no Go files to check -- the file list is wrong"; \
+		exit 1; \
+	fi; \
+	unformatted=$$(gofmt -l $$files); \
+	if [ -n "$$unformatted" ]; then \
+		echo "Not gofmt-clean (run 'make fmt'):"; \
+		echo "$$unformatted"; \
+		exit 1; \
+	fi
 
 # Format Go code
 fmt:

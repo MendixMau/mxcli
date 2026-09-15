@@ -5,6 +5,8 @@ package visitor
 import (
 	"strings"
 
+	"github.com/antlr4-go/antlr/v4"
+
 	"github.com/mendixlabs/mxcli/mdl/ast"
 	"github.com/mendixlabs/mxcli/mdl/grammar/parser"
 )
@@ -74,6 +76,23 @@ func (b *Builder) ExitCreateWorkflowStatement(ctx *parser.CreateWorkflowStatemen
 		stmt.DueDate = unquoteString(tok.GetText())
 	}
 
+	// Workflow event handlers: each clause carries its own qualified name, so
+	// they do not shift the header's name indices above.
+	for _, hc := range ctx.AllWorkflowEventHandlerClause() {
+		h := hc.(*parser.WorkflowEventHandlerClauseContext)
+		node := ast.WorkflowEventHandlerNode{AnyEvent: h.ANY() != nil}
+		if qn := h.QualifiedName(); qn != nil {
+			node.Microflow = buildQualifiedName(qn)
+		}
+		for _, id := range h.AllIDENTIFIER() {
+			node.EventTypes = append(node.EventTypes, id.GetText())
+		}
+		if s := h.STRING_LITERAL(); s != nil {
+			node.Description = unquoteString(s.GetText())
+		}
+		stmt.EventHandlers = append(stmt.EventHandlers, node)
+	}
+
 	// Parse CREATE OR MODIFY
 	createStmt := findParentCreateStatement(ctx)
 	if createStmt != nil {
@@ -84,8 +103,8 @@ func (b *Builder) ExitCreateWorkflowStatement(ctx *parser.CreateWorkflowStatemen
 	stmt.Documentation, stmt.DocumentationSet = findDocComment(ctx)
 
 	// Parse body
-	if body := ctx.WorkflowBody(); body != nil {
-		stmt.Activities = buildWorkflowBody(body)
+	if body := ctx.WorkflowMainBody(); body != nil {
+		stmt.Activities = buildWorkflowMainBody(body)
 	}
 
 	b.statements = append(b.statements, stmt)
@@ -389,22 +408,55 @@ func parseAlterActivityRef(ctx *parser.AlterActivityRefContext) (string, int) {
 	return name, atPos
 }
 
-// buildWorkflowBody converts a workflow body context to activity nodes.
+// buildWorkflowBody builds a brace body — an outcome, a decision branch, a
+// parallel path, a boundary-event path or an ALTER insert — which may contain
+// `end workflow`.
 func buildWorkflowBody(ctx parser.IWorkflowBodyContext) []ast.WorkflowActivityNode {
 	if ctx == nil {
 		return nil
 	}
-	bodyCtx := ctx.(*parser.WorkflowBodyContext)
-	var activities []ast.WorkflowActivityNode
+	return buildWorkflowStatements(ctx.GetChildren())
+}
 
-	for _, actCtx := range bodyCtx.AllWorkflowActivityStmt() {
-		act := buildWorkflowActivityStmt(actCtx)
+// buildWorkflowMainBody builds the top-level body, where `end workflow` is the
+// closer rather than a statement.
+func buildWorkflowMainBody(ctx parser.IWorkflowMainBodyContext) []ast.WorkflowActivityNode {
+	if ctx == nil {
+		return nil
+	}
+	return buildWorkflowStatements(ctx.GetChildren())
+}
+
+// buildWorkflowStatements walks a body's children in source order. A body holds
+// more than one rule since `end workflow` and `return` are not
+// workflowActivityStmt alternatives, and collecting each with its own All…()
+// accessor would move every End to the end of its block.
+func buildWorkflowStatements(children []antlr.Tree) []ast.WorkflowActivityNode {
+	var activities []ast.WorkflowActivityNode
+	for _, child := range children {
+		var act ast.WorkflowActivityNode
+		switch c := child.(type) {
+		case *parser.WorkflowActivityStmtContext:
+			act = buildWorkflowActivityStmt(c)
+		case *parser.WorkflowEndStmtContext:
+			act = buildWorkflowEnd(c)
+		case *parser.WorkflowReturnStmtContext:
+			act = &ast.WorkflowReturnNode{}
+		}
 		if act != nil {
 			activities = append(activities, act)
 		}
 	}
-
 	return activities
+}
+
+// buildWorkflowEnd builds `end workflow [comment '<caption>']`.
+func buildWorkflowEnd(ctx *parser.WorkflowEndStmtContext) *ast.WorkflowEndNode {
+	node := &ast.WorkflowEndNode{}
+	if ctx.COMMENT() != nil && ctx.STRING_LITERAL() != nil {
+		node.Caption = unquoteString(ctx.STRING_LITERAL().GetText())
+	}
+	return node
 }
 
 // buildWorkflowActivityStmt dispatches to the appropriate builder.
@@ -480,7 +532,17 @@ func buildWorkflowUserTask(ctx parser.IWorkflowUserTaskStmtContext) *ast.Workflo
 	// Determine if group targeting (TARGETING GROUPS vs TARGETING [USERS])
 	isGroupTargeting := len(utCtx.AllGROUPS()) > 0
 
-	if utCtx.MICROFLOW() != nil && nameIdx < len(names) {
+	// MICROFLOW appears in both TARGETING … MICROFLOW and ON CREATED MICROFLOW,
+	// so targeting is present when a MICROFLOW token is left over after the
+	// on-created one. Qualified names come in clause order: page, targeting,
+	// on-created, entity.
+	onCreated := utCtx.CREATED() != nil
+	targetingMicroflows := len(utCtx.AllMICROFLOW())
+	if onCreated {
+		targetingMicroflows--
+	}
+
+	if targetingMicroflows > 0 && nameIdx < len(names) {
 		if isGroupTargeting {
 			node.Targeting.Kind = "group_microflow"
 		} else {
@@ -499,6 +561,11 @@ func buildWorkflowUserTask(ctx parser.IWorkflowUserTaskStmtContext) *ast.Workflo
 		}
 		node.Targeting.XPath = unquoteString(allStrings[stringIdx].GetText())
 		stringIdx++
+	}
+
+	if onCreated && nameIdx < len(names) {
+		node.OnCreated = buildQualifiedName(names[nameIdx])
+		nameIdx++
 	}
 
 	if utCtx.ENTITY() != nil && nameIdx < len(names) {
