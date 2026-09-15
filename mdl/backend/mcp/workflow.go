@@ -1540,11 +1540,29 @@ type wfLocation struct {
 // resolve finds an activity reference (caption or name, optional 1-based @position)
 // anywhere in the flow tree and returns its location plus the workflow's
 // activity-name set.
+//
+// Without @N, an activity NAMED ref wins over ones merely captioned ref. A name
+// is an activity's identity; a caption is a label that may repeat another
+// activity's name — buildJumpTo defaults a jump's caption to its target — so
+// pooling the two made every jump target ambiguous. With @N, every match
+// counts, in DESCRIBE order, so an existing `ACT_Process@2` still addresses
+// what it always did. wfmutator resolves the same way.
 func (m *mcpWorkflowMutator) resolve(ref string, atPos int) (wfLocation, error) {
 	var matches []activityRefMatch
 	taken := map[string]bool{}
 	if err := m.searchActivities("/flow/activities", ref, false, &matches, taken); err != nil {
 		return wfLocation{}, err
+	}
+	if atPos == 0 {
+		var named []activityRefMatch
+		for _, mt := range matches {
+			if mt.name == ref {
+				named = append(named, mt)
+			}
+		}
+		if len(named) > 0 {
+			matches = named
+		}
 	}
 	var pick activityRefMatch
 	switch {
@@ -1585,11 +1603,12 @@ func (m *mcpWorkflowMutator) searchActivities(arrayPath, ref string, inSplit boo
 		return err
 	}
 	for i, a := range acts {
-		if name := mapString(a, "name"); name != "" {
+		name := mapString(a, "name")
+		if name != "" {
 			taken[name] = true
 		}
-		if mapString(a, "name") == ref || mapString(a, "caption") == ref {
-			*matches = append(*matches, activityRefMatch{arrayPath: arrayPath, index: i, name: mapString(a, "name"), inSplit: inSplit})
+		if name == ref || mapString(a, "caption") == ref {
+			*matches = append(*matches, activityRefMatch{arrayPath: arrayPath, index: i, name: name, inSplit: inSplit})
 		}
 		actPath := fmt.Sprintf("%s/%d", arrayPath, i)
 		sType := mapString(a, "$Type")

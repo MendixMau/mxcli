@@ -502,6 +502,37 @@ Captured against Studio Pro 11.14 with ako/TestApp open, via `cmd/mcpprobe`
 - **The error-list lag bites here too:** both probe documents first checked "No
   errors found." and reported their errors only on a later call.
 
+### Microflows: the constructor is a canvas skeleton (measured live 2026-09-15)
+
+- **The `Microflows$Microflow` constructor changed shape, and every microflow create
+  over MCP failed on 11.14:** `{"/flows/0/$Type":"Expected an element with $Type
+  property.","/returnType":"Expected one of [Void, Boolean, …], got
+  {\"type\":\"Void\"}"}`. Flows are now `$Type`d elements (`Microflows$SequenceFlow`
+  / `Microflows$AnnotationFlow`), `returnType` is a bare enum with
+  `returnTypeEntity` / `returnTypeEnumeration` beside it, and parameters go in a
+  separate `parameters` list.
+- **The two rejected keys are not the whole change.** Every object constructor
+  (`StartEvent`, `EndEvent`, `ActionActivity`, `ExclusiveSplit`, `LoopedActivity`, …)
+  now declares only `x`/`y` plus a `caption` or `loopType`. A create that fixes the
+  flows and return type but still sends `relativeMiddlePoint`, `action`,
+  `returnValue` or a split/loop source **succeeds with those silently dropped**:
+  positions read back 0,0, `"action": null` ("No action defined"), an empty return
+  value. Only a read-back shows it.
+- **Behaviour is set by path-ops after the create**, and they round-trip:
+  `set` on `/objectCollection/objects/N/action`, `…/returnValue`, `…/splitCondition`
+  (`Microflows$ExpressionSplitCondition{expression}`) and `…/loopSource`
+  (`Microflows$IterableList{listVariableName, variableName}`), nesting through a
+  loop's `objectCollection`. Stored parameters occupy the first object slots, so `N`
+  counts them while the constructor's `$id(/objects/N)` does not.
+- The backend detects the shape from the constructor schema text (`returnTypeEntity`)
+  rather than a version (`microflowConstructorTakesSkeleton`), and on a skeleton server
+  sends the canvas in the create and one `ped_update_document` with the rest
+  (`adaptMicroflowSkeleton`). Verified live: a trivial microflow, Boolean, entity and
+  list returns, and a parameter + split + loop microflow all created with
+  `ped_check_errors` clean on two successive calls, and read back with positions,
+  actions, conditions, loop sources and return types intact. The while-loop source
+  (`Microflows$WhileLoopCondition`) is mapped from its schema but was not exercised live.
+
 ## Capability gaps (established 11.11, status re-checked each release)
 
 These are the *absences* that bound what the backend can do. They are as
@@ -587,6 +618,12 @@ the **list-range** operation (PED's `byDatabaseQuery` input is `entity` +
 `xPathConstraint` + `takeOnlyFirst` only, and `Microflows$Range` exposes no
 settable fields). These would need a post-create element update PED's simplified
 constructors don't support.
+
+On 11.14 the create itself is two-phase: the constructor carries only the canvas and
+each object's action, return value, split condition and loop source are `set` by a
+follow-up `ped_update_document` (see *Microflows: the constructor is a canvas
+skeleton* under the 11.14 changes). Whether that path-op route also opens the
+rejected actions above has not been probed.
 
 **ALTER ENTITY** diffs the executor's rebuilt entity against the live model
 (name-keyed) and routes by the diff's shape: adds-only → ADD ATTRIBUTE, removes-only
