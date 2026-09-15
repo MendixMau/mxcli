@@ -70,6 +70,11 @@ type Backend struct {
 	// workflowConstructorTakesContext.
 	workflowCtorContext *bool
 
+	// microflowCtorSkeleton caches whether the server's Microflows$Microflow
+	// constructor takes only the canvas (Studio Pro 11.14), with behaviour set by a
+	// follow-up update; nil until probed. See microflowConstructorTakesSkeleton.
+	microflowCtorSkeleton *bool
+
 	// multiTaskPageCtor caches whether the server's MultiUserTaskActivity
 	// constructor takes the page as a `taskPage` element (Studio Pro 11.14)
 	// rather than a bare `pageReference`; nil until probed.
