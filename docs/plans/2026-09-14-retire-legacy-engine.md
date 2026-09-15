@@ -1,7 +1,11 @@
 # Implementation Plan — Retire the legacy engine
 
 **Date:** 2026-09-14
-**Status:** Draft plan
+**Status:** In progress — Phases 1, 2 and the api/ + MCP steps of Phase 3 have landed
+(2026-09-15). What remains is the rest of Phase 3 (the `cmd/mxcli` commands that hold a concrete
+`sdk/mpr` reader on purpose) and Phase 4 (the mongo-driver migration, which those gate).
+See [§7 What landed](#7-what-landed) for the record of what each phase actually did, including the
+two places the plan was wrong.
 **Continues:** [`2026-06-05-adopt-modelsdk-engine.md`](2026-06-05-adopt-modelsdk-engine.md), which
 stops at the cutover. That plan still reads as though `legacy` were the default; it is not, and has
 not been since the codec engine took over. This plan covers what the earlier one deferred to
@@ -229,3 +233,67 @@ expected to grow. Phase 3 is written to satisfy that rather than to migrate away
 4. Phase 3 is now sequenced in place (it was going to be a proposal until measuring it shrank it).
    Its first step — implementing the six methods the census attributes to `api/` and MCP — is
    independent of Phases 1–2 and could be done first or in parallel.
+
+---
+
+## 7. What landed
+
+Recorded as it happened, because two of the estimates in this plan turned out wrong in ways worth
+keeping.
+
+### Phase 3, out of order and smaller than sized (2026-09-15)
+
+Phase 3 was written as an `L` gated on "breaking a public API". Both were wrong, and the
+correction is the plan's main lesson:
+
+- **`api/` was one signature, not a rewrite.** It held a concrete `*mpr.Writer` and imported
+  `mdl/backend` zero times. Taking a `backend.FullBackend` instead (plus an `api.Open` that owns
+  its connection) routed the whole package through the abstraction, which made `AddAttribute` and
+  `UpdateAttribute` *reachable* and therefore worth implementing — the two methods the codec engine
+  had left to the stub because nothing called them through a backend value.
+- **`api/`'s integration suite had only ever skipped.** All ten tests pointed at a path that does
+  not exist in this repo, so `go test ./api/` was green and verified nothing — the #808 shape
+  again. Repointed at a committed fixture, with a missing fixture now fatal instead of a skip.
+- **The MCP backend composes this backend now.** It kept a concrete `*mpr.Reader` for three reads
+  the codec engine did not offer (`GetDomainModelByID`, `GetWorkflow`, `ListNavigationDocuments`);
+  implementing those let it hold a `backend.FullBackend` instead. It needed a new
+  `ConnectReadOnly`, because `Connect` opens read-write and MCP must not lock the file Studio Pro
+  owns.
+- **`Connect` had no test** — 190 in that package, not one called it — so the swap would have
+  landed unverified with the suite green. It has one now, with the read-only constraint proved by
+  a revert control.
+
+**The organising insight, which is the reusable part:** `unreachableUnimplemented` in
+`mdl/backend/modelsdk/unimplemented_reachability_test.go` is a **census of who bypasses the
+abstraction**, not dead interface surface. A method is on it *because* some caller reaches it while
+holding a concrete reader or writer, and unreachable *because* that caller does not use a backend
+value. So the list shrinks by closing a bypass, never by deleting methods. It went 11 entries
+lighter over these two steps (5 struck off), and what remains names exactly the work left in
+Phase 3: the `cmd/mxcli` bson/diag/extract-templates commands.
+
+### Phases 1 and 2 (2026-09-15)
+
+Went as written, at the sizes given. Three things the plan did not anticipate:
+
+- **`--engine` is a warning-only no-op, not a removal.** Deleting the flag would fail a script
+  pinning `legacy` at argument parsing with "unknown flag", which says nothing about what changed.
+  It now warns once and proceeds. `bson compare` was dropped outright, per the same decision round.
+- **`errUnimplemented` still told users to rerun on the deleted engine.** A runtime message
+  naming a fallback that no longer exists is worse than no fallback; it now asks for a bug report,
+  which is what reaching it actually means.
+- **`setupTestEnv` defaulted to the legacy engine**, so most of `mdl/executor`'s integration tests
+  were exercising the retired engine rather than the one users get. Deleting legacy moved them onto
+  the codec engine — coverage that was always intended and had silently not been happening.
+- **One integration test had to go, and it named itself.** `TestCustomHandlerLegacyRefuses`
+  asserted that the legacy backend *refuses* a custom import-mapping handler rather than writing
+  `CustomHandlerCall` as nil and dropping the microflow silently. With no legacy engine there is no
+  refusal to assert, and the construct's positive coverage on the codec engine is intact, so the
+  test was deleted rather than repointed. It was the only failure across the whole executor
+  integration suite after the switch — 562s green, down from 642s now that the doctype gate runs
+  once instead of twice.
+- **The cross-engine tests split two ways.** `TestODataService_EngineWriteParity` compared two
+  writers; with one engine the comparison is vacuous, so the differential half was dropped and the
+  property it was a means to (a published service keeps its role grants, invisible to `mx check`)
+  kept as a single-engine test. The doctype gate's engine matrix was *not* deleted: with one entry
+  it still turns a stale `MXCLI_TEST_ENGINES=legacy` into a loud failure instead of a gate that
+  runs nothing and reports success.
