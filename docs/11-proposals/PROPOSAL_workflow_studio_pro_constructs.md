@@ -202,10 +202,11 @@ from 11.10; the writer already records that Mendix 11.9 split
 (restate with `call agent microflow`, which describe emits); it was refused
 outright before, since describe printed an agent task only as a comment.
 
-**Engines.** Written and read by the modelsdk engine. The retiring legacy engine
-carries the flag through (same shape, agent `$Type`) rather than silently turning
-an agent task into a call microflow; the MCP backend refuses one, since PED's
-agent element has not been measured.
+**Engines.** Written and read by the codec engine, the only one since #468 retired
+the legacy backend. The `sdk/mpr` serializer, which remains for the tools that still
+hold it, carries the flag through (same shape, agent `$Type`) rather than silently
+turning an agent task into a call microflow. The MCP backend sends it as
+`Workflows$AIAgentTaskActivity`, verified against Studio Pro 11.14.
 
 ## Phase 3 — completion rules
 
