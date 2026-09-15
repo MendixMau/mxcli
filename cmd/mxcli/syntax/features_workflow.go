@@ -229,7 +229,34 @@ func init() {
 		// author ends up writing the unquoted form (ako/mxcli#1023).
 		Syntax:  "CALL MICROFLOW Module.MF [AS <name>] [COMMENT '<text>']\n  [WITH (<Param> = '<expression>', ...)]\n  [OUTCOMES '<outcome>' -> { <activities> } ...];",
 		Example: "CALL MICROFLOW HR.SendNotification\n  COMMENT 'Notify manager';\n\n-- Parameter values are quoted, and named by their BARE parameter name:\nCALL MICROFLOW HR.Escalate AS callMicroflow1\n  WITH (Request = '$WorkflowContext');",
-		SeeAlso: []string{"workflow.create", "workflow.call-workflow"},
+		SeeAlso: []string{"workflow.create", "workflow.call-workflow", "workflow.ai-agent-task"},
+	})
+
+	Register(SyntaxFeature{
+		Path:    "workflow.ai-agent-task",
+		Summary: "AI agent task — a workflow step that runs an agent through a microflow (Mendix 11.9+)",
+		Keywords: []string{
+			"ai agent task", "agent task", "call agent", "call agent microflow",
+			"agent", "llm", "genai", "AIAgentTaskActivity",
+		},
+		// Measured on mxbuild 11.13.0 against the same activity written as a call
+		// microflow: the only difference in what builds is CE1590 for a microflow
+		// with no parameters.
+		Syntax: "CALL AGENT MICROFLOW Module.MF [AS <name>] [COMMENT '<text>']\n" +
+			"  [WITH (<Param> = '<expression>', ...)]\n" +
+			"  [OUTCOMES <true|false|'Module.Enum.Value'|''> -> { <activities> } ...]\n" +
+			"  [BOUNDARY EVENT ...];\n\n" +
+			"-- The same statement as CALL MICROFLOW, stored as an AI agent task. The microflow\n" +
+			"-- is where the agent is invoked; it must take at least one parameter (else CE1590),\n" +
+			"-- usually the workflow's context object. Return Boolean or an enumeration to\n" +
+			"-- branch on the agent's answer with OUTCOMES. Needs Mendix 11.9+.",
+		Example: "CREATE MICROFLOW HR.ACT_ClassifyRequest ($Request: HR.LeaveRequest)\n" +
+			"RETURNS Boolean AS $Urgent\nBEGIN\n  -- call the agent here\n  RETURN false;\nEND;\n\n" +
+			"CALL AGENT MICROFLOW HR.ACT_ClassifyRequest AS aiAgentTask1 COMMENT 'Classify the request'\n" +
+			"  WITH (Request = '$WorkflowContext')\n" +
+			"  OUTCOMES true -> { USER TASK Expedite 'Expedite' PAGE HR.TaskPage OUTCOMES 'Done' { }; }\n" +
+			"           false -> { };",
+		SeeAlso: []string{"workflow.call-microflow", "agents"},
 	})
 
 	Register(SyntaxFeature{

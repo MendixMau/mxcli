@@ -629,6 +629,7 @@ func buildWorkflowCallMicroflow(ctx parser.IWorkflowCallMicroflowStmtContext) *a
 	cmCtx := ctx.(*parser.WorkflowCallMicroflowStmtContext)
 	node := &ast.WorkflowCallMicroflowNode{
 		Name:      workflowActivityNameText(cmCtx.WorkflowActivityName()),
+		Agent:     cmCtx.AGENT() != nil,
 		Microflow: buildQualifiedName(cmCtx.QualifiedName()),
 	}
 

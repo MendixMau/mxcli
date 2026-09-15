@@ -633,6 +633,21 @@ func formatCallMicroflowTask(a *workflows.CallMicroflowTask, indent string) []st
 		mf = "?"
 	}
 
+	verb := "call microflow"
+	if a.IsAgent {
+		verb = "call agent microflow"
+	}
+	// A caption the author set is emitted as `comment '…'`, which the grammar
+	// reads back into the caption. It used to be emitted only as a trailing
+	// `-- caption` comment, so describe → exec replaced it with the microflow's
+	// name. The derived default (the microflow's short name) carries nothing and
+	// stays a plain comment, as for jump and wait activities.
+	asAndComment := workflowActivityAsClause(a.Name, shortDocName(mf))
+	trailing := " -- " + caption
+	if a.Caption != "" && a.Caption != shortDocName(mf) {
+		asAndComment += " comment " + mdlQuoted(a.Caption)
+		trailing = ""
+	}
 	if len(a.ParameterMappings) > 0 {
 		var params []string
 		for _, pm := range a.ParameterMappings {
@@ -642,11 +657,10 @@ func formatCallMicroflowTask(a *workflows.CallMicroflowTask, indent string) []st
 			}
 			params = append(params, fmt.Sprintf("%s = %s", paramName, mdlQuoted(pm.Expression)))
 		}
-		lines = append(lines, fmt.Sprintf("%scall microflow %s%s with (%s) -- %s", indent, mf,
-			workflowActivityAsClause(a.Name, shortDocName(mf)), strings.Join(params, ", "), caption))
+		lines = append(lines, fmt.Sprintf("%s%s %s%s with (%s)%s", indent, verb, mf,
+			asAndComment, strings.Join(params, ", "), trailing))
 	} else {
-		lines = append(lines, fmt.Sprintf("%scall microflow %s%s -- %s", indent, mf,
-			workflowActivityAsClause(a.Name, shortDocName(mf)), caption))
+		lines = append(lines, fmt.Sprintf("%s%s %s%s%s", indent, verb, mf, asAndComment, trailing))
 	}
 
 	// Outcomes, then boundary events — the order the grammar requires
