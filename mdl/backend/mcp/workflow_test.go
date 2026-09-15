@@ -396,6 +396,12 @@ func TestWFResolve_NameBeatsJumpCaption(t *testing.T) {
 	if err != nil || loc.index != 0 {
 		t.Errorf("caption fallback: index %d, err %v", loc.index, err)
 	}
+	// @N still counts every match in document order, so a script that reached
+	// the jump as bugSplitJump@2 keeps working (24-workflow-examples.mdl relies
+	// on this with ACT_Process@2).
+	if loc, err := m2.resolve("bugSplitJump", 2); err != nil || loc.index != 3 {
+		t.Errorf("bugSplitJump@2: index %d, err %v", loc.index, err)
+	}
 	// ... and two caption-only matches are still ambiguous, addressable by @N.
 	if _, err := m2.resolve("Twin", 0); err == nil || !strings.Contains(err.Error(), "ambiguous") {
 		t.Errorf("two caption matches should be ambiguous, got %v", err)

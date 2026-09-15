@@ -614,9 +614,11 @@ func (m *Mutator) findActivityByCaption(caption string, atPosition int) (bson.D,
 		return nil, fmt.Errorf("workflow has no Flow")
 	}
 
-	var byName, byCaption []bson.D
-	findActivitiesRecursive(flow, caption, &byName, &byCaption)
-	matches := preferNameMatches(byName, byCaption)
+	var all []bson.D
+	findActivitiesRecursive(flow, caption, &all)
+	matches := preferNameMatches(all, atPosition, func(d bson.D) bool {
+		return bsonnav.DGetString(d, "Name") == caption
+	})
 
 	if len(matches) == 0 {
 		return nil, fmt.Errorf("activity %q not found", caption)
@@ -639,37 +641,43 @@ func (m *Mutator) findActivityByCaption(caption string, atPosition int) (bson.D,
 	return matches[atPosition-1], nil
 }
 
-// preferNameMatches picks the tier an activity reference resolves against: the
-// activities whose Name equals it when there are any, otherwise those whose
-// Caption does. A name is an activity's identity (deduplicated within the
-// workflow); a caption is a label that may repeat another activity's name —
-// buildJumpTo defaults a jump's caption to its target's name — so letting the
-// two tiers pool made every jump target ambiguous. @N counts within the chosen
-// tier, in the same depth-first order DESCRIBE walks.
-func preferNameMatches[T any](byName, byCaption []T) []T {
-	if len(byName) > 0 {
-		return byName
+// preferNameMatches narrows the activities a reference matched. Without @N, the
+// ones whose Name equals the reference win when there are any: a name is an
+// activity's identity (deduplicated within the workflow), while a caption is a
+// label that may repeat another activity's name — buildJumpTo defaults a jump's
+// caption to its target's name — so pooling the two made every jump target
+// ambiguous. With @N every match counts, in the depth-first order DESCRIBE
+// walks, so an existing `ACT_Process@2` keeps addressing what it always did.
+func preferNameMatches[T any](all []T, atPosition int, isName func(T) bool) []T {
+	if atPosition > 0 {
+		return all
 	}
-	return byCaption
+	var named []T
+	for _, m := range all {
+		if isName(m) {
+			named = append(named, m)
+		}
+	}
+	if len(named) > 0 {
+		return named
+	}
+	return all
 }
 
-// findActivitiesRecursive collects the activities whose name, and separately
-// whose caption, equals ref in a flow and its nested sub-flows.
-func findActivitiesRecursive(flow bson.D, ref string, byName, byCaption *[]bson.D) {
+// findActivitiesRecursive collects all activities whose name or caption equals
+// ref in a flow and nested sub-flows, in document order.
+func findActivitiesRecursive(flow bson.D, ref string, matches *[]bson.D) {
 	activities := bsonnav.DGetArrayElements(bsonnav.DGet(flow, "Activities"))
 	for _, elem := range activities {
 		actDoc, ok := elem.(bson.D)
 		if !ok {
 			continue
 		}
-		switch {
-		case bsonnav.DGetString(actDoc, "Name") == ref:
-			*byName = append(*byName, actDoc)
-		case bsonnav.DGetString(actDoc, "Caption") == ref:
-			*byCaption = append(*byCaption, actDoc)
+		if bsonnav.DGetString(actDoc, "Name") == ref || bsonnav.DGetString(actDoc, "Caption") == ref {
+			*matches = append(*matches, actDoc)
 		}
 		for _, nestedFlow := range getNestedFlows(actDoc) {
-			findActivitiesRecursive(nestedFlow, ref, byName, byCaption)
+			findActivitiesRecursive(nestedFlow, ref, matches)
 		}
 	}
 }
@@ -714,9 +722,12 @@ func (m *Mutator) findActivityIndex(caption string, atPosition int) (int, []any,
 		return -1, nil, nil, fmt.Errorf("workflow has no Flow")
 	}
 
-	var byName, byCaption []activityIndexMatch
-	findActivityIndexRecursive(flow, caption, &byName, &byCaption)
-	matches := preferNameMatches(byName, byCaption)
+	var all []activityIndexMatch
+	findActivityIndexRecursive(flow, caption, &all)
+	matches := preferNameMatches(all, atPosition, func(am activityIndexMatch) bool {
+		actDoc, _ := am.activities[am.idx].(bson.D)
+		return bsonnav.DGetString(actDoc, "Name") == caption
+	})
 
 	if len(matches) == 0 {
 		return -1, nil, nil, fmt.Errorf("activity %q not found", caption)
@@ -734,22 +745,18 @@ func (m *Mutator) findActivityIndex(caption string, atPosition int) (int, []any,
 	return am.idx, am.activities, am.flow, nil
 }
 
-func findActivityIndexRecursive(flow bson.D, ref string, byName, byCaption *[]activityIndexMatch) {
+func findActivityIndexRecursive(flow bson.D, ref string, matches *[]activityIndexMatch) {
 	activities := bsonnav.DGetArrayElements(bsonnav.DGet(flow, "Activities"))
 	for i, elem := range activities {
 		actDoc, ok := elem.(bson.D)
 		if !ok {
 			continue
 		}
-		match := activityIndexMatch{idx: i, activities: activities, flow: flow}
-		switch {
-		case bsonnav.DGetString(actDoc, "Name") == ref:
-			*byName = append(*byName, match)
-		case bsonnav.DGetString(actDoc, "Caption") == ref:
-			*byCaption = append(*byCaption, match)
+		if bsonnav.DGetString(actDoc, "Name") == ref || bsonnav.DGetString(actDoc, "Caption") == ref {
+			*matches = append(*matches, activityIndexMatch{idx: i, activities: activities, flow: flow})
 		}
 		for _, nestedFlow := range getNestedFlows(actDoc) {
-			findActivityIndexRecursive(nestedFlow, ref, byName, byCaption)
+			findActivityIndexRecursive(nestedFlow, ref, matches)
 		}
 	}
 }

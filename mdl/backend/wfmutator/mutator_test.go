@@ -267,8 +267,8 @@ func TestWorkflowMutator_FindActivity_Ambiguous(t *testing.T) {
 
 // A jump's caption defaults to its target's name (buildJumpTo), so a reference
 // to the target used to match both and fail as ambiguous. A name is an activity's
-// identity; a caption is a label — the name wins, and captions are only consulted
-// when no name matches.
+// identity; a caption is a label — without @N the name wins, and captions are
+// only consulted when no name matches. With @N every match still counts.
 func TestWorkflowMutator_FindActivity_NameBeatsJumpCaption(t *testing.T) {
 	target := makeWfActivity("Workflows$UserTask", "Split the jump", "bugSplitJump")
 	jump := makeWfActivity("Workflows$JumpToActivity", "bugSplitJump", "JumpTo")
@@ -292,6 +292,15 @@ func TestWorkflowMutator_FindActivity_NameBeatsJumpCaption(t *testing.T) {
 	got, err = m.findActivityByCaption("Split the jump", 0)
 	if err != nil || bsonnav.DGetString(got, "Name") != "bugSplitJump" {
 		t.Errorf("caption fallback: got %v, %v", got, err)
+	}
+	// @N still counts every match in document order (24-workflow-examples.mdl
+	// relies on this with ACT_Process@2).
+	got, err = m.findActivityByCaption("bugSplitJump", 2)
+	if err != nil || bsonnav.DGetString(got, "Name") != "JumpTo" {
+		t.Errorf("bugSplitJump@2: got %v, %v", got, err)
+	}
+	if idx, _, _, err := m.findActivityIndex("bugSplitJump", 2); err != nil || idx != 1 {
+		t.Errorf("findActivityIndex bugSplitJump@2: index %d, err %v", idx, err)
 	}
 }
 
