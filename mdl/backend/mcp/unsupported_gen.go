@@ -644,11 +644,6 @@ func (unsupportedBackend) GetScheduledEvent(_ model.ID) (r0 *model.ScheduledEven
 	return
 }
 
-func (unsupportedBackend) GetUnitTypes() (r0 map[string]int, err1 error) {
-	err1 = errUnsupported("GetUnitTypes")
-	return
-}
-
 func (unsupportedBackend) GetWorkflow(_ model.ID) (r0 *workflows.Workflow, err1 error) {
 	err1 = errUnsupported("GetWorkflow")
 	return
@@ -1104,31 +1099,11 @@ func (unsupportedBackend) RevokeEntityMemberAccess(_ model.ID, _ string, _ []str
 	return
 }
 
-func (unsupportedBackend) SerializeClientAction(_ pages.ClientAction) (r0 any, err1 error) {
-	err1 = errUnsupported("SerializeClientAction")
-	return
-}
-
-func (unsupportedBackend) SerializeDataSource(_ pages.DataSource) (r0 any, err1 error) {
-	err1 = errUnsupported("SerializeDataSource")
-	return
-}
-
 func (unsupportedBackend) SerializeDataSourceToOpaque(_ pages.DataSource) (r0 any) {
 	return
 }
 
-func (unsupportedBackend) SerializeWidget(_ pages.Widget) (r0 any, err1 error) {
-	err1 = errUnsupported("SerializeWidget")
-	return
-}
-
 func (unsupportedBackend) SerializeWidgetToOpaque(_ pages.Widget) (r0 any) {
-	return
-}
-
-func (unsupportedBackend) SerializeWorkflowActivity(_ workflows.WorkflowActivity) (r0 any, err1 error) {
-	err1 = errUnsupported("SerializeWorkflowActivity")
 	return
 }
 
@@ -1259,11 +1234,6 @@ func (unsupportedBackend) UpdateJavaScriptAction(_ *types.JavaScriptAction) (err
 
 func (unsupportedBackend) UpdateJsonStructure(_ *types.JsonStructure) (err0 error) {
 	err0 = errUnsupported("UpdateJsonStructure")
-	return
-}
-
-func (unsupportedBackend) UpdateLayout(_ *pages.Layout) (err0 error) {
-	err0 = errUnsupported("UpdateLayout")
 	return
 }
 

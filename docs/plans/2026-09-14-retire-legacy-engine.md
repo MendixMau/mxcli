@@ -267,7 +267,12 @@ correction is the plan's main lesson:
 `mdl/backend/modelsdk/unimplemented_reachability_test.go` is a **census of who bypasses the
 abstraction**, not dead interface surface. A method is on it *because* some caller reaches it while
 holding a concrete reader or writer, and unreachable *because* that caller does not use a backend
-value. So the list shrinks by closing a bypass, never by deleting methods. It went 11 entries
+value. So the list shrinks by closing a bypass, never by deleting methods.
+
+> **Corrected 2026-09-15 — see [§7.3](#phase-3-step-4-the-census-has-three-causes-not-one).** That
+> last sentence is true of a bypass and false of the other two things on the list. Five of the
+> eleven remaining entries had no caller anywhere, or callers using a different signature, and were
+> deleted rather than ported. It went 11 entries
 lighter over these two steps (5 struck off), and what remains names exactly the work left in
 Phase 3: the `cmd/mxcli` bson/diag/extract-templates commands.
 
@@ -297,3 +302,43 @@ Went as written, at the sizes given. Three things the plan did not anticipate:
   kept as a single-engine test. The doctype gate's engine matrix was *not* deleted: with one entry
   it still turns a stale `MXCLI_TEST_ENGINES=legacy` into a loud failure instead of a gate that
   runs nothing and reports success.
+
+### Phase 3 step 4 — the census has three causes, not one (2026-09-15)
+
+Re-running the probe over what was left produced a correction to the paragraph above, which is the
+part of this plan most likely to be reused and was wrong.
+
+`scripts/backend-reachability.sh` reports **DEAD** for "nothing calls this through a backend
+value". That single verdict covers three situations that want opposite fixes:
+
+| cause | what it means | fix |
+|---|---|---|
+| **bypass** | a caller wants it but holds a concrete reader/writer | port the caller |
+| **orphan** | nothing anywhere calls it, under any type | delete the method |
+| **duplicate** | callers exist, but through a narrower package-local interface with a *different signature* | delete the method |
+
+The probe cannot separate them — that is what a grep for callers under **any** type is for. The
+duplicate case is the one that misleads: the name has plenty of call sites, so it reads as a
+bypass until you compare signatures.
+
+Measured, all six DEAD: the whole **`WidgetSerializationBackend`** interface (`SerializeWidget`,
+`SerializeClientAction`, `SerializeDataSource`, `SerializeWorkflowActivity`), plus `GetUnitTypes`
+and `UpdateLayout`.
+
+- `SerializeWidget` / `SerializeDataSource` are superseded by `WidgetBuilderBackend`'s
+  `SerializeWidgetToOpaque` / `SerializeDataSourceToOpaque` — whose own doc comment says *"This
+  replaces the direct mpr.SerializeWidget call"*, so the supersession was known and the old pair
+  simply never removed.
+- `SerializeClientAction` and `SerializeWorkflowActivity` are reached through `pagemutator` and
+  `wfmutator`'s own `deps` interfaces, which declare them returning `bson.D` rather than
+  `(any, error)`. The `*Backend` copy of `SerializeWorkflowActivity` even carried a comment claiming
+  the ALTER WORKFLOW paths used it; they use `codecWorkflowDeps`.
+- `GetUnitTypes` exists only on `modelsdk/mpr.Reader`; `UpdateLayout` was superseded by the page
+  mutator when ALTER LAYOUT landed.
+
+Deleted from the interface, both generated stub files regenerated (276 → 270 methods), mock stubs
+dropped. **Census 11 → 6**, and all six that remain are genuine bypasses — the `cmd/mxcli`
+bson/diag/extract-templates commands and `examples/read_project`, which hold a concrete reader
+deliberately. Whether those should be ported at all is the open question for the rest of Phase 3;
+they are debugging tools whose whole job is raw access, so "leave them" is a defensible answer that
+the earlier framing did not allow for.

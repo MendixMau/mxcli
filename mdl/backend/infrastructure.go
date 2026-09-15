@@ -42,7 +42,6 @@ type RawUnitBackend interface {
 type MetadataBackend interface {
 	ListAllUnitIDs() ([]string, error)
 	ListUnits() ([]*types.UnitInfo, error)
-	GetUnitTypes() (map[string]int, error)
 	GetProjectRootID() (string, error)
 	ContentsDir() string
 	ExportJSON() ([]byte, error)

@@ -116,13 +116,6 @@ func (m *MockBackend) ListUnits() ([]*types.UnitInfo, error) {
 	return nil, nil
 }
 
-func (m *MockBackend) GetUnitTypes() (map[string]int, error) {
-	if m.GetUnitTypesFunc != nil {
-		return m.GetUnitTypesFunc()
-	}
-	return nil, nil
-}
-
 func (m *MockBackend) GetProjectRootID() (string, error) {
 	if m.GetProjectRootIDFunc != nil {
 		return m.GetProjectRootIDFunc()
