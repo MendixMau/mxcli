@@ -468,6 +468,40 @@ rejects `Microflows$Nanoflow` (*"Did you mean: Microflows$Microflow?"*),
 `Projects$Folder` and `JavaActions$JavaAction`. Two gaps moved — see the gaps table
 for both.
 
+### Workflows: constructor shape, AI agent tasks, handlers (measured live 2026-09-15)
+
+Captured against Studio Pro 11.14 with ako/TestApp open, via `cmd/mcpprobe`
+(`ped_get_schema`, `ped_create_document`, `ped_check_errors`, `ped_read_document`).
+
+- **The `Workflows$Workflow` constructor changed shape.** It takes the context
+  entity as `context: Reference<'DomainModels$Entity'>` and `workflowName` /
+  `caption` as plain strings, and rejects the older payload outright:
+  `{"/context":"Expected reference (string), got undefined","/workflowName":"Expected
+  string, got object"}` — so **every workflow create over MCP failed** on 11.14.
+  The *element* shape used by updates (`/parameter/entity`, `/workflowName/text`) is
+  unchanged. Which release made the change is not established (11.13 was not
+  re-probed), so the backend reads the constructor schema instead of gating on a
+  version (`workflowConstructorTakesContext`).
+- **`Workflows$AIAgentTaskActivity`** has the call-microflow fields — `name`,
+  `caption`, `microflow`, `outcomes`, `parameterMappings`, `boundaryEvents` (timer
+  events, `MaxLength<5, 'CE6696'>`). Created and read back clean.
+- **`onWorkflowEvent`** takes `Workflows$WorkflowEventHandler` (`description`,
+  `documentation`, `eventTypes`, `microflowEventHandler{microflow}`); a user task's
+  `onCreatedEvent` takes `Workflows$MicroflowBasedEvent{microflow}`. The MCP mapper
+  used to send `NoEvent` and no handlers, silently dropping both.
+- **`eventTypes` is a schema enum of the same 42 names** mxcli validates, and PED
+  refuses an invented one at create (`Expected one of [WorkflowCompleted, …]`) —
+  where mxbuild accepts it at 0 errors.
+- **Signature rules match mxbuild, message for message:** an on-created microflow
+  with the handler signature and a handler with the on-created signature each
+  report the CE6683 / CE6691 text; an agent task without parameter mappings reports
+  "The parameters of the selected microflow have changed".
+- **`description` is typed `MinLength<1, 'MW0006'>`**, but a handler with an empty
+  one produced no MW0006 in `ped_check_errors` output — inconclusive whether the tool
+  omits warnings.
+- **The error-list lag bites here too:** both probe documents first checked "No
+  errors found." and reported their errors only on a later call.
+
 ## Capability gaps (established 11.11, status re-checked each release)
 
 These are the *absences* that bound what the backend can do. They are as

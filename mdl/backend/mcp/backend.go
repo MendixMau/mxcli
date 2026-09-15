@@ -64,6 +64,12 @@ type Backend struct {
 	// this session (the contract asks for a schema fetch before create/add).
 	schemaFetched map[string]bool
 
+	// workflowCtorContext caches whether the server's Workflows$Workflow
+	// constructor takes the context entity as `context` (Studio Pro 11.14) rather
+	// than a `parameter` element; nil until probed. See
+	// workflowConstructorTakesContext.
+	workflowCtorContext *bool
+
 	// capsCache memoizes the session's resolved capability set. Every authoring
 	// gate consults it and resolution costs a tools/list round-trip, so it is
 	// computed once per connection.

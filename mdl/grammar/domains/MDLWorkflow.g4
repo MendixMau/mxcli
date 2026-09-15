@@ -136,8 +136,14 @@ workflowUserTaskOutcome
     : STRING_LITERAL LBRACE workflowBody RBRACE
     ;
 
+/**
+ * `call agent microflow` is the AI agent task (Mendix 11.9+): stored as
+ * Workflows$AIAgentTaskActivity, the same shape as a call-microflow activity, and
+ * run by the workflow engine as an agent step. The microflow is where the agent is
+ * invoked.
+ */
 workflowCallMicroflowStmt
-    : CALL MICROFLOW qualifiedName (AS workflowActivityName)? (COMMENT STRING_LITERAL)?
+    : CALL AGENT? MICROFLOW qualifiedName (AS workflowActivityName)? (COMMENT STRING_LITERAL)?
       (WITH LPAREN workflowParameterMapping (COMMA workflowParameterMapping)* RPAREN)?
       (OUTCOMES workflowConditionOutcome+)?
       (BOUNDARY EVENT workflowBoundaryEventClause ((BOUNDARY EVENT)? workflowBoundaryEventClause)*)?
