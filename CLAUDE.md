@@ -526,11 +526,13 @@ defer writer.Close()
 The `api/` package provides a simplified, fluent API inspired by Mendix Web Extensibility Model API:
 
 ```go
-modelAPI := api.New(writer)
-module, _ := modelAPI.Modules.GetModule("MyModule")
-modelAPI.SetModule(module)
+a, err := api.Open("/path/to/project.mpr")   // or api.New(b) over any backend
+defer a.Close()
 
-entity, _ := modelAPI.DomainModels.CreateEntity("Customer").
+module, _ := a.Modules.GetModule("MyModule")
+a.SetModule(module)
+
+entity, _ := a.DomainModels.CreateEntity("Customer").
     persistent().
     WithStringAttribute("Name", 100).
     WithIntegerAttribute("Age").
@@ -538,6 +540,13 @@ entity, _ := modelAPI.DomainModels.CreateEntity("Customer").
 ```
 
 Available namespaces: `DomainModels`, `enumerations`, `microflows`, `pages`, `modules`
+
+It takes a **`backend.FullBackend`, not a `*mpr.Writer`** — it used to hold a concrete legacy
+writer and so bypassed the backend abstraction entirely, which is why `AddAttribute` and
+`UpdateAttribute` sat unimplemented on the codec engine with `api/` as their only caller. The
+practical gain is that the same builders now run against any backend, including a live Studio Pro
+over MCP, which was unreachable before. `Open` owns the connection it makes; a backend passed to
+`New` belongs to the caller and `Close` leaves it alone.
 
 ## Code Style Guidelines
 
@@ -605,7 +614,7 @@ New features that depend on a specific Mendix version must be version-gated:
 - [ ] **Skill updated** — `.claude/skills/version-awareness.md` updated if the feature has a workaround for older versions
 
 ### Backend abstraction compliance
-All executor code must go through the backend abstraction layer — the executor must never import `sdk/mpr` for write paths. See [ADR-0002: Backend Abstraction Layer](docs/13-decisions/0002-backend-abstraction.md) for the context and alternatives. The experimental `modelsdk` engine (behind `MXCLI_ENGINE`) routes **all** document types — domain models included — through the codec, not a codec/legacy hybrid; see [ADR-0004: Full codec engine](docs/13-decisions/0004-full-codec-engine.md). Where the codec path cannot yet reproduce a construct, the backend **refuses** the op rather than dropping data. The backend interface speaks the **semantic model**, not gen/BSON or AST types — gen+codec are the MPR backend's internal storage adapter, one of several (MPR, MCP/PED, a future storage format); see [ADR-0005](docs/13-decisions/0005-semantic-model-interface-currency.md). CREATE is model→gen; fidelity-sensitive ALTER uses backend-internal gen-mutation, not a model round-trip.
+All executor code must go through the backend abstraction layer — the executor must never import `sdk/mpr` for write paths. See [ADR-0002: Backend Abstraction Layer](docs/13-decisions/0002-backend-abstraction.md) for the context and alternatives. The codec (`modelsdk`) engine is the only local engine — the legacy `sdk/mpr` backend was deleted (`docs/plans/2026-09-14-retire-legacy-engine.md`), and `--engine`/`MXCLI_ENGINE` survive only as a warning-only no-op. It routes **all** document types — domain models included — through the codec, not a codec/legacy hybrid; see [ADR-0004: Full codec engine](docs/13-decisions/0004-full-codec-engine.md). Where the codec path cannot yet reproduce a construct, the backend **refuses** the op rather than dropping data. The backend interface speaks the **semantic model**, not gen/BSON or AST types — gen+codec are the MPR backend's internal storage adapter, one of several (MPR, MCP/PED, a future storage format); see [ADR-0005](docs/13-decisions/0005-semantic-model-interface-currency.md). CREATE is model→gen; fidelity-sensitive ALTER uses backend-internal gen-mutation, not a model round-trip.
 - [ ] **No `sdk/mpr` write imports in executor** — executor files must not call `sdk/mpr` writer/parser types directly; use `ctx.Backend.*` instead
 - [ ] **New backend methods on the interface** — any new data access or mutation goes in the appropriate interface in `mdl/backend/` (e.g., `DomainModelBackend`, `MicroflowBackend`), not as a direct SDK call
 - [ ] **MPR implementation in `mdl/backend/mpr/`** — the concrete implementation lives here; all BSON/reader/writer logic stays in this package

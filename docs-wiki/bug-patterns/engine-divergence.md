@@ -12,6 +12,14 @@ sources:
 > ADR-0004 and framed in [[backend-abstraction]]; the per-field fixes live in the
 > findings. This page describes what goes wrong while two implementations exist.
 
+> **Historical, and deliberately kept.** The legacy `sdk/mpr` backend was deleted
+> in 2026-09 (docs/plans/2026-09-14-retire-legacy-engine.md), so no mxcli command
+> can hit this class today. The page stays because the *shape* outlives the pair:
+> the MCP/PED backend is a second implementation of the same interface, a third
+> storage format is anticipated by ADR-0005, and every lesson below is about what
+> happens when two implementations of one interface disagree. Read "the two
+> engines" as "any two backends".
+
 ## What this is
 
 The backend interface has two implementations — the legacy `sdk/mpr` writer and
