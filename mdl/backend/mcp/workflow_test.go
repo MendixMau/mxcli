@@ -366,7 +366,13 @@ func jumpShadowFake(t *testing.T) (*fakePED, *mcpWorkflowMutator) {
 		{"$Type":"Workflows$CallMicroflowTask","name":"Other","caption":"Twin"},
 		{"$Type":"Workflows$CallMicroflowTask","name":"Other2","caption":"Twin"},
 		{"$Type":"Workflows$JumpToActivity","name":"JumpTo","caption":"bugSplitJump","targetActivity":"bugSplitJump"}]`
+	// InsertBoundaryEvent finds the event it added by the persistentId that
+	// appeared, so the boundaryEvents lists must remember what was added.
+	store := newBoundaryEventStore(nil)
 	f := newFakePED(t, func(name string, args map[string]any) (string, bool) {
+		if text, ok := store.handle(name, args); ok {
+			return text, false
+		}
 		if name == "ped_check_errors" {
 			return "No errors found.", false
 		}
