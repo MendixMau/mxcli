@@ -1,11 +1,11 @@
 # Implementation Plan — Retire the legacy engine
 
 **Date:** 2026-09-14
-**Status:** In progress — Phases 1, 2 and the api/ + MCP steps of Phase 3 have landed
-(2026-09-15). What remains is the rest of Phase 3 (the `cmd/mxcli` commands that hold a concrete
-`sdk/mpr` reader on purpose) and Phase 4 (the mongo-driver migration, which those gate).
-See [§7 What landed](#7-what-landed) for the record of what each phase actually did, including the
-two places the plan was wrong.
+**Status:** Phases 1–3 complete (2026-09-15). Phase 3 closed by *deciding* rather than by porting:
+the six remaining abstraction bypasses are raw-unit debugging commands and are **accepted as
+deliberate** — see [§7.4](#phase-3-closed-the-last-six-bypasses-are-accepted). Phase 4 (the
+mongo-driver migration) is the only phase outstanding, and it is what gates deleting `sdk/mpr`.
+See [§7 What landed](#7-what-landed) for the record, including the two places the plan was wrong.
 **Continues:** [`2026-06-05-adopt-modelsdk-engine.md`](2026-06-05-adopt-modelsdk-engine.md), which
 stops at the cutover. That plan still reads as though `legacy` were the default; it is not, and has
 not been since the codec engine took over. This plan covers what the earlier one deferred to
@@ -183,7 +183,12 @@ are almost entirely the MCP protocol surface and are untouched by this.
 
 **Only after step 4 is `sdk/mpr`'s fate a question at all**, and by then it is a small one.
 
-### Phase 4 — mongo-driver v1 → v2 *(Effort: L, Risk: Med — gated on Phase 3)*
+### Phase 4 — mongo-driver v1 → v2 *(superseded by §7.5)*
+
+> **This section's premise did not survive Phase 3.** It opens "with [`sdk/mpr`] gone", and Phase 3
+> closed by *keeping* it. Its sizing is also wrong on its own terms: the v1 files in `mdl/` do not
+> "exist to bridge the two worlds", and do not shrink when `sdk/mpr` goes. See **§7.5**, which
+> re-measures and splits this into two independent migrations. Kept unedited for the record.
 
 Reachable once Phase 3's step 4 settles whether anything still needs `sdk/mpr`. With it gone the
 remaining v1 files are the `mdl/backend/modelsdk` adapter's 44 and `mdl/executor`'s 18 — both exist
@@ -267,7 +272,12 @@ correction is the plan's main lesson:
 `mdl/backend/modelsdk/unimplemented_reachability_test.go` is a **census of who bypasses the
 abstraction**, not dead interface surface. A method is on it *because* some caller reaches it while
 holding a concrete reader or writer, and unreachable *because* that caller does not use a backend
-value. So the list shrinks by closing a bypass, never by deleting methods. It went 11 entries
+value. So the list shrinks by closing a bypass, never by deleting methods.
+
+> **Corrected 2026-09-15 — see [§7.3](#phase-3-step-4-the-census-has-three-causes-not-one).** That
+> last sentence is true of a bypass and false of the other two things on the list. Five of the
+> eleven remaining entries had no caller anywhere, or callers using a different signature, and were
+> deleted rather than ported. It went 11 entries
 lighter over these two steps (5 struck off), and what remains names exactly the work left in
 Phase 3: the `cmd/mxcli` bson/diag/extract-templates commands.
 
@@ -297,3 +307,130 @@ Went as written, at the sizes given. Three things the plan did not anticipate:
   kept as a single-engine test. The doctype gate's engine matrix was *not* deleted: with one entry
   it still turns a stale `MXCLI_TEST_ENGINES=legacy` into a loud failure instead of a gate that
   runs nothing and reports success.
+
+### Phase 3 step 4 — the census has three causes, not one (2026-09-15)
+
+Re-running the probe over what was left produced a correction to the paragraph above, which is the
+part of this plan most likely to be reused and was wrong.
+
+`scripts/backend-reachability.sh` reports **DEAD** for "nothing calls this through a backend
+value". That single verdict covers three situations that want opposite fixes:
+
+| cause | what it means | fix |
+|---|---|---|
+| **bypass** | a caller wants it but holds a concrete reader/writer | port the caller |
+| **orphan** | nothing anywhere calls it, under any type | delete the method |
+| **duplicate** | callers exist, but through a narrower package-local interface with a *different signature* | delete the method |
+
+The probe cannot separate them — that is what a grep for callers under **any** type is for. The
+duplicate case is the one that misleads: the name has plenty of call sites, so it reads as a
+bypass until you compare signatures.
+
+Measured, all six DEAD: the whole **`WidgetSerializationBackend`** interface (`SerializeWidget`,
+`SerializeClientAction`, `SerializeDataSource`, `SerializeWorkflowActivity`), plus `GetUnitTypes`
+and `UpdateLayout`.
+
+- `SerializeWidget` / `SerializeDataSource` are superseded by `WidgetBuilderBackend`'s
+  `SerializeWidgetToOpaque` / `SerializeDataSourceToOpaque` — whose own doc comment says *"This
+  replaces the direct mpr.SerializeWidget call"*, so the supersession was known and the old pair
+  simply never removed.
+- `SerializeClientAction` and `SerializeWorkflowActivity` are reached through `pagemutator` and
+  `wfmutator`'s own `deps` interfaces, which declare them returning `bson.D` rather than
+  `(any, error)`. The `*Backend` copy of `SerializeWorkflowActivity` even carried a comment claiming
+  the ALTER WORKFLOW paths used it; they use `codecWorkflowDeps`.
+- `GetUnitTypes` exists only on `modelsdk/mpr.Reader`; `UpdateLayout` was superseded by the page
+  mutator when ALTER LAYOUT landed.
+
+Deleted from the interface, both generated stub files regenerated (276 → 270 methods), mock stubs
+dropped. **Census 11 → 6**, and all six that remain are genuine bypasses — the `cmd/mxcli`
+bson/diag/extract-templates commands and `examples/read_project`, which hold a concrete reader
+deliberately. Whether those should be ported at all is the open question for the rest of Phase 3;
+they are debugging tools whose whole job is raw access, so "leave them" is a defensible answer that
+the earlier framing did not allow for.
+
+### Phase 3 closed — the last six bypasses are accepted (2026-09-15)
+
+After the orphans and duplicates were deleted, the census held six entries and they were all the
+same kind of caller: `cmd/mxcli`'s `bson dump` / `bson discover` / `diag` / `extract-templates` and
+`examples/read_project`. Every one is a **raw-unit debugging or export command**, holding a concrete
+`sdk/mpr` reader because raw access is the thing it exists to provide.
+
+Porting them was considered and **declined**. The backend interface speaks the semantic model by
+[ADR-0005](../13-decisions/0005-semantic-model-interface-currency.md); routing a BSON dumper through
+it would either widen that interface with raw accessors — undoing the decision — or make the tools
+worse at their only job. The earlier framing ("the list shrinks by closing a bypass") did not offer
+this option, which is a second way that framing was too narrow: some bypasses are correct.
+
+`unreachableUnimplemented` therefore becomes a **standing record rather than a to-do list**, and its
+header says so. It keeps its value as a tripwire: a *new* entry still means either a new bypass
+appeared or a method was added that nothing calls, and the fix depends on which — establish the
+cause rather than adding a row to silence the failure.
+
+**`sdk/mpr` does not go away with this — and it is imported far more widely than the census
+suggests.** The census tracks `FullBackend` *methods* with no caller through a backend value; it
+says nothing about who imports the package. Measured: **28 non-test files** import `sdk/mpr`,
+including `cmd/mxcli/docker/` (7 files in the run/build pipeline), two `mdl/executor` validators,
+and — most consequentially — **`modelsdk.go`, the published library's root API**, whose `Reader` and
+`Writer` are type *aliases* to `sdk/mpr`'s. An earlier draft of this section said "those six
+commands still import it", which was wrong by a factor of four and pointed at the wrong files.
+
+What Phase 3 delivered is narrower and still worth having: no *engine* path reaches `sdk/mpr`. The
+executor's write paths, the backends and `api/` are clean. Removing the serializer is Phase 4's
+job, and §7.5 measures what that actually takes.
+
+### Phase 4 re-measured — it is two independent migrations, not one (2026-09-15)
+
+§4's Phase 4 assumed one job, gated on `sdk/mpr` being gone. Measuring it after Phase 3 closed
+shows **two migrations that do not gate each other**, and the one worth doing first is not the
+driver migration at all.
+
+**Where v1 actually lives** (249 files import v1, 174 import v2; only **6** import both, all of them
+in `mdl/backend/modelsdk`, and the crossing is safe because the interchange is *bytes* — v1
+`Marshal` → `v2.Raw`, and BSON bytes carry no driver version):
+
+| tree | v1 | v2 | what it is |
+|---|---|---|---|
+| `modelsdk/` | 0 | 116 | the codec — already pure v2 |
+| `sdk/` | 117 | 0 | the legacy serializer |
+| `mdl/` | 107 | 58 | mixed; the mutator layer is v1 |
+| `cmd/`, `examples/`, `scripts/`, `model/` | 25 | 0 | callers |
+
+#### 4a — port the 28 `sdk/mpr` callers (the one that pays)
+
+**23 of the 28 use only `mpr.Open`.** The dependency is overwhelmingly on one read-only
+constructor, not on the serializer's 41k lines. The rest use `mpr.NewWriter` (6) or a small helper
+(`GenerateID`, `BlobToUUID`, `MPRVersionV`, `ParseMicroflowBSON`).
+
+The naive objection is that `sdk/mpr.Reader` has **140 methods** and `modelsdk/mpr.Reader` has
+**47**, so the port looks impossible. That is the same wrong comparison the MCP port already
+disproved: `modelsdk/mpr` is a *raw/unit* reader and the semantic decoding is a layer up, on the
+**codec backend**. Every method these callers invoke — `ListModules`, `GetDomainModel`,
+`ListMicroflows`, `GetProjectSecurity` … — is a `FullBackend` method.
+
+So 4a is **the MCP port repeated**: swap `mpr.Open(path)` for `modelsdkbackend.New()` +
+`ConnectReadOnly(path)`. That move is already written, already tested, and already has a read-only
+guard with a revert control.
+
+**Its one real gate is `modelsdk.go`.** The published library's `Reader` and `Writer` are type
+aliases to `sdk/mpr`'s, so the root API *is* the legacy serializer. Changing it is a breaking change
+of a different order from `api.New`'s — that one had zero in-repo callers and a fluent surface that
+did not move; this one is the documented entry point in README and CLAUDE.md. **Decide this before
+starting 4a**, not during.
+
+#### 4b — convert `mdl/`'s mutator layer to v2
+
+`mdl/backend/modelsdk` has **19 non-test v1 files**, using `bson.D` (70), `bson.A` (25),
+`bson.M` (14), `Marshal`/`Unmarshal` (29). These are not a bridge to `sdk/mpr` and **do not shrink
+when it goes** — §4's sizing claim is wrong here. They are v1 because the *mutator layer's*
+currency is v1 `bson.D`: `pagemutator`, `wfmutator` and `widgetobj` all declare their `deps`
+interfaces in those terms, and the codec backend implements them.
+
+That makes 4b independent of 4a and of the serializer entirely. It is also the half with **no
+user-visible benefit until both are done**, since v1 leaves `go.mod` only when the last importer
+does.
+
+#### Recommended order
+
+**4a, then the `modelsdk.go` decision, then 4c (delete `sdk/mpr`), then 4b.** 4a is a proven move
+that deletes 41k lines; 4b is internal churn whose payoff is gated on 4a finishing anyway. Doing 4b
+first would convert a mutator layer that 4c might reshape.

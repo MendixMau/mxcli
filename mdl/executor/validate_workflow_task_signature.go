@@ -107,6 +107,10 @@ func newWorkflowTaskSignatureChecker(ctx *ExecContext, sc *scriptContext) *workf
 func (c *workflowTaskSignatureChecker) checkActivities(activities []ast.WorkflowActivityNode, contextEntity string) []string {
 	var errs []string
 	walkWorkflowActivities(activities, func(a ast.WorkflowActivityNode) {
+		if cm, ok := a.(*ast.WorkflowCallMicroflowNode); ok && cm.Agent {
+			errs = appendIfSet(errs, c.checkAgentMicroflow("AI agent task "+workflowCallMicroflowLabel(cm), cm.Microflow.String()))
+			return
+		}
 		n, ok := a.(*ast.WorkflowUserTaskNode)
 		if !ok {
 			return

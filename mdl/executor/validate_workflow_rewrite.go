@@ -48,8 +48,7 @@ func checkNoDroppedWorkflowConstructs(ctx *ExecContext, workflowID model.ID, qua
 
 	// Constructs MDL cannot express at all. A rebuild writes the default for
 	// each — measured on ako/TestApp (11.14.0): a completion rule becomes
-	// Consensus on the first outcome, and describe shows an AI agent task only as
-	// a comment — so a rewrite loses them without a word. Refused outright, like
+	// Consensus on the first outcome — so a rewrite loses them without a word. Refused outright, like
 	// an event sub-process, and every reason is listed at once.
 	var cannotExpress []string
 	if n := countEventSubProcesses(raw); n > 0 {
@@ -82,6 +81,15 @@ func checkNoDroppedWorkflowConstructs(ctx *ExecContext, workflowID model.ID, qua
 			"workflow %s has %d user task(s) with an on-created microflow but this statement declares %d — rewriting "+
 				"it would reset the difference to none:\n  - %s\n"+
 				"  Restate them (`on created microflow …`), which `describe workflow %s` now emits, or use ALTER "+
+				"WORKFLOW to change one activity at a time.",
+			qualifiedName, len(stored), authored, strings.Join(stored, "\n  - "), qualifiedName))
+	}
+
+	if stored, authored := rawAgentTasks(raw), countAuthoredAgentTasks(stmt.Activities); len(stored) > authored {
+		return mdlerrors.NewUnsupported(fmt.Sprintf(
+			"workflow %s has %d AI agent task(s) but this statement declares %d — rewriting it would delete the "+
+				"difference, along with each one's outcome flows:\n  - %s\n"+
+				"  Restate them (`call agent microflow …`), which `describe workflow %s` now emits, or use ALTER "+
 				"WORKFLOW to change one activity at a time.",
 			qualifiedName, len(stored), authored, strings.Join(stored, "\n  - "), qualifiedName))
 	}
@@ -200,7 +208,7 @@ func countAuthoredBoundaryEvents(activities []ast.WorkflowActivityNode) int {
 }
 
 // studioProOnlyWorkflowState lists what a stored workflow holds that a rebuild
-// from MDL would reset: AI agent tasks, a workflow event handler subscribed to no
+// from MDL would reset: a workflow event handler subscribed to no
 // event types (the grammar has no empty list), and per activity a completion rule
 // other than the one mxcli writes.
 func studioProOnlyWorkflowState(raw map[string]any) []string {
@@ -221,11 +229,6 @@ func studioProOnlyWorkflowState(raw map[string]any) []string {
 		}
 	}
 	walkRawDocs(raw, func(d map[string]any) {
-		if t, _ := d["$Type"].(string); t == "Workflows$AIAgentTaskActivity" {
-			name, _ := d["Name"].(string)
-			out = append(out, fmt.Sprintf("AI agent task '%s', which describe shows only as a comment and it would delete", name))
-			return
-		}
 		out = append(out, rawActivityState(d)...)
 	})
 	return out
@@ -337,6 +340,19 @@ func rawHandlerLabel(h map[string]any) string {
 		return fmt.Sprintf("'%s' (microflow %s)", d, orUnnamed(microflow))
 	}
 	return "running microflow " + orUnnamed(microflow)
+}
+
+// rawAgentTasks labels each stored AI agent task.
+func rawAgentTasks(raw map[string]any) []string {
+	var out []string
+	walkRawDocs(raw, func(d map[string]any) {
+		if t, _ := d["$Type"].(string); t == "Workflows$AIAgentTaskActivity" {
+			name, _ := d["Name"].(string)
+			mf, _ := d["Microflow"].(string)
+			out = append(out, fmt.Sprintf("AI agent task '%s' (microflow %s)", name, orUnnamed(mf)))
+		}
+	})
+	return out
 }
 
 // rawOnCreatedMicroflows labels each stored user task that runs an on-created

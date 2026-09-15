@@ -24,7 +24,8 @@ func (b *Backend) CreateWorkflow(wf *workflows.Workflow) error {
 	if err != nil {
 		return fmt.Errorf("resolve container for workflow %q: %w", wf.Name, err)
 	}
-	content, err := b.mapWorkflow(wf)
+	contextShape := b.workflowConstructorTakesContext()
+	content, err := b.mapWorkflowContent(wf, contextShape)
 	if err != nil {
 		return err
 	}
@@ -33,6 +34,22 @@ func (b *Backend) CreateWorkflow(wf *workflows.Workflow) error {
 	}
 	if err := b.pedCreateDocument(moduleName, workflowDocType, wf.Name, content, folderPath); err != nil {
 		return err
+	}
+	if contextShape {
+		// The context-shaped constructor has no documentation or description;
+		// both are leaves of the created element.
+		var ops []pedOpEntry
+		if wf.Documentation != "" {
+			ops = append(ops, pedOpEntry{Path: "/documentation", Operation: pedOperation{Type: "set", Value: wf.Documentation}})
+		}
+		if wf.WorkflowDescription != "" {
+			ops = append(ops, pedOpEntry{Path: "/workflowDescription/text", Operation: pedOperation{Type: "set", Value: wf.WorkflowDescription}})
+		}
+		if len(ops) > 0 {
+			if err := b.pedUpdateDoc(workflowDocType, moduleName+"."+wf.Name, ops...); err != nil {
+				return err
+			}
+		}
 	}
 	if wf.ID == "" {
 		wf.ID = model.ID("mcp~workflow~" + moduleName + "~" + wf.Name)
@@ -70,6 +87,10 @@ func (b *Backend) UpdateWorkflow(wf *workflows.Workflow) error {
 	if err != nil {
 		return err
 	}
+	storedHandlers, err := b.workflowListCount(qn, "/onWorkflowEvent")
+	if err != nil {
+		return err
+	}
 
 	var ops []pedOpEntry
 	// Drop the original middle activities (indices 1..n-2, high→low; index 0 is
@@ -85,6 +106,15 @@ func (b *Backend) UpdateWorkflow(wf *workflows.Workflow) error {
 	for i := len(middles) - 1; i >= 0; i-- {
 		afterStart := 1
 		ops = append(ops, pedOpEntry{Path: "/flow/activities", Operation: pedOperation{Type: "add", Value: middles[i], Index: &afterStart}})
+	}
+
+	// Event handlers: replace the stored list with the statement's. The executor's
+	// rewrite guard has already refused a statement declaring fewer than are stored.
+	for i := storedHandlers - 1; i >= 0; i-- {
+		ops = append(ops, removeAtOp("/onWorkflowEvent", i))
+	}
+	for _, h := range mapWorkflowEventHandlers(wf.EventHandlers) {
+		ops = append(ops, pedOpEntry{Path: "/onWorkflowEvent", Operation: pedOperation{Type: "add", Value: h}})
 	}
 
 	title := wf.WorkflowName
@@ -130,10 +160,16 @@ func stripStartEnd(acts []any) []any {
 
 // workflowActivityCount returns the number of top-level activities in a workflow's flow.
 func (b *Backend) workflowActivityCount(qn string) (int, error) {
+	return b.workflowListCount(qn, "/flow/activities")
+}
+
+// workflowListCount returns the number of elements in a list property of a
+// stored workflow, addressed by JSON pointer.
+func (b *Backend) workflowListCount(qn, path string) (int, error) {
 	res, err := b.client.CallTool("ped_read_document", map[string]any{
 		"documentType": workflowDocType,
 		"documentName": qn,
-		"paths":        []string{"/flow/activities"},
+		"paths":        []string{path},
 	})
 	if err != nil {
 		return 0, err
@@ -212,11 +248,65 @@ func (b *Backend) GetWorkflow(id model.ID) (*workflows.Workflow, error) {
 	return b.reader.GetWorkflow(id)
 }
 
-// mapWorkflow maps the executor's Workflow onto the PED Workflows$Workflow content.
+// workflowConstructorTakesContext reports whether the connected server's
+// Workflows$Workflow constructor takes the context entity as `context` with a
+// plain-string workflowName and caption. Studio Pro 11.14 does, and rejects the
+// older shape outright — measured live: `"/context":"Expected reference (string),
+// got undefined","/workflowName":"Expected string, got object"`, so every workflow
+// create over MCP failed. Which release changed it is not established, so the
+// shape is read off the live constructor schema rather than a version number.
+// The probe doubles as the schema fetch PED asks for before a create.
+func (b *Backend) workflowConstructorTakesContext() bool {
+	if b.workflowCtorContext != nil {
+		return *b.workflowCtorContext
+	}
+	takes := false
+	if b.client != nil {
+		res, err := b.client.CallTool("ped_get_schema", map[string]any{"elementTypes": []string{workflowDocType}})
+		if err == nil && res != nil && !res.IsError {
+			takes = strings.Contains(res.Text, "context: Reference<'DomainModels$Entity'")
+			if b.schemaFetched == nil {
+				b.schemaFetched = map[string]bool{}
+			}
+			b.schemaFetched[workflowDocType] = true
+		}
+	}
+	b.workflowCtorContext = &takes
+	return takes
+}
+
+// mapWorkflow maps the executor's Workflow onto the PED Workflows$Workflow content
+// in the parameter-element shape.
 func (b *Backend) mapWorkflow(wf *workflows.Workflow) (map[string]any, error) {
+	return b.mapWorkflowContent(wf, false)
+}
+
+// mapWorkflowContent maps the executor's Workflow onto PED constructor content,
+// in the context shape (Studio Pro 11.14: `context`, `caption`, string
+// `workflowName`) or the parameter-element shape older servers take.
+func (b *Backend) mapWorkflowContent(wf *workflows.Workflow, contextShape bool) (map[string]any, error) {
 	flow, err := b.mapWorkflowFlow(wf.Flow)
 	if err != nil {
 		return nil, err
+	}
+	if contextShape {
+		title := wf.WorkflowName
+		if title == "" {
+			title = wf.Name
+		}
+		content := map[string]any{
+			"name":         wf.Name,
+			"caption":      title,
+			"workflowName": wf.WorkflowName,
+			"flow":         flow,
+		}
+		if wf.Parameter != nil {
+			content["context"] = wf.Parameter.EntityRef
+		}
+		if len(wf.EventHandlers) > 0 {
+			content["onWorkflowEvent"] = mapWorkflowEventHandlers(wf.EventHandlers)
+		}
+		return content, nil
 	}
 	title := wf.WorkflowName
 	if title == "" {
@@ -231,6 +321,9 @@ func (b *Backend) mapWorkflow(wf *workflows.Workflow) (map[string]any, error) {
 		"workflowName":        mapWorkflowStringTemplate(wf.WorkflowName),
 		"workflowDescription": mapWorkflowStringTemplate(wf.WorkflowDescription),
 		"workflowV2":          false,
+	}
+	if len(wf.EventHandlers) > 0 {
+		content["onWorkflowEvent"] = mapWorkflowEventHandlers(wf.EventHandlers)
 	}
 	if wf.Parameter != nil {
 		content["parameter"] = map[string]any{
@@ -296,8 +389,15 @@ func mapWorkflowActivity(a workflows.WorkflowActivity) (map[string]any, error) {
 		}
 		// PED's element type is CallMicroflowActivity (the on-disk BSON $Type is
 		// the older CallMicroflowTask — they differ).
+		// An AI agent task has the same PED shape under its own element type
+		// (ped_get_schema, Studio Pro 11.14: name, caption, microflow, outcomes,
+		// parameterMappings, boundaryEvents).
+		elementType := "Workflows$CallMicroflowActivity"
+		if act.IsAgent {
+			elementType = "Workflows$AIAgentTaskActivity"
+		}
 		m := map[string]any{
-			"$Type":             "Workflows$CallMicroflowActivity",
+			"$Type":             elementType,
 			"name":              act.Name,
 			"caption":           act.Caption,
 			"microflow":         act.Microflow,
@@ -414,7 +514,7 @@ func mapWorkflowActivity(a workflows.WorkflowActivity) (map[string]any, error) {
 				"pageReference":     act.Page,
 				"participiantInput": "AllTargetUsers",
 				"userTargeting":     mapUserTargeting(act.UserSource),
-				"onCreatedEvent":    map[string]any{"$Type": "Workflows$NoEvent"},
+				"onCreatedEvent":    mapOnCreatedEvent(act.OnCreated),
 				"outcomes":          vals,
 			}
 		} else {
@@ -431,7 +531,7 @@ func mapWorkflowActivity(a workflows.WorkflowActivity) (map[string]any, error) {
 				"taskDescription":            mapWorkflowStringTemplate(act.TaskDescription),
 				"dueDate":                    act.DueDate,
 				"userTargeting":              mapUserTargeting(act.UserSource),
-				"onCreatedEvent":             map[string]any{"$Type": "Workflows$NoEvent"},
+				"onCreatedEvent":             mapOnCreatedEvent(act.OnCreated),
 				"outcomes":                   outcomes,
 				"autoAssignSingleTargetUser": false,
 			}
@@ -443,6 +543,44 @@ func mapWorkflowActivity(a workflows.WorkflowActivity) (map[string]any, error) {
 	default:
 		return nil, fmt.Errorf("workflow activity type %q is not yet supported by the MCP backend", a.ActivityType())
 	}
+}
+
+// mapOnCreatedEvent maps a user task's on-created microflow onto its PED element:
+// Workflows$MicroflowBasedEvent when one is set, Workflows$NoEvent otherwise. This
+// was hard-coded to NoEvent, so an on-created microflow written over MCP was
+// silently dropped.
+func mapOnCreatedEvent(microflow string) map[string]any {
+	if microflow == "" {
+		return map[string]any{"$Type": "Workflows$NoEvent"}
+	}
+	return map[string]any{"$Type": "Workflows$MicroflowBasedEvent", "microflow": microflow}
+}
+
+// mapWorkflowEventHandlers maps a workflow's event handlers onto PED
+// Workflows$WorkflowEventHandler elements. PED types description as
+// MinLength<1, 'MW0006'>: Studio Pro warns on a handler without one.
+func mapWorkflowEventHandlers(handlers []*workflows.WorkflowEventHandler) []any {
+	out := make([]any, 0, len(handlers))
+	for _, h := range handlers {
+		if h == nil {
+			continue
+		}
+		types := make([]any, 0, len(h.EventTypes))
+		for _, t := range h.EventTypes {
+			types = append(types, t)
+		}
+		out = append(out, map[string]any{
+			"$Type":         "Workflows$WorkflowEventHandler",
+			"description":   h.Description,
+			"documentation": h.Documentation,
+			"eventTypes":    types,
+			"microflowEventHandler": map[string]any{
+				"$Type":     "Workflows$MicroflowEventHandler",
+				"microflow": h.Microflow,
+			},
+		})
+	}
+	return out
 }
 
 // mapUserTargeting maps a user task's user source onto its pg targeting element.

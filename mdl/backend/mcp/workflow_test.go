@@ -504,11 +504,15 @@ func TestWFSetActivityProperty(t *testing.T) {
 }
 
 func TestUpdateWorkflow_ReplacesFlowAndProperties(t *testing.T) {
-	f := newFakePED(t, func(name string, _ map[string]any) (string, bool) {
+	f := newFakePED(t, func(name string, args map[string]any) (string, bool) {
 		switch name {
 		case "ped_check_errors":
 			return "No errors found.", false
 		case "ped_read_document":
+			// The stored workflow has no event handlers.
+			if paths, _ := args["paths"].([]any); len(paths) == 1 && paths[0] == "/onWorkflowEvent" {
+				return `{"results":[{"path":"/onWorkflowEvent","result":[]}]}`, false
+			}
 			// The existing flow has 3 activities (Start, X, End).
 			return `{"results":[{"path":"/flow/activities","result":[
 				{"$Type":"Workflows$StartWorkflowActivity"},

@@ -156,6 +156,13 @@ func workflowActivityFromGen(el element.Element) workflows.WorkflowActivity {
 		t.Outcomes = conditionOutcomesFromGen(a.OutcomesItems())
 		t.ParameterMappings = microflowParamMappingsFromGen(a.ParameterMappingsItems())
 		return t
+	case *genWf.AIAgentTaskActivity:
+		t := &workflows.CallMicroflowTask{IsAgent: true, Microflow: a.MicroflowQualifiedName()}
+		setWfBase(&t.BaseWorkflowActivity, a.ID(), a.Name(), a.Caption(), a.Annotation(), "Workflows$AIAgentTaskActivity")
+		t.BoundaryEvents = boundaryEventsFromGen(a.BoundaryEventsItems())
+		t.Outcomes = conditionOutcomesFromGen(a.OutcomesItems())
+		t.ParameterMappings = microflowParamMappingsFromGen(a.ParameterMappingsItems())
+		return t
 	case *genWf.CallMicroflowActivity:
 		t := &workflows.CallMicroflowTask{Microflow: a.MicroflowQualifiedName()}
 		setWfBase(&t.BaseWorkflowActivity, a.ID(), a.Name(), a.Caption(), a.Annotation(), "Workflows$CallMicroflowActivity")
