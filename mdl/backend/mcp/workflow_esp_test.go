@@ -143,14 +143,16 @@ func TestMapWorkflowContent_InterruptingNotificationInSplitNeedsJump(t *testing.
 	}
 }
 
-// applyUserTaskBoundaryEvents adds a single user task's notification boundary
-// events, at any depth, when the constructor left the stored list empty, and adds
-// nothing when it did not. Timer events are left alone.
+// applyUserTaskBoundaryEvents adds a single user task's boundary events — timer
+// and notification, one add each — at any depth, when the constructor left the
+// stored list empty, and reports where each landed; it adds nothing when the list
+// was kept.
 func TestApplyUserTaskBoundaryEvents(t *testing.T) {
 	task := func(name string) *workflows.UserTask {
 		return &workflows.UserTask{BaseWorkflowActivity: wfBase(name, name),
 			BoundaryEvents: []*workflows.BoundaryEvent{
-				{EventType: "InterruptingTimer", TimerDelay: "addDays([%CurrentDateTime%], 3)"},
+				{EventType: "InterruptingTimer", TimerDelay: "addDays([%CurrentDateTime%], 3)",
+					Flow: &workflows.Flow{Activities: []workflows.WorkflowActivity{&workflows.EndWorkflowActivity{BaseWorkflowActivity: wfBase(name+"Timeout", "End")}}}},
 				{EventType: "NonInterruptingNotification", Name: name + "Nudge", Caption: "Nudge",
 					Flow: &workflows.Flow{Activities: []workflows.WorkflowActivity{&workflows.EndOfBoundaryEventPathActivity{BaseWorkflowActivity: wfBase(name+"End", "")}}}},
 			}}
@@ -169,38 +171,52 @@ func TestApplyUserTaskBoundaryEvents(t *testing.T) {
 			task("nested"),
 		}}}},
 	}
+	const top, nested = "/flow/activities/1", "/eventSubProcesses/0/flow/activities/1"
 	for _, storedAlready := range []bool{false, true} {
+		var initial map[string][]map[string]any
+		if storedAlready {
+			kept := []map[string]any{{"$Type": "Workflows$InterruptingTimerBoundaryEvent", "persistentId": "kept"}}
+			initial = map[string][]map[string]any{top + "/boundaryEvents": kept, nested + "/boundaryEvents": kept}
+		}
+		store := newBoundaryEventStore(initial)
 		f := newFakePED(t, func(name string, args map[string]any) (string, bool) {
-			if name == "ped_read_document" {
-				paths, _ := args["paths"].([]any)
-				result := "[]"
-				if storedAlready {
-					result = `[{"$Type":"Workflows$InterruptingTimerBoundaryEvent"}]`
-				}
-				return `{"results":[{"path":"` + paths[0].(string) + `","result":` + result + `}]}`, false
+			if text, ok := store.handle(name, args); ok {
+				return text, false
 			}
 			return "SUCCESS", false
 		})
 		b := &Backend{client: f.connectClient(t)}
-		if err := b.applyUserTaskBoundaryEvents("M.W", wf); err != nil {
+		order, err := b.applyUserTaskBoundaryEvents("M.W", wf)
+		if err != nil {
 			t.Fatal(err)
 		}
-		added := map[string]int{}
+		added := map[string][]string{}
 		for _, c := range f.calls {
 			if c.Name != "ped_update_document" {
 				continue
 			}
-			for _, o := range c.Args["operations"].([]any) {
+			ops := c.Args["operations"].([]any)
+			if len(ops) != 1 {
+				t.Errorf("events must be added one per update, got %d ops", len(ops))
+			}
+			for _, o := range ops {
 				entry := o.(map[string]any)
-				added[entry["path"].(string)]++
+				el := entry["operation"].(map[string]any)["value"].(map[string]any)
+				added[entry["path"].(string)] = append(added[entry["path"].(string)], el["$Type"].(string))
 			}
 		}
-		want := map[string]int{"/flow/activities/1/boundaryEvents": 1, "/eventSubProcesses/0/flow/activities/1/boundaryEvents": 1}
+		both := []string{"Workflows$InterruptingTimerBoundaryEvent", "Workflows$NonInterruptingNotificationBoundaryEvent"}
+		want := map[string][]string{top + "/boundaryEvents": both, nested + "/boundaryEvents": both}
+		// The store prepends, so the first event added ends up second.
+		wantOrder := eventOrder{top: {1, 0}, nested: {1, 0}}
 		if storedAlready {
-			want = map[string]int{}
+			want, wantOrder = map[string][]string{}, eventOrder{}
 		}
 		if !reflect.DeepEqual(added, want) {
 			t.Errorf("stored already %v: added %v, want %v (a multi-user task keeps its events)", storedAlready, added, want)
+		}
+		if !reflect.DeepEqual(order, wantOrder) {
+			t.Errorf("stored already %v: order %v, want %v", storedAlready, order, wantOrder)
 		}
 	}
 }
@@ -253,12 +269,17 @@ func TestUpdateWorkflow_ReplacesEventSubProcesses(t *testing.T) {
 	if err := b.UpdateWorkflow(wf); err != nil {
 		t.Fatalf("UpdateWorkflow: %v", err)
 	}
-	call, ok := f.callByName("ped_update_document")
-	if !ok {
+	var ops []any
+	for _, c := range f.calls {
+		if c.Name == "ped_update_document" {
+			ops = append(ops, c.Args["operations"].([]any)...)
+		}
+	}
+	if len(ops) == 0 {
 		t.Fatal("no ped_update_document sent")
 	}
 	var adds, removes int
-	for _, o := range call.Args["operations"].([]any) {
+	for _, o := range ops {
 		entry := o.(map[string]any)
 		if path, _ := entry["path"].(string); !strings.HasPrefix(path, "/eventSubProcesses") {
 			continue

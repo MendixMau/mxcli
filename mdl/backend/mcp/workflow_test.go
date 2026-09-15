@@ -149,8 +149,10 @@ func TestMapUserTaskWithBoundaryEvent(t *testing.T) {
 	if len(be) != 1 {
 		t.Fatalf("boundaryEvents: %+v", m["boundaryEvents"])
 	}
+	// The delay is not a constructor property (ped_get_schema, Studio Pro 11.14);
+	// applyTimerBoundaryEvents sets it once the event is stored.
 	e0, _ := be[0].(map[string]any)
-	if e0["$Type"] != "Workflows$InterruptingTimerBoundaryEvent" || e0["firstExecutionTime"] != "addHours([%CurrentDateTime%], 2)" {
+	if _, has := e0["firstExecutionTime"]; e0["$Type"] != "Workflows$InterruptingTimerBoundaryEvent" || has {
 		t.Fatalf("boundary event: %+v", e0)
 	}
 }
@@ -328,10 +330,15 @@ func wfMutatorFake(t *testing.T) (*fakePED, *mcpWorkflowMutator) {
 			{"$Type":"Workflows$BooleanConditionOutcome","value":false}]`,
 		"/flow/activities/2/outcomes": `[{"$Type":"Workflows$ParallelSplitOutcome"},
 			{"$Type":"Workflows$ParallelSplitOutcome"},{"$Type":"Workflows$ParallelSplitOutcome"}]`,
-		"/flow/activities/0/userTargeting":  `{"$Type":"Workflows$XPathUserTargeting"}`,
-		"/flow/activities/0/boundaryEvents": `[{"$Type":"Workflows$InterruptingTimerBoundaryEvent"}]`,
+		"/flow/activities/0/userTargeting": `{"$Type":"Workflows$XPathUserTargeting"}`,
 	}
+	store := newBoundaryEventStore(map[string][]map[string]any{
+		"/flow/activities/0/boundaryEvents": {{"$Type": "Workflows$InterruptingTimerBoundaryEvent", "persistentId": "stored-0"}},
+	})
 	f := newFakePED(t, func(name string, args map[string]any) (string, bool) {
+		if text, ok := store.handle(name, args); ok {
+			return text, false
+		}
 		if name == "ped_check_errors" {
 			return "No errors found.", false
 		}
@@ -359,7 +366,13 @@ func jumpShadowFake(t *testing.T) (*fakePED, *mcpWorkflowMutator) {
 		{"$Type":"Workflows$CallMicroflowTask","name":"Other","caption":"Twin"},
 		{"$Type":"Workflows$CallMicroflowTask","name":"Other2","caption":"Twin"},
 		{"$Type":"Workflows$JumpToActivity","name":"JumpTo","caption":"bugSplitJump","targetActivity":"bugSplitJump"}]`
+	// InsertBoundaryEvent finds the event it added by the persistentId that
+	// appeared, so the boundaryEvents lists must remember what was added.
+	store := newBoundaryEventStore(nil)
 	f := newFakePED(t, func(name string, args map[string]any) (string, bool) {
+		if text, ok := store.handle(name, args); ok {
+			return text, false
+		}
 		if name == "ped_check_errors" {
 			return "No errors found.", false
 		}
@@ -526,11 +539,14 @@ func TestWFBoundaryEvent(t *testing.T) {
 	for _, want := range []string{
 		`"path":"/flow/activities/0/boundaryEvents"`, `"type":"add"`,
 		`"$Type":"Workflows$NonInterruptingTimerBoundaryEvent"`,
-		`"firstExecutionTime":"addHours([%CurrentDateTime%], 1)"`,
 	} {
 		if !strings.Contains(ops, want) {
 			t.Errorf("insert boundary event missing %s: %s", want, ops)
 		}
+	}
+	// Its delay is set where it landed (the fake prepends), in a second update.
+	if got := recordedOps(t, f); len(got) != 4 || got[3] != `set /flow/activities/0/boundaryEvents/0/firstExecutionTime "addHours([%CurrentDateTime%], 1)"` {
+		t.Errorf("delay not set on the inserted event: %v", got)
 	}
 	// DROP removes index 0.
 	f2, m2 := wfMutatorFake(t)
@@ -603,18 +619,23 @@ func TestUpdateWorkflow_ReplacesFlowAndProperties(t *testing.T) {
 	if err := b.UpdateWorkflow(wf); err != nil {
 		t.Fatalf("UpdateWorkflow: %v", err)
 	}
-	call, ok := f.callByName("ped_update_document")
-	if !ok {
+	// Adds and removes go in separate updates (see UpdateWorkflow).
+	var ops []any
+	for _, c := range f.calls {
+		if c.Name == "ped_update_document" {
+			ops = append(ops, c.Args["operations"].([]any)...)
+		}
+	}
+	if len(ops) == 0 {
 		t.Fatal("no ped_update_document sent")
 	}
-	ops, _ := call.Args["operations"].([]any)
 	var adds, removes int
 	for _, o := range ops {
 		op, _ := o.(map[string]any)["operation"].(map[string]any)
 		switch op["type"] {
 		case "add":
 			adds++
-			// Middles are inserted just after Start (index 1), in reverse order.
+			// Middles are inserted just after Start (index 1), in statement order.
 			if idx, _ := op["index"].(float64); idx != 1 {
 				t.Errorf("flow-replace add must target index 1, got %v", op["index"])
 			}

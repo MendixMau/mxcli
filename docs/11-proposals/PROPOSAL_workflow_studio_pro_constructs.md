@@ -369,14 +369,60 @@ and `ped_read_document`):
 | interrupting notification event inside a parallel split, path ending in `jump to` | stored as sent |
 | the same path ending in the end-of-path marker | refused: the constructor appends a jump with no target after it |
 | interrupting **timer** event, path ending in the marker / `end workflow` / `jump to` | End appended after the marker (refused) / stored / **jump replaced by an End**; every one "Missing value for parameter 'Timer'" |
+| non-interrupting **timer** event, path ending in the marker / `jump to` | stored / marker appended after the jump, "It is not possible to jump into or out of a Non interrupting timer boundary event path"; both "Missing value for parameter 'Timer'" |
+| `set` of `<event>/firstExecutionTime` after the write, either timer kind | stored, "No errors found." |
+| on an interrupting timer outside a split, `remove` of the End then `add` of the jump | stored, "No errors found." |
+| the same, swapping the End for the end-of-path marker | refused at update: CE0105 |
+| any `ped_update_document` while one boundary path is malformed | refused: the whole document is re-validated (MW0002 / CE6689) |
+| three `add`s to an empty `boundaryEvents` — I, NI-A, NI-B, one batch | stored **NI-B, NI-A, I**; `add`s at index 0 in reverse gave yet another order |
 
 The interrupting constructors normalize the path's terminator — End outside a
-split, jump inside one, removing the other — and the interrupting timer
-constructor has no `firstExecutionTime` at all. mxbuild 11.13 builds every one of
-these paths, so the rules are Studio Pro's. For notification events the MCP
-backend refuses each shape the constructor would rewrite, naming the ending it
-needs, and re-adds a single user task's notification events after every create
-and update. The timer-event losses predate this phase and are tracked separately.
+split, jump inside one, removing the other — and **neither** timer constructor has
+`firstExecutionTime` (ped_get_schema). mxbuild 11.13 builds every one of these
+paths, so the rules are Studio Pro's. The MCP backend:
+
+- refuses before sending each path Studio Pro rewrites or rejects, naming the
+  ending it needs — for timers: an interrupting one running to its end (`{ }`), an
+  interrupting one in a split not ending in `jump to`, a non-interrupting one ending
+  in `jump to`. Refusing up front is required, not just clearer: once one path is
+  malformed, every later update of the document fails, the delays included;
+- tells an interrupting timer's constructor `isInsideOfParallelSplit`, as for
+  notification events (without it, a jump in a split was stored as an End);
+- after every create and update, sets each timer's `firstExecutionTime` and puts
+  back a jump the interrupting constructor replaced outside a split;
+- re-adds a single user task's events — timer and notification — one `add` at a
+  time, finding each by the `persistentId` that appeared. An `add` does not append,
+  and finishing a timer at an assumed index put each delay on the other event while
+  `ped_check_errors` reported no errors;
+- does the same for `alter workflow … insert boundary event`.
+
+A notification event's jump outside a split is still refused: restoring it the
+way a timer's is has not been measured.
+
+#### List operations: one batch is not applied in the order sent
+
+`create or modify workflow` stored its activities reversed, left an old activity
+in and dropped a new one; `alter workflow … replace activity` changed nothing.
+Raw PED calls on a probe workflow (Studio Pro 11.14), each read back:
+
+| Batch on a list | Stored |
+|---|---|
+| [S, a, b, E]: remove @2, @1, add C, B, A each @1 — what a rewrite sent | S, B, A, a, E |
+| add P @1, Q @1 | P, Q in that order |
+| on [S, P, Q, …]: add R @1, S2 @2 | S, R, P, S2, Q |
+| on [S, R, P, S2, E]: add I1 @2, I2 @3 — what a multi-activity insert sent | S, R, I1, P, I2, S2, E |
+| on [S, I1, P, I2, E]: remove @2, add K1 @2, K2 @3 — what a replace sent | S, I1, P, K2, I2, E |
+| index-less adds A, B to empty event sub-processes / boundary events | reversed |
+| adds in one update, the removes in the next | as intended |
+
+Every row fits one rule: a batch's ops run highest index first, and at one index
+the adds go in as a block, in op order, before the removes. The MCP backend
+therefore never adds to and removes from a list in one batch: a rewrite adds the
+statement's flow middles (at 1), event sub-processes and handlers (at 0) in their
+own order, then removes the stored ones in a second update; a replace adds after
+the activity, then removes it. Adding first means a failure between the two leaves
+duplicates, not a workflow without its activities. The fake PED's list simulator
+(`pedListSim`) implements the rule and replays every row above.
 
 ## Phase 4b — notify targets (implemented)
 
