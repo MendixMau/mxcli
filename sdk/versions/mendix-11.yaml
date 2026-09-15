@@ -200,6 +200,10 @@ features:
       min_version: "11.11.0"
       mdl: "NOTIFICATION Received; … BOUNDARY EVENT INTERRUPTING NOTIFICATION Withdrawn { … }"
       notes: "Workflows$NotificationActivity and (Non)InterruptingNotificationBoundaryEvent: TypeCacheUnknownTypeException on the 11.10 mxbuild, load on 11.11, 11.12 and 11.13."
+    notify_target:
+      min_version: "11.7.0"
+      mdl: "$Notified = NOTIFY WORKFLOW $Workflow TARGET Module.Workflow.espCancelStart;"
+      notes: "NotifyWorkflowAction.notifyTarget introduced in 11.7.0 (modelsdk gen), replacing Activity. Not a refusal: before 11.7 mxcli writes the Activity form. A notify with no target is CE0166 on 11.6, 11.10 and 11.13."
 
   navigation:
     profiles:

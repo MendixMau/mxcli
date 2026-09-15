@@ -238,6 +238,14 @@ USER TASK Review 'Review'
 
 An activity may carry only one interrupting boundary event (CE6697). `ALTER WORKFLOW … INSERT BOUNDARY EVENT` cannot add a notification boundary event yet.
 
+A microflow reaches any of these with `NOTIFY WORKFLOW`, naming the element:
+
+```sql
+$Notified = NOTIFY WORKFLOW $Workflow TARGET HR.Leave.Withdrawn;
+```
+
+The target is required — a notify without one fails the build (CE0166). It may name a notification activity, a notification boundary event, a wait for notification, or the start of a notification-started event sub-process; mxcli works out which, and refuses anything a notification cannot reach.
+
 ## Event Sub-Processes
 
 A flow outside the main flow, started by its own start event while the workflow runs. Written after the main body, before `END WORKFLOW`:
