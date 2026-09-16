@@ -1,0 +1,65 @@
+-- ============================================================================
+-- ako/mxcli#490 — ReadOnlyStyle on a check box reaches the document
+-- ============================================================================
+--
+-- `ReadOnlyStyle:` parsed, passed `mxcli check` (it is in the known-property
+-- allowlist as "vocabulary describe page emits"), was reported as executed —
+-- and the stored document kept "Inherit". DESCRIBE *did* read and emit it, so
+-- describe → exec on a Studio Pro-authored page silently downgraded Control to
+-- Inherit.
+--
+-- Not cosmetic. Measured on 11.6.6, same document otherwise, `mx check` 0
+-- errors both ways:
+--   ReadOnlyStyle: Inherit  -> a read-only check box renders the TEXT "Yes"/"No"
+--   ReadOnlyStyle: Control  -> it renders the (disabled) CHECKBOX glyph
+--
+-- That is the whole of "show a Boolean as a checkbox" in a DataGrid2 cell, and
+-- it is why mendixlabs/mxcli#1111 asked Mendix for a new column type.
+--
+-- Scope: check box only, matching what DESCRIBE reads back today. The other
+-- input widgets (textbox, textarea, datepicker, radiobuttons) still write a
+-- hardcoded Inherit and are not read back either.
+-- ============================================================================
+
+create entity BugTests.Task (
+  Description: string(200),
+  Done: boolean
+);
+
+create or replace page BugTests.P_490_ReadOnlyStyle (
+  Title: 'Read-only style',
+  Layout: Atlas_Core.Atlas_Default
+) {
+  layoutgrid lgMain {
+    row rowMain {
+      column colMain (DesktopWidth: 12) {
+        datagrid dgTasks (DataSource: database from BugTests.Task, Selection: None) {
+          column Description (Attribute: Description, Caption: 'Task') {
+            textfilter tfDescription
+          }
+          -- Control: the cell renders a disabled checkbox, and the column still
+          -- filters (Yes / No) — the two halves ako/mxcli#489 and #490 together.
+          column Done (Attribute: Done, Caption: 'Done') {
+            checkbox cbDoneControl (Attribute: Done, Editable: Never, ReadOnlyStyle: Control)
+            dropdownfilter ddfDone
+          }
+        }
+      }
+    }
+  }
+};
+
+-- Verify by hand:
+--   mxcli exec readonlystyle-490-checkbox-control.mdl -p app.mpr
+--   mxcli bson dump page -p app.mpr --object BugTests.P_490_ReadOnlyStyle \
+--     | grep -A1 '"ReadOnlyStyle"'      -> Control  (was Inherit before the fix)
+--   mxcli -p app.mpr -c "describe page BugTests.P_490_ReadOnlyStyle"
+--     -> ReadOnlyStyle: Control on cbDoneControl; re-exec reports
+--        "Unchanged page", so the description reproduces the document.
+--   Drop the `ReadOnlyStyle:` clause and re-exec -> "Replaced page", and the
+--   stored value goes back to Inherit: the control that shows the value is the
+--   authored one rather than a constant.
+--
+-- An unknown value is refused rather than written — a member Studio Pro cannot
+-- resolve is a project that will not open, and mxbuild does not complain:
+--   checkbox cbBad (Attribute: Done, ReadOnlyStyle: ReadOnly)   -- refused
