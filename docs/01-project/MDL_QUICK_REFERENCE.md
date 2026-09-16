@@ -597,7 +597,12 @@ and `mxbuild` were all clean. Only the running app showed it.
 | `TRY ... CATCH ... end TRY` | `on error { ... }` blocks | Use error handlers on specific activities |
 
 **Notes:**
-- `retrieve ... limit n` IS supported. `limit 1` returns a single entity, otherwise returns a list.
+- `retrieve ... limit n` IS supported. **`limit 1` with no `offset` binds a single OBJECT**, not a
+  one-element list: it is Mendix's "First object" range. Every other `limit` (including
+  `limit 1 offset n`) is a bounded range, which is a list. Using a `limit 1` variable as a list —
+  `head()`, `count()`, a `loop` — is **CE0097** at build time and **MDL-RETRIEVE01** at check time.
+  Note this is the opposite of the import-mapping clause above, where `first` binds an object and
+  `limit 1` a one-element list.
 - `rollback $entity [refresh];` IS supported. Rolls back uncommitted changes to an object.
 
 ## Project Organization
