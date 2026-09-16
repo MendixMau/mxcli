@@ -15,11 +15,15 @@ BUDGET = int(os.environ.get("DIFF_BUDGET", "80000"))
 PER_FILE = max(6000, BUDGET // 10)
 
 # Paths that are noise in a review: generated, vendored, fixtures, append-only logs.
+# Matched against "/" + filename, so every pattern starts with "/" and therefore
+# matches on a path-segment boundary. The repo has BOTH a root testdata/ and
+# per-package ones; matching the bare word instead would also have caught
+# docs/notes-testdata/, which is not fixtures.
 SKIP = (
-    "mdl/grammar/parser/",
-    ".claude/skills/fix-issue/findings/",
+    "/mdl/grammar/parser/",
+    "/.claude/skills/fix-issue/findings/",
     "/testdata/",
-    "vscode-mdl/vscode-mdl-",
+    "/vscode-mdl/vscode-mdl-",
 )
 SKIP_SUFFIX = (".bson", ".mpr", ".vsix", ".lockb", ".sum", ".png", ".jpg", ".gif", ".pdf")
 
@@ -32,7 +36,7 @@ def rank(f):
     return 4
 
 def noise(n):
-    return n.endswith(SKIP_SUFFIX) or any(s in n for s in SKIP)
+    return n.endswith(SKIP_SUFFIX) or any(s in "/" + n for s in SKIP)
 
 def main():
     files = json.load(open(sys.argv[1]))
