@@ -199,6 +199,19 @@ is **MDL-WIDGET05**: it names an entity, cannot be stored as a datasource, and
 before mxcli rejected it, it passed `check` and `exec` and then failed the build
 with CE0642 against a property nobody had mentioned (mendixlabs/mxcli#643).
 
+**A `isLinked` datasource is not yours to set.** A widget.xml
+`isLinked="true"` datasource is filled from the CONTAINING widget — a Data Grid 2
+supplies its column filter's `linkedDs` ("Datasource to Filter"). A `.def.json`
+mapping one is refused at build time. Measured on 11.6.6: five Studio
+Pro-authored drop-down filters store it empty, a filter written without it passes
+`mx check` at 0 errors, and a filter written WITH it still fails CE0642
+"Property 'Datasource to Filter' is required" — mxbuild resolves the property
+from the parent rather than reading what is stored, so writing it is not merely
+useless. Across every widget package in `testdata/expr-checker`, `linkedDs` is
+the only linked datasource among the eight multi-datasource widgets, which is why
+DROPDOWNFILTER is single-source from MDL's side while COMBOBOX and the charts are
+not.
+
 The generic `datasource:` clause stays the convenience form for a
 single-datasource widget. On one exposing several it names nothing in
 particular and is **refused**, with the keys to use instead -- neither guess is

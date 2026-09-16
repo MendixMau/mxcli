@@ -15,31 +15,34 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 )
 
-// multiSourceDef is a DatagridDropdownFilter definition that maps BOTH of the
-// widget's datasources, which no shipped definition does yet: mxcli models each
-// widget as single-source-per-mode, and the DropdownFilter's `association` mode
-// maps only `refOptions` (the grid supplies `linkedDs` when the filter is nested
-// in a DataGrid2). The widget PACKAGE declares both, so this is a definition the
-// registry would accept from a project, not an invented widget.
+// multiSourceDef is a ComboBox definition that maps BOTH of the widget's
+// datasources in one mode, which no shipped definition does: mxcli models each
+// widget as single-source-per-mode, and the ComboBox's two are mode-exclusive
+// (association vs database). The widget PACKAGE declares both as authorable, so
+// this is a definition the registry would accept from a project.
+//
+// ComboBox rather than the DatagridDropdownFilter that looks like the obvious
+// multi-source widget: the filter's second datasource is `isLinked`, owned by
+// the containing grid and refused by refuseLinkedDataSourceMapping. Measured
+// across every widget package in testdata/expr-checker, it is the only one of
+// the eight multi-datasource widgets with a linked source, and so the only one
+// that is NOT multi-source from MDL's side.
 func multiSourceDef() *WidgetDefinition {
 	return &WidgetDefinition{
-		WidgetID:     "com.mendix.widget.web.datagriddropdownfilter.DatagridDropdownFilter",
-		MDLName:      "DROPDOWNFILTER",
-		TemplateFile: "datagrid-dropdown-filter.json",
+		WidgetID:     "com.mendix.widget.web.combobox.Combobox",
+		MDLName:      "COMBOBOX",
+		TemplateFile: "combobox.json",
 		PropertyMappings: []PropertyMapping{
-			{PropertyKey: "baseType", Value: "ref", Operation: "primitive"},
-			{PropertyKey: "linkedDs", Source: "DataSource", Operation: "datasource", MdlAliases: []string{"GridSource"}},
-			{PropertyKey: "attr", Source: "Attribute", Operation: "attribute"},
-			{PropertyKey: "refOptions", Source: "DataSource", Operation: "datasource", MdlAliases: []string{"OptionsSource"}},
-			{PropertyKey: "refCaption", Source: "CaptionAttribute", Operation: "attribute"},
+			{PropertyKey: "optionsSourceAssociationDataSource", Source: "DataSource", Operation: "datasource",
+				MdlAliases: []string{"AssociationSource"}},
+			{PropertyKey: "optionsSourceAssociationCaptionAttribute", Source: "Attribute", Operation: "attribute"},
+			{PropertyKey: "optionsSourceDatabaseDataSource", Source: "DataSource", Operation: "datasource",
+				MdlAliases: []string{"DatabaseSource"}},
+			{PropertyKey: "optionsSourceDatabaseCaptionAttribute", Source: "CaptionAttribute", Operation: "attribute"},
 		},
 	}
 }
 
-// multiSourceEngine wires a mock model to the REAL template loader. The model is
-// synthetic because the assertions are about which entity each property binds
-// to, not about any particular project; the TEMPLATE has to be real, because the
-// DataSourceProperty links under test are the widget package's own.
 func multiSourceEngine(t *testing.T) *PluggableWidgetEngine {
 	t.Helper()
 	real := &modelsdkbackend.Backend{}
@@ -76,14 +79,14 @@ func multiSourceEngine(t *testing.T) *PluggableWidgetEngine {
 func TestBuild_TwoNamedDataSources(t *testing.T) {
 	e := multiSourceEngine(t)
 	w := &ast.WidgetV3{
-		Name: "f",
+		Name: "cb",
 		Type: "pluggablewidget",
 		Properties: map[string]any{
-			"WidgetType": "com.mendix.widget.web.datagriddropdownfilter.DatagridDropdownFilter",
-			"linkedDs":   &ast.DataSourceV3{Type: "database", Reference: "Sales.Order"},
-			"Attribute":  "Number",
-			"refOptions": &ast.DataSourceV3{Type: "database", Reference: "Sales.Customer"},
+			"WidgetType":                         "com.mendix.widget.web.combobox.Combobox",
+			"optionsSourceAssociationDataSource": &ast.DataSourceV3{Type: "database", Reference: "Sales.Order"},
+			"Attribute":                          "Number",
 			// The alias resolves the same as the key would.
+			"DatabaseSource":   &ast.DataSourceV3{Type: "database", Reference: "Sales.Customer"},
 			"CaptionAttribute": "Name",
 		},
 	}
@@ -102,8 +105,9 @@ func TestBuild_TwoNamedDataSources(t *testing.T) {
 			t.Errorf("built widget does not carry datasource entity %q", want)
 		}
 	}
-	// And each dependent bound to its OWN datasource's entity: `attr` declares
-	// linkedDs, `refCaption` declares refOptions (widget.xml `dataSource=`).
+	// And each dependent bound to its OWN datasource's entity: the association
+	// caption declares optionsSourceAssociationDataSource, the database caption
+	// declares optionsSourceDatabaseDataSource (widget.xml `dataSource=`).
 	for _, want := range []string{"Sales.Order.Number", "Sales.Customer.Name"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("built widget does not carry attribute path %q", want)
@@ -120,10 +124,10 @@ func TestBuild_TwoNamedDataSources(t *testing.T) {
 func TestBuild_GenericClauseRefusedOnMultiSourceWidget(t *testing.T) {
 	e := multiSourceEngine(t)
 	w := &ast.WidgetV3{
-		Name: "f",
+		Name: "cb",
 		Type: "pluggablewidget",
 		Properties: map[string]any{
-			"WidgetType": "com.mendix.widget.web.datagriddropdownfilter.DatagridDropdownFilter",
+			"WidgetType": "com.mendix.widget.web.combobox.Combobox",
 			"DataSource": &ast.DataSourceV3{Type: "database", Reference: "Sales.Customer"},
 		},
 	}
@@ -132,7 +136,7 @@ func TestBuild_GenericClauseRefusedOnMultiSourceWidget(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected a refusal for an ambiguous generic datasource clause")
 	}
-	for _, want := range []string{"ambiguous", "linkedDs", "refOptions"} {
+	for _, want := range []string{"ambiguous", "optionsSourceAssociationDataSource", "optionsSourceDatabaseDataSource"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal should mention %q, got: %v", want, err)
 		}
@@ -147,7 +151,7 @@ func TestBuild_GenericClauseStillWorksOnSingleSourceWidget(t *testing.T) {
 	// Drop one datasource mapping, leaving the widget single-source.
 	var kept []PropertyMapping
 	for _, m := range def.PropertyMappings {
-		if m.PropertyKey != "linkedDs" {
+		if m.PropertyKey != "optionsSourceAssociationDataSource" {
 			kept = append(kept, m)
 		}
 	}
@@ -155,10 +159,10 @@ func TestBuild_GenericClauseStillWorksOnSingleSourceWidget(t *testing.T) {
 
 	e := multiSourceEngine(t)
 	w := &ast.WidgetV3{
-		Name: "f",
+		Name: "cb",
 		Type: "pluggablewidget",
 		Properties: map[string]any{
-			"WidgetType":       "com.mendix.widget.web.datagriddropdownfilter.DatagridDropdownFilter",
+			"WidgetType":       "com.mendix.widget.web.combobox.Combobox",
 			"DataSource":       &ast.DataSourceV3{Type: "database", Reference: "Sales.Customer"},
 			"CaptionAttribute": "Name",
 		},
@@ -177,20 +181,100 @@ func TestBuild_GenericClauseStillWorksOnSingleSourceWidget(t *testing.T) {
 	}
 }
 
+// A definition that maps a LINKED datasource is refused. The platform fills one
+// from the containing widget, so a value written there is not the author's to
+// set — and does not even satisfy the property: measured on Mendix 11.6.6, a
+// drop-down filter written WITH linkedDs still fails CE0642 "Property
+// 'Datasource to Filter' is required", while the same filter written without it
+// (inside a Data Grid 2 column, where the grid supplies it) passes at 0 errors.
+func TestBuild_LinkedDataSourceMappingRefused(t *testing.T) {
+	e := multiSourceEngine(t)
+	def := &WidgetDefinition{
+		WidgetID:     "com.mendix.widget.web.datagriddropdownfilter.DatagridDropdownFilter",
+		MDLName:      "DROPDOWNFILTER",
+		TemplateFile: "datagrid-dropdown-filter.json",
+		PropertyMappings: []PropertyMapping{
+			{PropertyKey: "baseType", Value: "ref", Operation: "primitive"},
+			{PropertyKey: "linkedDs", Source: "DataSource", Operation: "datasource"},
+			{PropertyKey: "refOptions", Source: "DataSource", Operation: "datasource"},
+		},
+	}
+	w := &ast.WidgetV3{Name: "f", Type: "pluggablewidget", Properties: map[string]any{
+		"WidgetType": "com.mendix.widget.web.datagriddropdownfilter.DatagridDropdownFilter",
+		"linkedDs":   &ast.DataSourceV3{Type: "database", Reference: "Sales.Order"},
+		"refOptions": &ast.DataSourceV3{Type: "database", Reference: "Sales.Customer"},
+	}}
+
+	_, err := e.Build(def, w)
+	if err == nil {
+		t.Fatal("expected a refusal for a definition mapping a linked datasource")
+	}
+	for _, want := range []string{"linkedDs", "LINKED"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal should mention %q, got: %v", want, err)
+		}
+	}
+}
+
+// The control: the SAME definition without the linked mapping builds. So the
+// refusal is about that one property, not about the widget or about having two
+// datasource mappings.
+func TestBuild_DropdownFilterWithoutLinkedMappingBuilds(t *testing.T) {
+	e := multiSourceEngine(t)
+	def := &WidgetDefinition{
+		WidgetID:     "com.mendix.widget.web.datagriddropdownfilter.DatagridDropdownFilter",
+		MDLName:      "DROPDOWNFILTER",
+		TemplateFile: "datagrid-dropdown-filter.json",
+		PropertyMappings: []PropertyMapping{
+			{PropertyKey: "baseType", Value: "ref", Operation: "primitive"},
+			{PropertyKey: "refOptions", Source: "DataSource", Operation: "datasource"},
+		},
+	}
+	w := &ast.WidgetV3{Name: "f", Type: "pluggablewidget", Properties: map[string]any{
+		"WidgetType": "com.mendix.widget.web.datagriddropdownfilter.DatagridDropdownFilter",
+		"refOptions": &ast.DataSourceV3{Type: "database", Reference: "Sales.Customer"},
+	}}
+
+	if _, err := e.Build(def, w); err != nil {
+		t.Fatalf("the shipped shape must still build: %v", err)
+	}
+}
+
+// Every widget package in testdata carries this fact, and the shipped
+// definitions depend on it: `linkedDs` is the ONLY linked datasource among the
+// multi-datasource widgets, which is why DatagridDropdownFilter is
+// single-source from MDL's side while ComboBox and the charts are not.
+func TestDropdownFilterLinkedDataSourceIsMarkedInTheTemplate(t *testing.T) {
+	e := multiSourceEngine(t)
+	wb, err := e.backend.LoadWidgetTemplate("com.mendix.widget.web.datagriddropdownfilter.DatagridDropdownFilter", "")
+	if err != nil || wb == nil {
+		t.Fatalf("load template: %v", err)
+	}
+	ids := wb.PropertyTypeIDs()
+	if !ids["linkedDs"].IsLinked {
+		t.Error("linkedDs must be marked IsLinked — without it the guard is inert")
+	}
+	if ids["refOptions"].IsLinked {
+		t.Error("refOptions is the author's to set and must NOT be marked IsLinked")
+	}
+}
+
 // namedDataSourceValue resolves under the schema key or any registered alias,
 // case-insensitively, and ignores a value that is not a datasource — a scalar
 // there is MDL-WIDGET05's business.
 func TestNamedDataSourceValue(t *testing.T) {
-	m := PropertyMapping{PropertyKey: "refOptions", MdlAliases: []string{"OptionsSource"}}
+	m := PropertyMapping{PropertyKey: "optionsSourceDatabaseDataSource", MdlAliases: []string{"DatabaseSource"}}
 	ds := &ast.DataSourceV3{Type: "database", Reference: "Sales.Customer"}
 
-	for _, spelling := range []string{"refOptions", "refoptions", "OptionsSource", "optionssource"} {
+	for _, spelling := range []string{
+		"optionsSourceDatabaseDataSource", "optionssourcedatabasedatasource", "DatabaseSource", "databasesource",
+	} {
 		w := &ast.WidgetV3{Properties: map[string]any{spelling: ds}}
 		if got := namedDataSourceValue(m, w); got != ds {
 			t.Errorf("spelling %q did not resolve", spelling)
 		}
 	}
-	scalar := &ast.WidgetV3{Properties: map[string]any{"refOptions": "Sales.Customer"}}
+	scalar := &ast.WidgetV3{Properties: map[string]any{"optionsSourceDatabaseDataSource": "Sales.Customer"}}
 	if got := namedDataSourceValue(m, scalar); got != nil {
 		t.Errorf("a scalar must not resolve as a datasource, got %v", got)
 	}
@@ -316,11 +400,11 @@ func TestMDLWIDGET05_JudgesTheValueNotTheKey(t *testing.T) {
 func TestDatasourceTypedKeys_IncludesAliases(t *testing.T) {
 	def := &WidgetDefinition{
 		PropertyMappings: []PropertyMapping{
-			{PropertyKey: "refOptions", Source: "DataSource", Operation: "datasource", MdlAliases: []string{"OptionsSource"}},
+			{PropertyKey: "optionsSourceDatabaseDataSource", Source: "DataSource", Operation: "datasource", MdlAliases: []string{"DatabaseSource"}},
 		},
 	}
 	keys := datasourceTypedKeys(def)
-	for _, want := range []string{"refoptions", "optionssource"} {
+	for _, want := range []string{"optionssourcedatabasedatasource", "databasesource"} {
 		if !keys[want] {
 			t.Errorf("datasourceTypedKeys missing %q — a scalar written there skips MDL-WIDGET05", want)
 		}

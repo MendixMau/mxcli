@@ -352,6 +352,9 @@ func (e *PluggableWidgetEngine) Build(def *WidgetDefinition, w *ast.WidgetV3) (*
 		return nil, err
 	}
 	e.currentDataSourceKeys = dataSourceMappingKeys(mappings)
+	if err := refuseLinkedDataSourceMapping(def, mappings, propertyTypeIDs); err != nil {
+		return nil, err
+	}
 	if err := refuseAmbiguousGenericDataSource(def, w, e.currentDataSourceKeys); err != nil {
 		return nil, err
 	}
@@ -1069,6 +1072,37 @@ func dataSourceMappingKeys(mappings []PropertyMapping) []string {
 		}
 	}
 	return keys
+}
+
+// refuseLinkedDataSourceMapping rejects a definition that maps a datasource the
+// PLATFORM owns.
+//
+// A widget.xml `isLinked="true"` datasource is filled from the containing
+// widget: a Data Grid 2 column filter's `linkedDs` ("Datasource to Filter")
+// comes from the grid it sits in. Measured on Mendix 11.6.6 — five Studio
+// Pro-authored drop-down filters store it EMPTY, a filter written without it
+// passes `mx check` at 0 errors, and a filter written WITH it still fails
+// CE0642 "Property 'Datasource to Filter' is required", because mxbuild resolves
+// the property from the parent rather than reading what is stored.
+//
+// So writing one is not merely useless, it is authoring what the model does not
+// own (ADR-0005, the same reasoning as a constant's shared/private choice).
+// Refused rather than skipped: a .def.json naming it is a mistake to report, and
+// a silently ignored mapping is how the author concludes mxcli wrote it.
+func refuseLinkedDataSourceMapping(def *WidgetDefinition, mappings []PropertyMapping, propertyTypeIDs map[string]pages.PropertyTypeIDEntry) error {
+	for _, m := range mappings {
+		if m.Operation != "datasource" || m.PropertyKey == "" {
+			continue
+		}
+		if propertyTypeIDs[m.PropertyKey].IsLinked {
+			return mdlerrors.NewValidationf(
+				"widget %s definition maps `%s`, which the widget declares as a LINKED datasource — "+
+					"it is filled from the containing widget (a Data Grid 2 supplies its column filter's), "+
+					"not from MDL, and a value written there does not satisfy it. Remove the mapping",
+				def.MDLName, m.PropertyKey)
+		}
+	}
+	return nil
 }
 
 // refuseAmbiguousGenericDataSource rejects the generic `datasource:` clause on a
