@@ -210,7 +210,7 @@ func TestEvaluateCondition(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := engine.evaluateCondition(tc.condition, tc.widget)
+			result := engine.evaluateCondition(tc.condition, tc.widget, nil)
 			if result != tc.expected {
 				t.Errorf("evaluateCondition(%q) = %v, want %v", tc.condition, result, tc.expected)
 			}

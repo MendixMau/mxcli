@@ -1,0 +1,50 @@
+-- mendixlabs/mxcli#1109: a datasource-typed pluggable-widget property may be
+-- addressed by its own schema key, so a widget exposing several datasources can
+-- be given each of them.
+--
+-- Follow-up to mendixlabs/mxcli#643, which closed the silent-drop defect by
+-- refusing the named form outright and leaving the generic `datasource:` clause
+-- as the only spelling. That is enough for a single-datasource widget and
+-- cannot express a multi-source one.
+--
+-- ComboBox is the public fixture: its `association` mode is selected by
+-- `hasDataSource` and maps `optionsSourceAssociationDataSource`. Accepting the
+-- named value without also teaching mode selection about it would pick the
+-- enumeration mode and drop the datasource anyway, so both halves are exercised
+-- here.
+--
+-- The negative half stays in 643-combobox-datasource-by-name.fail.mdl: a SCALAR
+-- in the same slot (`optionsSourceAssociationDataSource: Module.Entity`) is
+-- still MDL-WIDGET05. The rule judges the value's shape, not the key.
+--
+-- Expected: `mxcli check` exits 0.
+
+create module NamedDS;
+create module role NamedDS.User;
+
+create persistent entity NamedDS.Customer (
+  Name: string(200)
+);
+
+create persistent entity NamedDS.Order (
+  Number: string(80)
+);
+
+create association NamedDS.Order_Customer
+  from NamedDS.Order to NamedDS.Customer;
+
+create or replace page NamedDS.Order_Edit (
+  Title: 'Named datasource mapping',
+  Layout: Atlas_Core.Atlas_Default,
+  Params: { $Order: NamedDS.Order }
+) {
+  dataview orderView (DataSource: $Order) {
+    combobox customer (
+      Association: Order_Customer,
+      optionsSourceAssociationDataSource: database from NamedDS.Customer,
+      CaptionAttribute: Name
+    )
+  }
+}
+
+grant view on page NamedDS.Order_Edit to NamedDS.User;

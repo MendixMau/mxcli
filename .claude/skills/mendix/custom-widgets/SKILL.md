@@ -181,6 +181,33 @@ combobox cmbCustomer (
 - `CaptionAttribute` is the display attribute on the **target** entity
 - In association mode, mapping order matters: DataSource must resolve before Association (sets entityContext)
 
+### Naming a datasource by its schema key
+
+A widget may expose several datasources. Address one by its own property key
+(or a registered alias) instead of the generic `datasource:` clause:
+
+```sql
+combobox cmbCustomer (
+  Association: Order_Customer,
+  optionsSourceAssociationDataSource: database from Module.Customer,
+  CaptionAttribute: Name
+)
+```
+
+The value has to be a **datasource**, not an entity name. `optionsSourceAssociationDataSource: Module.Customer`
+is **MDL-WIDGET05**: it names an entity, cannot be stored as a datasource, and
+before mxcli rejected it, it passed `check` and `exec` and then failed the build
+with CE0642 against a property nobody had mentioned (mendixlabs/mxcli#643).
+
+The generic `datasource:` clause stays the convenience form for a
+single-datasource widget. On one exposing several it names nothing in
+particular and is **refused**, with the keys to use instead -- neither guess is
+defensible: feeding it to every mapping duplicates one binding across unrelated
+slots, and feeding it to the first leaves the others unset (CE0642 again).
+
+`describe page` still collapses several sources to one `DataSource:` clause;
+round-tripping the named keys is not done yet (mendixlabs/mxcli#1109).
+
 ## Charts (Mendix Charts.mpk)
 
 Charts are pluggable widgets. Install `Charts.mpk` into the project's `widgets/`
@@ -483,11 +510,21 @@ widgets take a different, simpler path than the MPR writer:
 
 | Condition | Checks |
 |-----------|--------|
-| `hasDataSource` | AST widget has a `datasource` property |
+| `hasDataSource` | the generic `datasource:` clause is set, OR any of THIS mode's datasource mappings was given by name |
+| `hasDataSource:KEY` | the datasource property `KEY` was given (by its key or an alias) |
 | `hasAttribute` | AST widget has an `attribute` property |
 | `hasProp:XYZ` | AST widget has a property named `XYZ` |
 
 Modes are evaluated in definition order -- first match wins. A mode with no `condition` is the default fallback.
+
+Use `hasDataSource:KEY` when several modes are told apart by WHICH datasource is
+set -- a ComboBox's association vs database mode. Bare `hasDataSource` cannot
+distinguish them, so with two such modes the one listed first always wins.
+
+Bare `hasDataSource` only consults the mode's own **datasource** mappings, never
+every datasource-shaped property on the widget: a microflow action and a
+microflow datasource parse to the same AST shape, so a widget's `OnChange:` would
+otherwise select a datasource mode.
 
 ### 6 Built-in Operations
 
@@ -506,6 +543,14 @@ Modes are evaluated in definition order -- first match wins. A mode with no `con
 
 - **`association` source must come AFTER `datasource` source** in the mappings array. The association operation depends on `entityContext` set by a prior DataSource mapping. The registry validates this at load time.
 - **`value` takes priority over `source`**: if both are set, the static `value` is used.
+
+Order is NOT how a dependent property finds its entity on a multi-datasource
+widget. The widget's own package states that per property (`widget.xml`'s
+`dataSource="..."`), and mxcli reads it: a DropdownFilter's `refCaption` binds
+against `refOptions`' entity and its `attr` against `linkedDs`', whatever order
+the mappings are in. A property that declares no `dataSource` falls back to the
+shared entity context, which is every property of every single-datasource
+widget -- so the ordering rule above still describes what happens there.
 
 ### Source Resolution
 
