@@ -277,6 +277,11 @@ func execRenameDocument(ctx *ExecContext, s *ast.RenameStmt, docType string) err
 
 // execRenameEnumeration renames an enumeration and updates all references.
 func execRenameEnumeration(ctx *ExecContext, s *ast.RenameStmt) error {
+	// Platform built-in, no stored unit to rename (#1102).
+	if err := refuseSystemEnumerationWrite("rename enumeration", s.Name); err != nil {
+		return err
+	}
+
 	oldQualifiedName := s.Name.Module + "." + s.Name.Name
 	newQualifiedName := s.Name.Module + "." + s.NewName
 

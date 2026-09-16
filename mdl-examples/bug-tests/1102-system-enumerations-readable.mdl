@@ -1,0 +1,44 @@
+-- mendixlabs/mxcli#1102 — System enumerations are invisible to show/describe/search
+--
+-- `describe entity` printed attributes typed against System enumerations while
+-- the enumerations themselves could not be inspected through any command, so
+-- their values could only be guessed at until the build rejected a guess with
+-- CE1613 "The selected enumeration value no longer exists".
+--
+--   $ mxcli -p app.mpr describe enumeration System.WorkflowActivityType
+--   Error: enumeration not found: System.WorkflowActivityType
+--
+-- Cause: modelsdk/meta.SystemEnumerations (15 enumerations, values and all) had
+-- no consumer. The System module is not stored in the .mpr — its entities,
+-- associations and Java actions are each synthesized and appended to a listing;
+-- the enumeration half had the data table and no wiring.
+--
+-- Run against any project (the System module is present in all of them):
+--   mxcli exec mdl-examples/bug-tests/1102-system-enumerations-readable.mdl -p app.mpr
+
+-- The statement from the report. Before the fix: "enumeration not found".
+DESCRIBE ENUMERATION System.WorkflowActivityType;
+
+-- The reporter's CE1613 was `System.WorkflowActivityExecutionState.Finished`.
+-- Finished is real — but on System.WorkflowActivityState, a different
+-- enumeration with a confusingly similar name. These two statements are what
+-- makes that mistake obvious in one step instead of one build.
+DESCRIBE ENUMERATION System.WorkflowActivityExecutionState;
+DESCRIBE ENUMERATION System.WorkflowActivityState;
+
+-- Both of these are read-only: System enumerations describe as `--` comment
+-- lines rather than as `create or modify …`, because every enumeration write
+-- naming the System module is refused. The refusals are covered by unit tests
+-- (mdl/executor/cmd_enumerations_system_test.go), not here: this file is checked
+-- without a project, and a guard that needs a model cannot decide anything at
+-- check time. Before the guard, the first of these REPORTED SUCCESS and wrote a
+-- unit whose parent does not exist:
+--
+--   CREATE ENUMERATION System.BrandNewThing (A 'a');     -- orphaned unit
+--   ALTER ENUMERATION System.WorkflowActivityType ADD VALUE Invented CAPTION 'x';
+--   DROP ENUMERATION System.WorkflowActivityType;
+
+-- System enumerations are also listed now, so an attribute typed against one
+-- resolves under `mxcli check --references` instead of being reported missing
+-- (the #1071 direction of the same gap).
+SHOW ENUMERATIONS;

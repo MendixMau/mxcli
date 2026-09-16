@@ -357,6 +357,15 @@ func moveEntity(ctx *ExecContext, name ast.QualifiedName, sourceModule, targetMo
 // moveEnumeration moves an enumeration to a new container.
 // For cross-module moves, updates all EnumerationAttributeType references across all domain models.
 func moveEnumeration(ctx *ExecContext, name ast.QualifiedName, targetContainerID model.ID, targetModuleName string) error {
+	// Neither end may be System: its enumerations are platform built-ins with no
+	// stored unit, so there is nothing to move out and nowhere to move in (#1102).
+	if err := refuseSystemEnumerationWrite("move enumeration", name); err != nil {
+		return err
+	}
+	if targetModuleName == "System" {
+		return refuseSystemEnumerationWrite("move enumeration into",
+			ast.QualifiedName{Module: "System", Name: name.Name})
+	}
 	enum := findEnumeration(ctx, name.Module, name.Name)
 	if enum == nil {
 		return mdlerrors.NewNotFound("enumeration", name.String())

@@ -369,13 +369,26 @@ name.** A task declared `user task "ReviewAndPlan" 'Review and plan'` stores
 `Name = 'Review and plan'`, so routing an inbox on the activity name silently never
 matches. Route on your own entity's status instead.
 
-## System-module documents are read from the runtime, not the .mpr
+## System-module enumerations are synthesized, not stored
 
-`describe enumeration System.WorkflowUserTaskState` and `show enumerations in System`
-return nothing — the System module's **enumerations** are not in the project file, so
-mxcli cannot resolve them. Constrain on an attribute instead (`[EndTime = empty]`
-selects open tasks) rather than naming a System enum value. System **entities** are
-documented in `system-module`.
+The System module's enumerations are **not in the project file** — Mendix ships
+them with the platform — so mxcli synthesizes them from its own table of platform
+definitions. `describe enumeration System.WorkflowUserTaskState` and
+`show enumerations` report them, read-only:
+
+```bash
+mxcli -p app.mpr describe enumeration System.WorkflowUserTaskState
+```
+
+They used to return nothing, which is why guessing a value and hitting **CE1613**
+"The selected enumeration value no longer exists" was the only way to find out
+(mendixlabs/mxcli#1102). Check the values before branching on one — they are
+case-sensitive, and `WorkflowActivityState` (`Finished`) is a different
+enumeration from `WorkflowActivityExecutionState` (`Completed`).
+
+Constraining on an attribute (`[EndTime = empty]` selects open tasks) is still
+often the better XPath, but it is no longer a workaround for not knowing the
+values. The full list and the System **entities** are in `system-module`.
 
 ## Platform rules
 
