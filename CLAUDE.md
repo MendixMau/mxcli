@@ -98,11 +98,14 @@ ModelSDKGo/
 │   ├── widgets/             # Embedded widget templates for pluggable widgets
 │   │   ├── loader.go        # template loading with go:embed
 │   │   └── templates/       # json widget type definitions by Mendix version
-│   └── mpr/                 # MPR file format handling
-│       ├── reader.go        # read-only MPR access
-│       ├── writer.go        # read-write MPR modification
-│       ├── parser.go        # BSON parsing and deserialization
-│       └── utils.go         # UUID generation utilities
+│   └── versions/            # per-major feature registry (mendix-{9,10,11}.yaml)
+│
+├── modelsdk/                # The MPR engine (sdk/mpr, the legacy one, is deleted)
+│   ├── mpr/                 # MPR file format: reader, writer, raw unit access
+│   ├── codec/               # document <-> BSON encode/decode
+│   ├── canon/               # canonical form, identity transplant, write elision
+│   ├── gen/                 # vendored metamodel types (see the storage-name note)
+│   └── widgets/             # pluggable widget augmentation
 │
 ├── mdl/                     # MDL (Mendix Definition Language) parser & CLI
 │   ├── grammar/             # ANTLR4 grammar definition
@@ -172,7 +175,7 @@ ModelSDKGo/
 When adding new types, always verify the storage name by:
 1. Examining existing MPR files with the `mx` tool or SQLite browser
 2. Checking the reflection data in `reference/mendixmodellib/reflection-data/`
-3. Looking at the parser cases in `sdk/mpr/parser_microflow.go`
+3. Looking at the decoder in `modelsdk/codec/` and the types in `modelsdk/gen/microflows/`
 
 **IMPORTANT**: When unsure about the correct BSON structure for a new feature, **ask the user to create a working example in Mendix Studio Pro** so you can compare the generated BSON against a known-good reference.
 
@@ -334,7 +337,8 @@ containment walk — because a rebuild mints a fresh random `$ID` per sub-elemen
 so comparing bytes would skip nothing. The policy lives in `modelsdk/canon`
 (`Reconcile`) and is called at the single write choke point of **both** engines:
 `modelsdk/mpr/writer_core.go` (`updateUnit` *and* `WriteTransaction.WriteUnit` —
-`codec.Store` reaches storage through the latter) and `sdk/mpr/writer_units.go`.
+`codec.Store` reaches storage through the latter). There is one engine, so that is
+the whole list.
 
 When something *has* changed, `Reconcile` still does not let the rebuild's fresh
 `$ID`s reach disk: `canon.TransplantIDs` matches the incoming document against the
@@ -586,7 +590,7 @@ When reviewing pull requests or validating work before commit, verify these item
 ### Bug fixes
 - [ ] **Fix-issue skill consulted** — start at [`docs-wiki/bug-patterns/`](docs-wiki/bug-patterns/) for the failure *class*, then `grep -i` `.claude/skills/fix-issue/findings/*.jsonl` for the *instance*; match before opening files. A pattern-page miss means the finding has not been digested yet, never that it has not been seen
 - [ ] **Finding recorded** — one JSON line appended to `.claude/skills/fix-issue/findings/<area>.jsonl` if the symptom is not already covered, and `make check-findings` passes (it prints how far `docs-wiki/bug-patterns/` has fallen behind; `make digest-status` breaks it down by area). **If the class of failure keeps recurring, sync its pattern page** — the digest is on-demand and nothing else asks for it, which is how it went three months without a sync. Write the *insight* (what would have made it cheaper to find, what measurement settled it), not the changelog. `merge=union` in `.gitattributes` keeps both sides when two fixes append at once; order carries no meaning, since these are looked up by matching a symptom
-- [ ] **Test written first** — failing test exists before implementation (parser test in `sdk/mpr/`, backend mutation test in `mdl/backend/mpr/`, executor handler test in `mdl/executor/` using `MockBackend`)
+- [ ] **Test written first** — failing test exists before implementation (codec/parser test in `modelsdk/codec/` or `modelsdk/mpr/`, backend mutation test in `mdl/backend/modelsdk/`, executor handler test in `mdl/executor/` using `MockBackend`)
 - [ ] **Verified at the layer the symptom lives in** — a test proves something about the layer it exercises and nothing more. Parser/grammar → unit test. BSON we write → unit test on the encoded document. Files on disk after `mx` runs → integration test (`-tags integration`). **The rendered app's behaviour or appearance → `.claude/skills/verify-in-runtime.md`** (boot with `run --local`, assert in Playwright). A page can serialize to valid-looking BSON, pass `mx check`, build cleanly, and still render wrong — that was #812.
 - [ ] **Fix proven to be the cause** — revert the fix (or stub the guard) and confirm the test fails with the reported symptom. A test that only passes against fixed code has not been shown to detect anything; two bugs this week had a green suite while live (#812 a clobbered `RegisterTypeDefaults`, #808 an integration test that had only ever skipped)
 
@@ -614,14 +618,14 @@ New features that depend on a specific Mendix version must be version-gated:
 - [ ] **Skill updated** — `.claude/skills/version-awareness.md` updated if the feature has a workaround for older versions
 
 ### Backend abstraction compliance
-All executor code must go through the backend abstraction layer — the executor must never import `sdk/mpr` for write paths. See [ADR-0002: Backend Abstraction Layer](docs/13-decisions/0002-backend-abstraction.md) for the context and alternatives. The codec (`modelsdk`) engine is the only local engine — the legacy `sdk/mpr` backend was deleted (`docs/plans/2026-09-14-retire-legacy-engine.md`), and `--engine`/`MXCLI_ENGINE` survive only as a warning-only no-op. It routes **all** document types — domain models included — through the codec, not a codec/legacy hybrid; see [ADR-0004: Full codec engine](docs/13-decisions/0004-full-codec-engine.md). Where the codec path cannot yet reproduce a construct, the backend **refuses** the op rather than dropping data. The backend interface speaks the **semantic model**, not gen/BSON or AST types — gen+codec are the MPR backend's internal storage adapter, one of several (MPR, MCP/PED, a future storage format); see [ADR-0005](docs/13-decisions/0005-semantic-model-interface-currency.md). CREATE is model→gen; fidelity-sensitive ALTER uses backend-internal gen-mutation, not a model round-trip.
-- [ ] **No `sdk/mpr` write imports in executor** — executor files must not call `sdk/mpr` writer/parser types directly; use `ctx.Backend.*` instead
+All executor code must go through the backend abstraction layer. **`sdk/mpr` no longer exists** — the package was deleted once its importer count reached zero, so reaching past the abstraction is now a compile error rather than a rule to remember. See [ADR-0002: Backend Abstraction Layer](docs/13-decisions/0002-backend-abstraction.md) for the context and alternatives. The codec (`modelsdk`) engine is the only local engine — the legacy `sdk/mpr` backend was deleted (`docs/plans/2026-09-14-retire-legacy-engine.md`), and `--engine`/`MXCLI_ENGINE` survive only as a warning-only no-op. It routes **all** document types — domain models included — through the codec, not a codec/legacy hybrid; see [ADR-0004: Full codec engine](docs/13-decisions/0004-full-codec-engine.md). Where the codec path cannot yet reproduce a construct, the backend **refuses** the op rather than dropping data. The backend interface speaks the **semantic model**, not gen/BSON or AST types — gen+codec are the MPR backend's internal storage adapter, one of several (MPR, MCP/PED, a future storage format); see [ADR-0005](docs/13-decisions/0005-semantic-model-interface-currency.md). CREATE is model→gen; fidelity-sensitive ALTER uses backend-internal gen-mutation, not a model round-trip.
+- [ ] **No engine internals in the executor** — executor files must not reach into `modelsdk/mpr`, `modelsdk/codec` or `modelsdk/gen` directly; use `ctx.Backend.*` instead. A method missing from the backend gets implemented there, not bypassed
 - [ ] **New backend methods on the interface** — any new data access or mutation goes in the appropriate interface in `mdl/backend/` (e.g., `DomainModelBackend`, `MicroflowBackend`), not as a direct SDK call
 - [ ] **MPR implementation in `mdl/backend/mpr/`** — the concrete implementation lives here; all BSON/reader/writer logic stays in this package
 - [ ] **Mock stub in `mdl/backend/mock/`** — every new backend method has a `Func`-field stub with a descriptive `"MockBackend.X not configured"` error default (not `nil, nil`)
 - [ ] **Compile-time interface check** — new backend implementations have `var _ backend.SomeInterface = (*impl)(nil)`
 - [ ] **ALTER operations use mutator pattern** — page/workflow mutations go through `ctx.Backend.OpenPageForMutation()` / `OpenWorkflowForMutation()`, not inline BSON construction
-- [ ] **New shared types in `mdl/types/`** — types used by both `mdl/` and `sdk/mpr` go in `mdl/types/`; `sdk/mpr` re-exports as type aliases (`type Foo = types.Foo`), never as duplicate definitions
+- [ ] **New shared types in `mdl/types/`** — a type used by more than one layer goes in `mdl/types/` and the others alias it (`type Foo = types.Foo`), never as duplicate definitions. `modelsdk/mpr/version.ProjectVersion` is the cautionary case: it *duplicates* `types.ProjectVersion` instead of aliasing it, so the two are unrelated Go types that print under the same name
 - [ ] **Map iteration is deterministic** — any map iterated for serialization output must sort keys first (`sort.Strings(keys)` pattern); non-deterministic output causes flaky diffs and BSON instability
 - [ ] **Pluggable widgets via WidgetEngine** — new pluggable widget support uses `.def.json` + `WidgetRegistry`; no hardcoded BSON widget builders in the executor
 
@@ -891,8 +895,9 @@ Full syntax tables for all MDL statements (microflows, pages, security, navigati
 - `api/api.go` - High-level fluent API entry point
 - `api/domainmodels.go` - Entity/Association/Attribute builders
 - `docs/01-project/SDK_EQUIVALENCE.md` - Detailed comparison with TypeScript SDK, gap analysis
-- `sdk/mpr/parser.go` - BSON parsing logic (complex, handles polymorphic types)
-- `sdk/mpr/writer_widgets.go` - Widget BSON serialization
+- `modelsdk/codec/decoder.go` - BSON decoding (handles polymorphic types)
+- `modelsdk/codec/encoder.go` - BSON encoding
+- `mdl/backend/modelsdk/widget_pluggable_write.go` - Pluggable widget BSON, and the v1/v2 BSON driver conversion at the backend boundary
 - `sdk/widgets/templates/` - Embedded widget templates for pluggable widgets (ComboBox, DataGrid2, etc.)
 - `sdk/widgets/templates/README.md` - **Critical**: Template extraction requirements (must include both `type` AND `object`)
 - `generated/metamodel/enums.go` - All Mendix enumeration types
