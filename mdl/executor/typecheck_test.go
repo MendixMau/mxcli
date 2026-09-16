@@ -287,3 +287,240 @@ END;
 		t.Errorf("an untypeable variable produced %+v", got)
 	}
 }
+
+// TestTypeCheckProgramTypesLoopVariables pins mendixlabs/mxcli#1100.
+//
+// The report's title says the checker is skipped inside a LOOP body. It is not:
+// the body is walked, and the same expression written against a PARAMETER
+// inside the loop was refused before the fix — that control is the third case
+// below, and it distinguishes "the walk does not reach here" from "the variable
+// resolves to nothing". It was the second: `LOOP $r IN $reqs` never recorded
+// `$r`, so `$r/Status` inferred Unknown, and Unknown is tolerated by every rule
+// by design.
+func TestTypeCheckProgramTypesLoopVariables(t *testing.T) {
+	exec := typeCheckFixture(t)
+
+	// The reported script, verbatim in shape. Before the fix: Check passed!,
+	// exec wrote it, mxbuild reported CE0117 at the Change variable activity.
+	loopVar := typeCheck(t, exec, `
+CREATE OR REPLACE MICROFLOW MyFirstModule.SUB_LoopNormal () RETURNS String
+BEGIN
+  DECLARE $out String = '';
+  RETRIEVE $reqs FROM MyFirstModule.Ticket;
+  LOOP $r IN $reqs BEGIN
+    $out = $out + $r/Status;
+  END LOOP;
+  RETURN $out;
+END;
+`)
+	if len(loopVar) != 1 || loopVar[0].RuleID != "E004" {
+		t.Errorf("an Enumeration concatenated inside a LOOP produced %+v, want one E004", loopVar)
+	}
+
+	// The report's case A, which already worked and must keep working.
+	param := typeCheck(t, exec, `
+CREATE OR REPLACE MICROFLOW MyFirstModule.SUB_Param ($Req: MyFirstModule.Ticket) RETURNS String
+BEGIN
+  DECLARE $out String = '';
+  $out = 'status=' + $Req/Status;
+  RETURN $out;
+END;
+`)
+	if len(param) != 1 || param[0].RuleID != "E004" {
+		t.Errorf("the parameter control produced %+v, want one E004", param)
+	}
+
+	// The control that says the LOOP BODY was never the problem: a parameter
+	// referenced one line deeper is checked, and was before the fix too.
+	paramInLoop := typeCheck(t, exec, `
+CREATE OR REPLACE MICROFLOW MyFirstModule.SUB_ParamInLoop ($Req: MyFirstModule.Ticket)
+BEGIN
+  RETRIEVE $reqs FROM MyFirstModule.Ticket;
+  LOOP $r IN $reqs BEGIN
+    LOG 'x {1}' WITH ({1} = 'status=' + $Req/Status);
+  END LOOP;
+END;
+`)
+	if len(paramInLoop) != 1 || paramInLoop[0].RuleID != "E004" {
+		t.Errorf("a parameter inside a LOOP produced %+v, want one E004", paramInLoop)
+	}
+
+	// Every rule was off for a loop variable, not just E004.
+	enumCompare := typeCheck(t, exec, `
+CREATE OR REPLACE MICROFLOW MyFirstModule.SUB_LoopEnumCompare ()
+BEGIN
+  RETRIEVE $reqs FROM MyFirstModule.Ticket;
+  LOOP $r IN $reqs BEGIN
+    IF $r/Status = 'Open' THEN
+      LOG 'x';
+    END IF;
+  END LOOP;
+END;
+`)
+	if len(enumCompare) != 1 || enumCompare[0].RuleID != "E001" {
+		t.Errorf("an enum compared to a string inside a LOOP produced %+v, want one E001", enumCompare)
+	}
+
+	// The failure direction. A correct loop must stay silent — a checker that
+	// reports the fixed form is worse than one that reported nothing.
+	clean := typeCheck(t, exec, `
+CREATE OR REPLACE MICROFLOW MyFirstModule.SUB_LoopClean () RETURNS String
+BEGIN
+  DECLARE $out String = '';
+  RETRIEVE $reqs FROM MyFirstModule.Ticket;
+  LOOP $r IN $reqs BEGIN
+    $out = $out + toString($r/Status) + $r/Title;
+    IF $r/Status = MyFirstModule.OrderStatus.Open THEN
+      LOG 'open';
+    END IF;
+  END LOOP;
+  RETURN $out;
+END;
+`)
+	if len(clean) != 0 {
+		t.Errorf("a correct loop produced %+v, want none", clean)
+	}
+}
+
+// TestTypeCheckProgramTypesDeclaredVariables pins the second half of #1100.
+//
+// Typing the loop variable alone does NOT make the reported script report
+// anything: E004 needs both operands known, and the accumulator `$out` was
+// Unknown too. That is also why the same mistake was silent with no loop in
+// sight — `$out = $out + $Req/Status` on a parameter was unreported before the
+// fix, which the report's own case A hides by using a string literal.
+func TestTypeCheckProgramTypesDeclaredVariables(t *testing.T) {
+	exec := typeCheckFixture(t)
+
+	got := typeCheck(t, exec, `
+CREATE OR REPLACE MICROFLOW MyFirstModule.SUB_Accumulate ($Req: MyFirstModule.Ticket) RETURNS String
+BEGIN
+  DECLARE $out String = '';
+  $out = $out + $Req/Status;
+  RETURN $out;
+END;
+`)
+	if len(got) != 1 || got[0].RuleID != "E004" {
+		t.Errorf("a declared String accumulator produced %+v, want one E004", got)
+	}
+
+	// Mendix auto-converts a numeric operand in a String concat, so a declared
+	// Integer must not be reported. This is the boundary the rule already had;
+	// typing the variable is what puts it in reach of being crossed.
+	numeric := typeCheck(t, exec, `
+CREATE OR REPLACE MICROFLOW MyFirstModule.SUB_Numeric () RETURNS String
+BEGIN
+  DECLARE $n Integer = 1;
+  DECLARE $out String = 'n=' + $n;
+  RETURN $out;
+END;
+`)
+	if len(numeric) != 0 {
+		t.Errorf("a numeric concat produced %+v, want none (Mendix auto-converts)", numeric)
+	}
+}
+
+// TestTypeCheckProgramTypesDerivedLists pins the list sources a LOOP can
+// iterate. The iterator is only as typed as the list it walks, so a retrieve
+// over an association and a list operation have to carry their element type or
+// the fix above covers one spelling of the same loop.
+func TestTypeCheckProgramTypesDerivedLists(t *testing.T) {
+	exec := typeCheckFixture(t)
+
+	// An association retrieve names the association, not the entity, so the far
+	// end is resolved through the association index.
+	assoc := typeCheck(t, exec, `
+CREATE OR REPLACE MICROFLOW MyFirstModule.SUB_LoopAssoc ($T: MyFirstModule.Ticket)
+BEGIN
+  RETRIEVE $reps FROM $T/MyFirstModule.Ticket_Reporter;
+  LOOP $r IN $reps BEGIN
+    LOG 'x {1}' WITH ({1} = $r);
+  END LOOP;
+END;
+`)
+	if len(assoc) != 1 || assoc[0].RuleID != "E009" {
+		t.Errorf("a loop over an association retrieve produced %+v, want one E009", assoc)
+	}
+
+	// FILTER carries the input's element type through.
+	filtered := typeCheck(t, exec, `
+CREATE OR REPLACE MICROFLOW MyFirstModule.SUB_LoopFiltered ()
+BEGIN
+  RETRIEVE $reqs FROM MyFirstModule.Ticket;
+  $open = FILTER($reqs, $currentObject/Title != '');
+  LOOP $r IN $open BEGIN
+    LOG 'x {1}' WITH ({1} = 'status=' + $r/Status);
+  END LOOP;
+END;
+`)
+	if len(filtered) != 1 || filtered[0].RuleID != "E004" {
+		t.Errorf("a loop over a FILTER result produced %+v, want one E004", filtered)
+	}
+}
+
+// TestTypeCheckProgramChecksBlockScopedBodies covers the two other block-scoped
+// positions the report asked about: an ON ERROR handler's body, which was not
+// walked at all, and a FIND/FILTER predicate, where $currentObject is now bound
+// to the element type of the list under test.
+func TestTypeCheckProgramChecksBlockScopedBodies(t *testing.T) {
+	exec := typeCheckFixture(t)
+
+	handler := typeCheck(t, exec, `
+CREATE OR REPLACE MICROFLOW MyFirstModule.SUB_Handler ($T: MyFirstModule.Ticket) RETURNS String
+BEGIN
+  DECLARE $out String = '';
+  RETRIEVE $reqs FROM MyFirstModule.Ticket
+    ON ERROR {
+      $out = $out + $T/Status;
+    };
+  RETURN $out;
+END;
+`)
+	if len(handler) != 1 || handler[0].RuleID != "E004" {
+		t.Errorf("an ON ERROR handler body produced %+v, want one E004", handler)
+	}
+
+	predicate := typeCheck(t, exec, `
+CREATE OR REPLACE MICROFLOW MyFirstModule.SUB_Predicate ()
+BEGIN
+  RETRIEVE $reqs FROM MyFirstModule.Ticket;
+  $open = FILTER($reqs, $currentObject/Status = 'Open');
+END;
+`)
+	if len(predicate) != 1 || predicate[0].RuleID != "E001" {
+		t.Errorf("a FILTER predicate produced %+v, want one E001", predicate)
+	}
+
+	// The control: the same predicate written correctly stays silent, and so
+	// does the bare-attribute spelling the skills recommend, which resolves to
+	// nothing rather than to a wrong answer.
+	clean := typeCheck(t, exec, `
+CREATE OR REPLACE MICROFLOW MyFirstModule.SUB_PredicateClean ()
+BEGIN
+  RETRIEVE $reqs FROM MyFirstModule.Ticket;
+  $open = FILTER($reqs, $currentObject/Status = MyFirstModule.OrderStatus.Open);
+  $named = FILTER($reqs, "Title" != '');
+END;
+`)
+	if len(clean) != 0 {
+		t.Errorf("a correct FILTER predicate produced %+v, want none", clean)
+	}
+
+	// Mendix's STRING find(haystack, needle) still arrives as a
+	// ListOperationStmt — the visitor does not disambiguate it, the flow
+	// builder does, by looking at whether the input is a declared String
+	// (mdl-examples/bug-tests/ledger-63-string-find.mdl). Checking its second
+	// argument as a Boolean predicate reported the needle on a script that
+	// builds at 0 errors, which the corpus sweep caught and this pins.
+	stringFind := typeCheck(t, exec, `
+CREATE OR REPLACE MICROFLOW MyFirstModule.SUB_StringFind ($Hay: String, $Needle: String) RETURNS Integer
+BEGIN
+  DECLARE $At Integer = 0;
+  SET $At = find($Hay, $Needle);
+  RETURN $At;
+END;
+`)
+	if len(stringFind) != 0 {
+		t.Errorf("Mendix's string find() produced %+v, want none", stringFind)
+	}
+}
