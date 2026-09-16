@@ -577,7 +577,8 @@ type rawDataGridColumn struct {
 	Caption           string
 	CaptionParams     []string    // Parameters for template placeholders in caption
 	ShowContentAs     string      // "attribute", "customContent", or "dynamicText"
-	ContentWidgets    []rawWidget // Widgets inside the column (for custom content)
+	ContentWidgets    []rawWidget // Widgets in the column's `content` slot (custom content)
+	FilterWidgets     []rawWidget // Widgets in the column's `filter` slot (text/number/date/dropdown filter)
 	DynamicText       string      // Template text for dynamicText mode
 	DynamicTextParams []string    // Parameters for dynamicText template
 	Alignment         string      // "left", "center", or "right" (empty = default "left")

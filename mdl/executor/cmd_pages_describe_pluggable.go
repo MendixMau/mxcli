@@ -481,16 +481,25 @@ func extractDataGrid2Column(ctx *ExecContext, colObj map[string]any, colPropKeyM
 			}
 		}
 
-		// Check for Widgets array (content property for custom widgets)
-		if len(col.ContentWidgets) == 0 {
-			widgets := getBsonArrayElements(value["Widgets"])
-			if len(widgets) > 0 {
-				for _, w := range widgets {
-					if wMap, ok := w.(map[string]any); ok {
-						col.ContentWidgets = append(col.ContentWidgets, parseRawWidget(ctx, wMap, entityContext)...)
-					}
-				}
+		// A column has TWO Widgets-typed slots — `content` (custom content) and
+		// `filter` — so route on the property key. Taking the first Widgets array
+		// instead dropped the filter of any column that also had custom content:
+		// the writer emits properties alphabetically, so `content` came first and
+		// won, and describe→exec then deleted the filter (ako/mxcli#489).
+		if propKey == "content" || propKey == "filter" {
+			widgets := parseColumnSlotWidgets(ctx, value, entityContext)
+			if propKey == "filter" {
+				col.FilterWidgets = append(col.FilterWidgets, widgets...)
+			} else {
+				col.ContentWidgets = append(col.ContentWidgets, widgets...)
 			}
+			continue
+		}
+
+		// Fallback for a document whose property keys did not resolve (no key map):
+		// the first Widgets array is the column's content.
+		if propKey == "" && len(col.ContentWidgets) == 0 {
+			col.ContentWidgets = append(col.ContentWidgets, parseColumnSlotWidgets(ctx, value, entityContext)...)
 		}
 
 		// Check for TextTemplate (could be header or dynamicText property)
@@ -1398,6 +1407,20 @@ func namedCustomWidgetDataSources(w map[string]any) []rawNamedDataSource {
 				DataSource: result,
 			})
 		}
+	}
+	return out
+}
+
+// parseColumnSlotWidgets reads the widgets stored in one of a DataGrid2 column's
+// Widgets-typed slots (`content` or `filter`).
+func parseColumnSlotWidgets(ctx *ExecContext, value map[string]any, entityContext string) []rawWidget {
+	var out []rawWidget
+	for _, w := range getBsonArrayElements(value["Widgets"]) {
+		wMap, ok := w.(map[string]any)
+		if !ok {
+			continue
+		}
+		out = append(out, parseRawWidget(ctx, wMap, entityContext)...)
 	}
 	return out
 }
