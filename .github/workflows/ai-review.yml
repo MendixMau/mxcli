@@ -23,19 +23,29 @@ jobs:
         id: diff
         env:
           GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          DIFF_BUDGET: "80000"
         run: |
-          gh pr diff ${{ github.event.pull_request.number }} > /tmp/pr-full.diff
-          FULL_SIZE=$(wc -c < /tmp/pr-full.diff)
-          echo "diff_size=$FULL_SIZE" >> "$GITHUB_OUTPUT"
-
-          # Truncate to ~80k chars to stay within API limits
-          if [ "$FULL_SIZE" -gt 80000 ]; then
-            head -c 80000 /tmp/pr-full.diff > /tmp/pr.diff
-            echo "truncated=true" >> "$GITHUB_OUTPUT"
-          else
-            cp /tmp/pr-full.diff /tmp/pr.diff
-            echo "truncated=false" >> "$GITHUB_OUTPUT"
+          # The diff endpoint caps at 20,000 lines and answers HTTP 406 above it,
+          # which took this job down on #1106 and #1107 (21,366 lines) -- the one
+          # hard-fail path in a workflow whose every other error is a warning.
+          # The per-file endpoint has no such cap, so the review diff is rebuilt
+          # from per-file patches, and a fetch problem downgrades the review
+          # instead of failing the PR.
+          if ! gh api "repos/$REPO/pulls/$PR/files" --paginate > /tmp/pr-files.raw 2>/tmp/pr-files.err; then
+            echo "::warning::could not fetch PR file patches: $(head -c 300 /tmp/pr-files.err)"
+            : > /tmp/pr.diff
+            : > /tmp/pr-manifest.txt
+            echo "status=unavailable" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          jq -s 'add' /tmp/pr-files.raw > /tmp/pr-files.json
+          STATS=$(python3 .github/scripts/build_review_diff.py /tmp/pr-files.json)
+          echo "$STATS"
+          echo "status=ok" >> "$GITHUB_OUTPUT"
+          echo "stats=$STATS" >> "$GITHUB_OUTPUT"
 
       - name: Get PR info
         env:
@@ -68,13 +78,15 @@ jobs:
 
       - name: Build API request
         env:
-          TRUNCATED: ${{ steps.diff.outputs.truncated }}
-          DIFF_SIZE: ${{ steps.diff.outputs.diff_size }}
+          DIFF_STATUS: ${{ steps.diff.outputs.status }}
+          DIFF_STATS: ${{ steps.diff.outputs.stats }}
         run: |
-          TRUNCATION_NOTE=""
-          if [ "$TRUNCATED" = "true" ]; then
-            TRUNCATION_NOTE="NOTE: The diff was truncated to 80k characters. Total size: ${DIFF_SIZE} bytes. Focus on what is visible."
+          if [ ! -s /tmp/pr.diff ]; then
+            echo "::warning::no reviewable diff (status=$DIFF_STATUS) -- skipping review"
+            exit 0
           fi
+
+          TRUNCATION_NOTE="NOTE: the diff below is SELECTED, not complete (${DIFF_STATS}). Whole file patches were taken most-changed-first, capped per file, skipping generated and fixture paths; a clipped patch says so inline. The manifest lists every changed file, so say when a finding needs a file that is not shown rather than assuming it is absent."
 
           # Write the user prompt to a file (avoids shell variable limits)
           cat > /tmp/user-prompt.txt <<PROMPT
@@ -91,6 +103,9 @@ jobs:
 
           Existing doctype test files:
           $(cat /tmp/doctype-tests.txt)
+
+          Every file changed by this PR (status, +added, -deleted):
+          $(cat /tmp/pr-manifest.txt)
 
           ${TRUNCATION_NOTE}
 
@@ -181,6 +196,11 @@ jobs:
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
+          if [ ! -f /tmp/request.json ]; then
+            echo "No request built (no reviewable diff). Nothing to do."
+            exit 0
+          fi
+
           if [ -z "$OPENROUTER_API_KEY" ]; then
             echo "::warning::OPENROUTER_API_KEY secret is not set"
             exit 0
