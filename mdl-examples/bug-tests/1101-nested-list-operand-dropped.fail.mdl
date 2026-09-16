@@ -1,0 +1,75 @@
+-- mendixlabs/mxcli#1101 — a list operation nested inside another one.
+--
+-- This file is expected to FAIL `mxcli check` (.fail.mdl). Every statement below
+-- used to pass check, exec with "Created microflow", and write an activity whose
+-- List property was empty.
+--
+-- MDL's expression grammar makes list operations look composable. Mendix's model
+-- is not: each one is a separate ACTIVITY whose list is stored as a VARIABLE
+-- reference, with no slot for a nested computation. The inner call therefore had
+-- nowhere to go and was dropped — list and predicate together — and the describe
+-- of the result reads `$n = count($)`.
+--
+-- Measured on mxbuild 11.6.6, one microflow per project. The reporter's own
+-- workaround (the two-statement form) is the control and passes at 0 errors:
+--
+--   count(filter(…))       CE0012 "The 'List' property is required."
+--   head(filter(…))        CE0096 — the list-operation flavour of the same
+--   sum(filter(…), 1)      CE0012 + CE0117
+--   sort(filter(…), Name)  mxbuild ABORTS with InvalidOperationException. The
+--                          sort attribute resolves against the (now absent)
+--                          list's entity, so the document cannot be loaded at
+--                          all — no error code, no line.
+--   count('nonsense')      CE0012 — nesting is not required to lose the list
+--
+-- Expected: MDL-LISTOP02 (error) on each of the six microflows below.
+
+-- 1. The reporter's exact form.
+create or replace microflow BugTest1101.CountOfFilter() returns Integer
+begin
+  retrieve $reqs from BugTest1101.Request;
+  $n = count(filter($reqs, $currentObject/Name != ''));
+  return $n;
+end;
+
+-- 2. Same hole reached through a list operation rather than an aggregate.
+create or replace microflow BugTest1101.HeadOfFilter() returns BugTest1101.Request
+begin
+  retrieve $reqs from BugTest1101.Request;
+  $h = head(filter($reqs, $currentObject/Name != ''));
+  return $h;
+end;
+
+-- 3. The nesting can go the other way round — an inner sort under a filter.
+create or replace microflow BugTest1101.FilterOfSort() returns List of BugTest1101.Request
+begin
+  retrieve $reqs from BugTest1101.Request;
+  $f = filter(sort($reqs, Name), $currentObject/Name != '');
+  return $f;
+end;
+
+-- 4. The worst one: with the list gone, the sort attribute has no entity to
+-- resolve against and mxbuild cannot load the document at all.
+create or replace microflow BugTest1101.SortOfFilter() returns List of BugTest1101.Request
+begin
+  retrieve $reqs from BugTest1101.Request;
+  $s = sort(filter($reqs, $currentObject/Name != ''), Name);
+  return $s;
+end;
+
+-- 5. The dropped operand can be the SECOND list of a two-list operation.
+create or replace microflow BugTest1101.UnionOfFilter() returns List of BugTest1101.Request
+begin
+  retrieve $reqs from BugTest1101.Request;
+  retrieve $others from BugTest1101.Request;
+  $u = union($others, filter($reqs, $currentObject/Name != ''));
+  return $u;
+end;
+
+-- 6. Nesting is not required. Anything that is not a variable is dropped the
+-- same way, so the rule keys on the operand not reducing to one.
+create or replace microflow BugTest1101.CountOfLiteral() returns Integer
+begin
+  $n = count('nonsense');
+  return $n;
+end;

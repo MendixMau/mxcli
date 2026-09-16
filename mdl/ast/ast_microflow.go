@@ -834,9 +834,30 @@ type ListOperationStmt struct {
 	// ListOperationsAction has no ErrorHandlingType, so an ON ERROR here has
 	// nowhere to go; parsing it and reporting it beats dropping it silently.
 	ErrorHandling *ErrorHandlingClause
+	// UnresolvedOperands holds the list operands that did not reduce to a
+	// variable name — see UnresolvedOperand. Empty on every well-formed statement.
+	UnresolvedOperands []UnresolvedOperand
 }
 
 func (s *ListOperationStmt) isMicroflowStatement() {}
+
+// UnresolvedOperand is a list operand that the visitor could not reduce to a
+// variable name.
+//
+// A Mendix list-operation or aggregate activity stores its list as a VARIABLE
+// REFERENCE — there is no slot for a nested computation. So MDL's expression
+// grammar accepts `count(filter($l, …))`, which looks composable, but the model
+// has nowhere to put the inner call. The conversion used to drop it silently and
+// write the activity with an empty List, which passes `check`, execs with a
+// success message, and fails the build with CE0012 / CE0096 (mendixlabs/mxcli#1101).
+//
+// Recording what was dropped — rather than leaving an empty InputVariable behind
+// — is what lets the validator name the operand and print the two-statement
+// rewrite. Expr is nil when the operand was absent altogether.
+type UnresolvedOperand struct {
+	Index int        // 0 = the list; 1 = the second list of UNION/INTERSECT/SUBTRACT/CONTAINS/EQUALS
+	Expr  Expression // what was written there, for the diagnostic
+}
 
 // AggregateListOperationType represents the type of aggregate operation.
 type AggregateListOperationType int
@@ -897,6 +918,9 @@ type AggregateListStmt struct {
 	// ErrorHandling is recorded only so the clause can be REFUSED — Mendix's
 	// AggregateAction has no ErrorHandlingType. See ListOperationStmt.
 	ErrorHandling *ErrorHandlingClause
+	// UnresolvedOperands holds the list operand that did not reduce to a variable
+	// name — see UnresolvedOperand. Empty on every well-formed statement.
+	UnresolvedOperands []UnresolvedOperand
 }
 
 func (s *AggregateListStmt) isMicroflowStatement() {}

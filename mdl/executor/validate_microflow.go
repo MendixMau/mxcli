@@ -102,6 +102,7 @@ func (v *microflowValidator) addViolation(ruleID string, severity linter.Severit
 func (v *microflowValidator) validate(body []ast.MicroflowStatement) {
 	v.checkListOperationIterator(body)
 	v.checkRetrieveLimitOneAsList(body)
+	v.checkListOperationSource(body)
 	v.checkMergeJoinLabels(body)
 	v.checkAnnotationLabels(body)
 

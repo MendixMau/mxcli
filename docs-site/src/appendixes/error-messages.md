@@ -144,6 +144,36 @@ The rule keys on **scope, not on the name**. `$item` is perfectly valid in a pre
 
 ## mxcli Parser Errors
 
+
+### MDL-LISTOP02: A list operation nested inside another one
+
+```
+count(…): the list argument is `filter($reqs, $currentObject/Status = Mod.E.Approved)`,
+which is not a variable. A Mendix aggregate list activity stores its list as a
+variable reference and has no slot for a nested computation, so the argument is
+dropped and the activity is written with an empty list — mxbuild then rejects it
+with CE0012 "The 'List' property is required.". [MDL-LISTOP02]
+```
+
+**Cause:** Every list operation and aggregate — `HEAD`, `TAIL`, `FIND`, `FILTER`, `SORT`, `UNION`, `INTERSECT`, `SUBTRACT`, `RANGE`, `COUNT`, `SUM`, `AVERAGE`, `MINIMUM`, `MAXIMUM`, `REDUCE`, `ALL`, `ANY` — is a separate **activity** in Mendix, and an activity stores its list as a **variable reference**. MDL's expression grammar makes them look composable, but there is nowhere in the model to put a nested call.
+
+Before this rule existed the inner call was dropped, list and predicate together, and the activity was written with an empty list. That passes `mxcli check`, execs with `Created microflow`, and fails only at build time — `CE0012 "The 'List' property is required."` for an aggregate, `CE0096` for a list operation. `sort(filter(…), Attr)` was worse: with the list gone the sort attribute has no entity to resolve against, and mxbuild aborts with an `InvalidOperationException` instead of reporting an error.
+
+The rule keys on the operand not reducing to a variable, so it also covers a non-list argument: `count('nonsense')` failed the same way.
+
+**Solution:** Give the inner operation its own statement and pass the variable.
+
+```mdl
+-- WRONG
+$n = count(filter($Requests, $currentObject/Status = Module.ENUM_Status.Approved));
+
+-- RIGHT
+$Approved = filter($Requests, $currentObject/Status = Module.ENUM_Status.Approved);
+$n        = count($Approved);
+```
+
+The same applies to both operands of `union`/`intersect`/`subtract`.
+
 ### Mismatched input
 
 ```
