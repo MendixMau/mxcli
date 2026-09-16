@@ -113,8 +113,8 @@ func TestNoSecurityLevelManipulation(t *testing.T) {
 	all := append(setupCommands(mxTestRunner), setupCommands(endpointStartupFlow)...)
 	all = append(all, cleanupCommands(projectState{}, true)...)
 	all = append(all, cleanupCommands(projectState{afterStartup: "Mod.Flow", createdMxTest: true}, true)...)
-	all = append(all, endpointCleanupCommands(projectState{}, suite, true)...)
-	all = append(all, endpointCleanupCommands(projectState{afterStartup: "Mod.Flow", createdMxTest: true}, suite, true)...)
+	all = append(all, endpointCleanupCommands(projectState{}, suiteTestFlowNames(suite), true)...)
+	all = append(all, endpointCleanupCommands(projectState{afterStartup: "Mod.Flow", createdMxTest: true}, suiteTestFlowNames(suite), true)...)
 	for _, cmd := range all {
 		if strings.Contains(strings.ToUpper(cmd), "SECURITY LEVEL") {
 			t.Errorf("the runner still alters the project Security Level: %q (#802)", cmd)

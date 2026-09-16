@@ -148,7 +148,7 @@ func TestGenerateEndpointMDLNoChainWhenNone(t *testing.T) {
 }
 
 func TestDropTestFlows(t *testing.T) {
-	got := dropTestFlows(&TestSuite{Tests: []TestCase{{ID: "test_1"}, {ID: "test_2"}}})
+	got := dropTestFlows("", &TestSuite{Tests: []TestCase{{ID: "test_1"}, {ID: "test_2"}}})
 	want := []string{"DROP MICROFLOW MxTest.Test_test_1", "DROP MICROFLOW MxTest.Test_test_2"}
 	if len(got) != len(want) {
 		t.Fatalf("got %q, want %q", got, want)
@@ -164,7 +164,7 @@ func TestDropTestFlows(t *testing.T) {
 // attach adds only test microflows, so it must remove only those. The endpoint
 // and the after-startup setting belong to the dev loop hosting them.
 func TestDropTestFlowsNeverTouchesTheEndpoint(t *testing.T) {
-	for _, cmd := range dropTestFlows(&TestSuite{Tests: []TestCase{{ID: "test_1"}}}) {
+	for _, cmd := range dropTestFlows("", &TestSuite{Tests: []TestCase{{ID: "test_1"}}}) {
 		for _, forbidden := range []string{"DROP MODULE", endpointStartupFlow, endpointRegisterAction, "AfterStartupMicroflow"} {
 			if strings.Contains(cmd, forbidden) {
 				t.Errorf("attach cleanup would remove %q, which the hosting dev loop owns: %q", forbidden, cmd)

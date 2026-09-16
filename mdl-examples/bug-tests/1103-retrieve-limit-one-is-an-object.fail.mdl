@@ -1,0 +1,26 @@
+-- mendixlabs/mxcli#1103 — `retrieve … limit 1` binds a single OBJECT.
+--
+-- The executor maps `limit 1` with no offset to Mendix's "First object" range,
+-- so $Requests is an object and head() cannot take it. Nothing said so before
+-- the build: `mxcli check --references` passed and `describe` re-emits
+-- `limit 1`, so an object retrieve and a list retrieve are identical text.
+-- mxbuild rejected it as CE0097 at the far end of a build — and inside a
+-- .test.mdl file, not even that: the injected test simply failed to build.
+--
+-- MDL-RETRIEVE01 reports it at check time. This script must FAIL check.
+create module Probe;
+
+create entity Probe.Request (
+  Code: String(20)
+);
+
+create or replace microflow Probe.M_LimitOneAsList ()
+returns Boolean as $Found
+begin
+  declare $Found Boolean = false;
+  retrieve $Requests from Probe.Request where Code = 'X' limit 1;
+  $Request = head($Requests);
+  set $Found = $Request != empty;
+  return $Found;
+end;
+/

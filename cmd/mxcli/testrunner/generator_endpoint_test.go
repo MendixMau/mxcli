@@ -197,7 +197,7 @@ func TestEndpointCleanupCommands(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := endpointCleanupCommands(tc.state, suite, tc.present)
+			got := endpointCleanupCommands(tc.state, suiteTestFlowNames(suite), tc.present)
 			if len(got) != len(tc.want) {
 				t.Fatalf("got %d commands %q, want %d %q", len(got), got, len(tc.want), tc.want)
 			}
@@ -219,7 +219,7 @@ func TestEndpointCleanupRestoreIsAlwaysFirst(t *testing.T) {
 		{createdMxTest: false},
 		{afterStartup: "Mod.ASU", createdMxTest: true},
 	} {
-		cmds := endpointCleanupCommands(st, suite, true)
+		cmds := endpointCleanupCommands(st, suiteTestFlowNames(suite), true)
 		if !strings.HasPrefix(cmds[0], "ALTER SETTINGS MODEL AfterStartupMicroflow") {
 			t.Errorf("state %+v: first command is %q, want the after-startup restore", st, cmds[0])
 		}

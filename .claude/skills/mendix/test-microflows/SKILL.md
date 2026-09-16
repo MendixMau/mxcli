@@ -381,8 +381,33 @@ when deployed anywhere else.
 The project's **Security Level is not modified**. The after-startup microflow runs
 in an administrative context and is not subject to it, and forcing it off breaks
 projects whose published REST/OData services use custom authentication. If a
-cleanup step fails the run reports an error and names what was left changed —
-the project is modified, so it must not read as a clean pass.
+cleanup step fails the run reports an error, **names every generated document
+still in the project and prints the `DROP` that removes it** — the project is
+modified, so it must not read as a clean pass.
+
+Cleanup removes **every** generated `MxTest.Test_*` microflow the project holds,
+not only the ones this run created. The names are positional (`Test_test_1`,
+`_2`, … from the test's index in its file) and every test file reuses them, so
+keying cleanup on the current suite left a flow behind whenever a later run had
+fewer tests than an earlier one — and a leftover that does not build fails
+**every subsequent run of every test file**, with a message about the project
+rather than about any test (mendixlabs/mxcli#1104).
+
+## Check a test file before you run it
+
+`mxcli check suite.test.mdl` works, and is much faster than a run. A test block
+is a **microflow body**, and `check` renders it as the microflow it becomes, on
+the file's own lines — so a diagnostic points at the statement you wrote.
+
+That includes the semantic rules, which is where most of the value is: a test
+whose body would not compile is reported here instead of failing the injection
+with nothing but "the project cannot be deployed". An `@expect` or `@verify` that
+cannot be evaluated is reported here too, as `MDL-TEST01`.
+
+One rule to know about, because its symptom is confusing and its shape is common
+in tests: `retrieve $x … limit 1` binds a **single object**, not a one-element
+list, so `head($x)` is `CE0097` at build time and `MDL-RETRIEVE01` at check time.
+Drop the `limit` to get a list, or use the variable as the object it is.
 
 ---
 
