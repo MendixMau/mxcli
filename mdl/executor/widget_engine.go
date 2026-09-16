@@ -257,6 +257,27 @@ type PluggableWidgetEngine struct {
 	// consults it to tell the widget's PRIMARY attribute property from its others
 	// (#238); nil outside a build.
 	currentDef *WidgetDefinition
+
+	// currentPropertyTypeIDs is the loaded template's property metadata for the
+	// build in progress. Its DataSourceProperty is the WIDGET'S OWN statement of
+	// which of its datasources each dependent property binds against — read from
+	// widget.xml's `dataSource="…"`, so it is the vendor's answer rather than
+	// ours. nil outside a build.
+	currentPropertyTypeIDs map[string]pages.PropertyTypeIDEntry
+
+	// dataSourceEntities maps a datasource property's KEY to the entity that
+	// property's value resolved to, for the build in progress.
+	//
+	// pageBuilder.entityContext holds only ONE entity — whichever datasource
+	// mapping ran last — so on a widget with several datasources a dependent
+	// property bound to whatever happened to be applied before it. That is
+	// correct only while the .def.json interleaves each datasource with its own
+	// dependents, which is a convention nothing enforces and which a regenerated
+	// definition can silently break. Keyed per datasource, the binding is a
+	// property of the widget's schema rather than of its mapping order.
+	//
+	// Reset per Build and restored for nested widgets, like the fields above.
+	dataSourceEntities map[string]string
 }
 
 // NewPluggableWidgetEngine creates a new engine with the given backend and page builder.
@@ -302,6 +323,18 @@ func (e *PluggableWidgetEngine) Build(def *WidgetDefinition, w *ast.WidgetV3) (*
 	}
 
 	propertyTypeIDs := builder.PropertyTypeIDs()
+
+	// The template's per-property datasource links, and the per-datasource
+	// entities the mappings below will fill in. Saved/restored like currentDef,
+	// so a nested widget cannot see its parent's.
+	oldPropertyTypeIDs := e.currentPropertyTypeIDs
+	oldDataSourceEntities := e.dataSourceEntities
+	e.currentPropertyTypeIDs = propertyTypeIDs
+	e.dataSourceEntities = nil
+	defer func() {
+		e.currentPropertyTypeIDs = oldPropertyTypeIDs
+		e.dataSourceEntities = oldDataSourceEntities
+	}()
 
 	// 2. Select mode and get mappings/slots
 	mappings, slots, err := e.selectMappings(def, w)
@@ -924,6 +957,36 @@ func namedPropValue(mapping PropertyMapping, w *ast.WidgetV3) string {
 	return ""
 }
 
+// entityContextFor returns the entity that propertyKey's value binds against.
+//
+// The template says so directly when the property declares a DataSourceProperty
+// (widget.xml `dataSource="…"`): a DatagridDropdownFilter's `refCaption` names
+// an attribute of `refOptions`' entity, never of `linkedDs`'. Everything else —
+// which is every single-datasource widget — falls back to the one shared
+// entityContext, so the fallback branch is today's behaviour unchanged.
+func (e *PluggableWidgetEngine) entityContextFor(propertyKey string) string {
+	if key := e.currentPropertyTypeIDs[propertyKey].DataSourceProperty; key != "" {
+		if entity := e.dataSourceEntities[key]; entity != "" {
+			return entity
+		}
+	}
+	return e.pageBuilder.entityContext
+}
+
+// recordDataSourceEntity remembers the entity a datasource property resolved to,
+// so the properties declaring it as their DataSourceProperty can bind against it.
+// Lazily allocated: resolveMapping is also called directly by unit tests, which
+// never go through Build.
+func (e *PluggableWidgetEngine) recordDataSourceEntity(propertyKey, entityName string) {
+	if propertyKey == "" || entityName == "" {
+		return
+	}
+	if e.dataSourceEntities == nil {
+		e.dataSourceEntities = make(map[string]string)
+	}
+	e.dataSourceEntities[propertyKey] = entityName
+}
+
 // resolveMapping resolves a PropertyMapping's source into a BuildContext.
 func (e *PluggableWidgetEngine) resolveMapping(mapping PropertyMapping, w *ast.WidgetV3) (*BuildContext, error) {
 	ctx := &BuildContext{pageBuilder: e.pageBuilder}
@@ -988,15 +1051,18 @@ func (e *PluggableWidgetEngine) resolveMapping(mapping PropertyMapping, w *ast.W
 			attr = w.GetAttribute()
 		}
 		if attr != "" {
+			// Against THIS property's datasource entity, which is the shared
+			// entityContext unless the template links it to a specific one.
+			entity := e.entityContextFor(mapping.PropertyKey)
 			// An association named where an attribute belongs cannot be stored;
 			// refuse it here rather than writing a dangling AttributeRef (#830).
 			if err := e.pageBuilder.rejectAssociationAsAttribute(
-				attr, e.pageBuilder.entityContext,
+				attr, entity,
 				fmt.Sprintf("widget `%s` property `%s`", w.Name, mapping.PropertyKey),
 			); err != nil {
 				return nil, err
 			}
-			ctx.AttributePath = e.pageBuilder.resolveAttributePath(attr)
+			ctx.AttributePath = e.pageBuilder.resolveAttributePathForEntity(attr, entity)
 		}
 
 	case "TextTemplate":
@@ -1012,9 +1078,11 @@ func (e *PluggableWidgetEngine) resolveMapping(mapping PropertyMapping, w *ast.W
 
 	case "Attributes":
 		if attrs := w.GetAttributes(); len(attrs) > 0 {
+			entity := e.entityContextFor(mapping.PropertyKey)
 			ctx.AttributePaths = make([]string, 0, len(attrs))
 			for _, attr := range attrs {
-				ctx.AttributePaths = append(ctx.AttributePaths, e.pageBuilder.resolveAttributePath(attr))
+				ctx.AttributePaths = append(ctx.AttributePaths,
+					e.pageBuilder.resolveAttributePathForEntity(attr, entity))
 			}
 		}
 
@@ -1026,6 +1094,9 @@ func (e *PluggableWidgetEngine) resolveMapping(mapping PropertyMapping, w *ast.W
 			}
 			ctx.DataSource = dataSource
 			ctx.EntityName = entityName
+			// Keyed by THIS datasource's property, for the dependents that name
+			// it, as well as into the shared context for everything else.
+			e.recordDataSourceEntity(mapping.PropertyKey, entityName)
 			if entityName != "" {
 				e.pageBuilder.entityContext = entityName
 				e.pageBuilder.contextVarName = contextVarFor(ds)
@@ -1045,8 +1116,8 @@ func (e *PluggableWidgetEngine) resolveMapping(mapping PropertyMapping, w *ast.W
 
 	case "CaptionAttribute":
 		if captionAttr := w.GetStringProp("CaptionAttribute"); captionAttr != "" {
-			if !strings.Contains(captionAttr, ".") && e.pageBuilder.entityContext != "" {
-				captionAttr = e.pageBuilder.entityContext + "." + captionAttr
+			if entity := e.entityContextFor(mapping.PropertyKey); !strings.Contains(captionAttr, ".") && entity != "" {
+				captionAttr = entity + "." + captionAttr
 			}
 			ctx.AttributePath = captionAttr
 		}
@@ -1075,7 +1146,7 @@ func (e *PluggableWidgetEngine) resolveMapping(mapping PropertyMapping, w *ast.W
 			}
 			ctx.AssocPath = e.pageBuilder.resolveAssociationPathIn(attr, outer)
 		}
-		ctx.EntityName = e.pageBuilder.entityContext
+		ctx.EntityName = e.entityContextFor(mapping.PropertyKey)
 		if ctx.AssocPath != "" && ctx.EntityName == "" {
 			return nil, mdlerrors.NewValidationf("association %q requires an entity context (add a DataSource mapping before Association)", ctx.AssocPath)
 		}
