@@ -38,6 +38,11 @@ type TestCase struct {
 	Throws       string // @throws expected error message, "" when written bare
 	SourceFile   string // Original file path
 	Line         int    // Line number in source file
+	// BodyLine is the 1-based source line the MDL body starts on, which is not
+	// Line: that one points at the doc comment. Checking a test file needs the
+	// body's own line, so a diagnostic can be reported where the author wrote the
+	// statement rather than where the annotation is — see check_source.go.
+	BodyLine int
 }
 
 // expectsThrow reports whether the test expects its body to raise an error.
@@ -175,7 +180,7 @@ func parseMDLTests(content string, sourcePath string) ([]TestCase, error) {
 
 	for _, block := range blocks {
 		// Extract javadoc comment and MDL body
-		doc, body, line, err := extractDocAndBody(block)
+		doc, body, line, bodyLine, err := extractDocAndBody(block)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", sourcePath, err)
 		}
@@ -213,6 +218,7 @@ func parseMDLTests(content string, sourcePath string) ([]TestCase, error) {
 			Throws:       annotations.Throws,
 			SourceFile:   sourcePath,
 			Line:         line,
+			BodyLine:     bodyLine,
 		})
 	}
 
@@ -249,7 +255,7 @@ func parseMarkdownTests(content string, sourcePath string) ([]TestCase, error) {
 				blockContent := strings.Join(blockLines, "\n")
 
 				// Parse the block as a single test
-				doc, body, _, err := extractDocAndBody(testBlock{Text: blockContent, Line: blockStart})
+				doc, body, _, bodyLine, err := extractDocAndBody(testBlock{Text: blockContent, Line: blockStart})
 				if err != nil {
 					return nil, fmt.Errorf("%s: %w", sourcePath, err)
 				}
@@ -280,6 +286,7 @@ func parseMarkdownTests(content string, sourcePath string) ([]TestCase, error) {
 					Throws:          annotations.Throws,
 					SourceFile:      sourcePath,
 					Line:            blockStart,
+					BodyLine:        bodyLine,
 				})
 			} else {
 				blockLines = append(blockLines, line)
@@ -397,7 +404,7 @@ func splitTestBlocks(content string) []testBlock {
 // with no message. Scanning for the delimiters by raw substring search is bug
 // 1b: a `--` line whose prose spelled them out was read as a doc comment, so
 // describing the bug in a comment re-triggered it.
-func extractDocAndBody(block testBlock) (string, string, int, error) {
+func extractDocAndBody(block testBlock) (string, string, int, int, error) {
 	docs := scanDocComments(block.Text, block.Line)
 
 	// More than one @test in a chunk means a '/' separator is missing. Silently
@@ -410,7 +417,7 @@ func extractDocAndBody(block testBlock) (string, string, int, error) {
 		}
 	}
 	if len(named) > 1 {
-		return "", "", 0, fmt.Errorf(
+		return "", "", 0, 0, fmt.Errorf(
 			"test %q is followed by another @test doc comment (%q) with no '/' separator "+
 				"between them, so only one of the two could run: add a line containing "+
 				"just '/' after the first test's statements", named[0], named[1])
@@ -425,9 +432,36 @@ func extractDocAndBody(block testBlock) (string, string, int, error) {
 		}
 	}
 	if doc == nil {
-		return "", strings.TrimSpace(block.Text), block.Line, nil
+		return "", strings.TrimSpace(block.Text), block.Line, bodyStartLine(block.Text, 0, block.Line), nil
 	}
-	return doc.Text, strings.TrimSpace(block.Text[doc.End:]), doc.Line, nil
+	return doc.Text, strings.TrimSpace(block.Text[doc.End:]), doc.Line,
+		bodyStartLine(block.Text, doc.End, block.Line), nil
+}
+
+// bodyStartLine is the 1-based file line the body's first non-blank character
+// sits on, counting from the chunk's own first line.
+//
+// Computed here rather than derived from the doc comment's length, because the
+// body is TrimSpace'd: leading blank lines belong to neither, and a body that
+// starts on the same line as the comment's closing delimiter has no leading line
+// of its own at all.
+func bodyStartLine(chunk string, from, chunkLine int) int {
+	line := chunkLine
+	for i := 0; i < from && i < len(chunk); i++ {
+		if chunk[i] == '\n' {
+			line++
+		}
+	}
+	for i := from; i < len(chunk); i++ {
+		switch chunk[i] {
+		case '\n':
+			line++
+		case ' ', '\t', '\r':
+		default:
+			return line
+		}
+	}
+	return line
 }
 
 // docComment is one `/** … */` comment found in a chunk.

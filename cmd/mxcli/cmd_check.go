@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/mendixlabs/mxcli/cmd/mxcli/testrunner"
 	"github.com/mendixlabs/mxcli/mdl/executor"
 	"github.com/mendixlabs/mxcli/mdl/linter"
 	"github.com/mendixlabs/mxcli/mdl/visitor"
@@ -115,7 +116,31 @@ Examples:
 		if !isStructured {
 			fmt.Printf("Checking syntax: %s\n", mdlSourceLabel(filePath))
 		}
-		prog, errs := visitor.Build(string(content))
+
+		// A .test.mdl / .test.md file is not top-level MDL: each block is a
+		// microflow body. Render it as the microflows it becomes, on the source's
+		// own lines, so every rule below applies to what the author actually wrote
+		// (mendixlabs/mxcli#1103).
+		source := string(content)
+		var testProblems []linter.Violation
+		if testrunner.IsTestFile(filePath) {
+			checked, terr := testrunner.CheckSource(source, filePath)
+			if terr != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", terr)
+				os.Exit(1)
+			}
+			source = checked.MDL
+			for _, p := range checked.Problems {
+				testProblems = append(testProblems, linter.Violation{
+					RuleID:   "MDL-TEST01",
+					Severity: linter.SeverityError,
+					Message:  fmt.Sprintf("test %q: %s", p.Test, p.Message),
+					Location: linter.Location{DocumentType: "test", DocumentName: p.Test},
+				})
+			}
+		}
+
+		prog, errs := visitor.Build(source)
 		if len(errs) > 0 {
 			if isStructured {
 				var parseViolations []linter.Violation
@@ -133,7 +158,7 @@ Examples:
 					fmt.Fprintf(os.Stderr, "  - %v\n", err)
 				}
 				// Hint: if script contains IMPORT/QUERY with single $ but not $$, suggest dollar-quoting
-				src := string(content)
+				src := source
 				if (strings.Contains(src, "IMPORT") || strings.Contains(src, "import")) &&
 					(strings.Contains(src, "QUERY") || strings.Contains(src, "query")) &&
 					strings.Contains(src, "$") && !strings.Contains(src, "$$") {
@@ -150,7 +175,7 @@ Examples:
 		// Every semantic check lives in executor.ValidateProgram, so `mxcli exec`
 		// refuses exactly what `mxcli check` reports. Adding a check there gives
 		// both commands it at once.
-		violations := executor.ValidateProgram(prog, projectPath)
+		violations := append(testProblems, executor.ValidateProgram(prog, projectPath)...)
 
 		if isStructured {
 			// Always emit structured output (even when clean)

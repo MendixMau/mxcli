@@ -1,0 +1,33 @@
+-- mendixlabs/mxcli#1103 — a .test.mdl file is checkable.
+--
+-- Every block here is a MICROFLOW BODY, which is what the runner turns it into.
+-- Checked against the top-level grammar instead, `declare` is not a statement,
+-- the parser resyncs, `retrieve` is swallowed as a non-reserved keyword, and the
+-- remaining `from …` starts an OQL query whose follow set is
+-- {GROUP_BY, SELECT, HAVING} — so the reporter was told their retrieve needed a
+-- SELECT. `mxcli check` renders the blocks as microflows on these same lines.
+
+/**
+ * @test limit 1 binds one object, so use it as one
+ * @expect $Found = true
+ */
+retrieve $Request from Probe.Request where Code = 'X' limit 1;
+$Found = $Request != empty;
+/
+
+/**
+ * @test without a limit it is a list, and head() takes it
+ * @expect $Found = true
+ */
+retrieve $Requests from Probe.Request where Code = 'X';
+$Request = head($Requests);
+$Found = $Request != empty;
+/
+
+/**
+ * @test a bounded range above one is still a list
+ * @expect $Count = 2
+ */
+retrieve $Requests from Probe.Request where Code = 'X' limit 2;
+$Count = count($Requests);
+/
