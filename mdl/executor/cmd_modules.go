@@ -85,6 +85,18 @@ func execDropModule(ctx *ExecContext, s *ast.DropModuleStmt) error {
 		return mdlerrors.NewNotFound("module", s.Name)
 	}
 
+	// The System module is virtual: it is synthesized from modelsdk/meta, not
+	// stored, so there is nothing here to drop. The cascade below would walk its
+	// synthesized documents and report a "unit not found" warning for each one
+	// (15 of them once the enumerations became visible — #1102) while changing
+	// nothing. Refusing says that in one line instead.
+	if targetModule.Name == "System" {
+		return mdlerrors.NewValidation(
+			"cannot drop module System: it is owned by the Mendix platform and is not stored in the " +
+				"project — its entities, associations, enumerations and Java actions are built in. " +
+				"Every Mendix app has it and no app can remove it.")
+	}
+
 	// Build set of all container IDs belonging to this module (including nested folders)
 	moduleContainers := getModuleContainers(ctx, targetModule.ID)
 

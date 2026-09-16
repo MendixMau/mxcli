@@ -353,20 +353,53 @@ HTTP proxy settings (internal use).
 
 ## 8. Enumerations
 
-### WorkflowState
-`InProgress`, `Paused`, `Completed`, `Aborted`, `Incompatible`, `Failed`
+Inspect any of these from the CLI rather than copying from here — the values are
+**case-sensitive**, and a wrong one is only caught at build time as **CE1613**
+"The selected enumeration value no longer exists":
 
-### WorkflowUserTaskState
-`created`, `InProgress`, `Completed`, `Paused`, `Aborted`, `Failed`
+```bash
+mxcli -p app.mpr describe enumeration System.WorkflowActivityType
+mxcli -p app.mpr show enumerations            # includes the System module
+```
 
-### WorkflowUserTaskCompletionType
-`single`, `Veto`, `Consensus`, `Majority`, `Threshold`, `microflow`
+Two of these names are easy to confuse, and mixing them up is the mistake that
+CE1613 usually reports: **`WorkflowActivityState`** has `Finished`, while
+**`WorkflowActivityExecutionState`** has `Completed`. They are different
+enumerations on different entities.
 
-### WorkflowActivityType
-`Start`, `end`, `ExclusiveSplit`, `ParallelSplit`, `ParallelSplitBranchStopper`, `ParallelSplitMerge`, `UserTask`, `CallMicroflow`, `CallWorkflow`, `JumpTo`, `MultiInputUserTask`, `WaitForNotification`, `WaitForTimer`, `EndOfBoundaryEventPath`, `NonInterruptingTimerEvent`, `InterruptingTimerEvent`
+System enumerations are **read-only** — they are built into the platform, not
+stored in the project, so `create`/`alter`/`drop`/`move enumeration System.…` is
+refused. `describe` prints them as `--` comment lines for that reason.
+
+### ContextType
+`System`, `User`, `Anonymous`, `ScheduledEvent`
+
+### DeviceType
+`Phone`, `Tablet`, `Desktop`
+
+### EventStatus
+`Running`, `Completed`, `Error`, `Stopped`
+
+### ProxyConfiguration
+`UseAppSettings`, `Override`, `NoProxy`
+
+### QueueTaskStatus
+`Idle`, `Running`, `Completed`, `Failed`, `Retrying`, `Aborted`, `Incompatible`
+
+### UnreferencedFileState
+`New`, `Obsolete`, `Deleted`
+
+### UserType
+`Internal`, `External`
 
 ### WorkflowActivityExecutionState
-`created`, `InProgress`, `Completed`, `Paused`, `Aborted`, `Failed`
+`Created`, `InProgress`, `Completed`, `Paused`, `Aborted`, `Failed`
+
+### WorkflowActivityState
+`Started`, `Suspended`, `Finished`, `Replaced`, `Aborted`, `Failed`
+
+### WorkflowActivityType
+`Start`, `End`, `ExclusiveSplit`, `ParallelSplit`, `ParallelSplitBranchStopper`, `ParallelSplitMerge`, `UserTask`, `CallMicroflow`, `CallWorkflow`, `JumpTo`, `MultiInputUserTask`, `WaitForNotification`, `WaitForTimer`, `EndOfBoundaryEventPath`, `NonInterruptingTimerEvent`, `InterruptingTimerEvent`
 
 ### WorkflowCurrentActivityAction
 `DoNothing`, `JumpTo`
@@ -374,22 +407,14 @@ HTTP proxy settings (internal use).
 ### WorkflowEventType
 `WorkflowCompleted`, `WorkflowInitiated`, `WorkflowRestarted`, `WorkflowFailed`, `WorkflowAborted`, `WorkflowPaused`, `WorkflowUnpaused`, `WorkflowRetried`, `WorkflowUpdated`, `WorkflowUpgraded`, `WorkflowConflicted`, `WorkflowResolved`, `WorkflowJumpToOptionApplied`, `StartEventExecuted`, `EndEventExecuted`, `DecisionExecuted`, `JumpExecuted`, `ParallelSplitExecuted`, `ParallelMergeExecuted`, `CallWorkflowStarted`, `CallWorkflowEnded`, `CallMicroflowStarted`, `CallMicroflowEnded`, `WaitForNotificationStarted`, `WaitForNotificationEnded`, `WaitForTimerStarted`, `WaitForTimerEnded`, `UserTaskStarted`, `MultiUserTaskOutcomeSelected`, `UserTaskEnded`, `NonInterruptingTimerEventExecuted`, `InterruptingTimerEventExecuted`
 
-### QueueTaskStatus
-`Idle`, `Running`, `Completed`, `Failed`, `Retrying`, `Aborted`, `Incompatible`
+### WorkflowState
+`InProgress`, `Paused`, `Completed`, `Aborted`, `Incompatible`, `Failed`
 
-### EventStatus
-`Running`, `Completed`, `error`, `Stopped`
+### WorkflowUserTaskCompletionType
+`Single`, `Veto`, `Consensus`, `Majority`, `Threshold`, `Microflow`
 
-### ContextType
-`System`, `user`, `Anonymous`, `ScheduledEvent`
-
-### UserType
-`Internal`, `external`
-
-### DeviceType
-`Phone`, `Tablet`, `Desktop`
-
----
+### WorkflowUserTaskState
+`Created`, `InProgress`, `Completed`, `Paused`, `Aborted`, `Failed`
 
 ## 9. Inheritance Hierarchies
 

@@ -15,11 +15,51 @@ import (
 	"github.com/mendixlabs/mxcli/model"
 )
 
+// refuseSystemEnumerationWrite rejects any write that names the System module.
+//
+// The System module's enumerations are platform built-ins that the backend
+// SYNTHESIZES so they can be read (#1102) — there is no stored unit for the
+// module, so there is nothing for a write to live in. Before this guard the four
+// write verbs did not fail cleanly: CREATE ENUMERATION System.X reported
+// "Created enumeration: System.X" and wrote a unit whose ContainerID was the
+// synthetic module ID 00000000-…-0001, which is not a unit in the project — an
+// orphan with a dangling parent, on disk, with no error. The others surfaced a
+// raw .mxunit path instead.
+//
+// The signal is the module NAME, not the container: a brand-new enumeration has
+// no container yet, and that is precisely the case that used to corrupt (the
+// module lookup resolves "System" to the virtual module and hands its synthetic
+// ID over as the parent). Unlike the Marketplace guard, which deliberately does
+// not trust a name because a user may name a module Atlas_Core, "System" is
+// reserved by the platform and cannot be a user module.
+func refuseSystemEnumerationWrite(verb string, name ast.QualifiedName) error {
+	if name.Module != "System" {
+		return nil
+	}
+	// The hint must not name the statement's own enumeration: on a CREATE that
+	// name usually does not exist, and telling the reader to describe it would
+	// send them after nothing.
+	return mdlerrors.NewValidation(fmt.Sprintf(
+		"cannot %s %s: the System module is owned by the Mendix platform and is read-only — "+
+			"its enumerations are built in, not stored in the project. "+
+			"Define your own enumeration in one of your modules; "+
+			"`show enumerations` lists the built-in ones and `describe enumeration System.<Name>` reports their values.",
+		verb, name.String()))
+}
+
 // execCreateEnumeration handles CREATE ENUMERATION statements.
 func execCreateEnumeration(ctx *ExecContext, s *ast.CreateEnumerationStmt) error {
 
 	if !ctx.Connected() {
 		return mdlerrors.NewNotConnected()
+	}
+
+	verb := "create enumeration"
+	if s.CreateOrModify {
+		verb = "create or modify enumeration"
+	}
+	if err := refuseSystemEnumerationWrite(verb, s.Name); err != nil {
+		return err
 	}
 
 	// Validate enumeration values for reserved words
@@ -145,6 +185,9 @@ func findEnumeration(ctx *ExecContext, moduleName, enumName string) *model.Enume
 // execAlterEnumeration handles ALTER ENUMERATION ADD/DROP/RENAME VALUE by
 // read-modify-writing the enumeration through the backend (engine-agnostic).
 func execAlterEnumeration(ctx *ExecContext, s *ast.AlterEnumerationStmt) error {
+	if err := refuseSystemEnumerationWrite("alter enumeration", s.Name); err != nil {
+		return err
+	}
 	enum := findEnumeration(ctx, s.Name.Module, s.Name.Name)
 	if enum == nil {
 		return mdlerrors.NewNotFound("enumeration", s.Name.String())
@@ -238,6 +281,10 @@ func execDropEnumeration(ctx *ExecContext, s *ast.DropEnumerationStmt) error {
 
 	if !ctx.Connected() {
 		return mdlerrors.NewNotConnected()
+	}
+
+	if err := refuseSystemEnumerationWrite("drop enumeration", s.Name); err != nil {
+		return err
 	}
 
 	// Find enumeration
@@ -365,6 +412,21 @@ func describeEnumeration(ctx *ExecContext, name ast.QualifiedName) error {
 			// Output JavaDoc documentation if present
 			if enum.Documentation != "" {
 				fmt.Fprintf(ctx.Output, "/**\n * %s\n */\n", enum.Documentation)
+			}
+
+			// A System enumeration is a platform built-in: the write paths refuse
+			// it, so emitting `create or modify …` would hand the reader a
+			// statement mxcli rejects. Report it informationally instead, the way
+			// DESCRIBE BUILDING BLOCK does for the other read-only doctype.
+			if modName == "System" {
+				fmt.Fprintf(ctx.Output, "-- Enumeration: %s.%s\n", modName, enum.Name)
+				fmt.Fprintf(ctx.Output, "-- Values (%d):\n", len(enum.Values))
+				for _, v := range enum.Values {
+					fmt.Fprintf(ctx.Output, "--   %s\n", v.Name)
+				}
+				fmt.Fprintf(ctx.Output, "-- The System module is owned by the Mendix platform: this enumeration is\n")
+				fmt.Fprintf(ctx.Output, "-- built in and read-only, so this output is informational, not re-executable.\n")
+				return nil
 			}
 
 			fmt.Fprintf(ctx.Output, "create or modify enumeration %s.%s (\n", modName, enum.Name)
