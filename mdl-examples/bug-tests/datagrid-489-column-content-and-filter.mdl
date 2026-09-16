@@ -1,0 +1,59 @@
+-- ============================================================================
+-- ako/mxcli#489 — a DataGrid2 column with BOTH custom content and a filter
+-- ============================================================================
+--
+-- Reported upstream as a missing capability (mendixlabs/mxcli#1111: "the column
+-- block accepts either a content widget or a filter widget, not both"). The
+-- write path already supported it; DESCRIBE did not, so a describe → exec round
+-- trip deleted the filter.
+--
+-- Measured on 11.6.6 before the fix:
+--   * stored BSON:      showContentAs=customContent, content=[cbActive],
+--                       filter=[ddfActive]      -- both slots filled
+--   * `mx check`:       0 errors
+--   * browser:          checkbox cells render AND the Yes/No/(all) filter works
+--   * `describe page`:  the dropdownfilter is ABSENT
+--   * re-exec of that description: the `filter` slot is gone
+--
+-- A filter-only column round-tripped by accident: with `content` empty the
+-- filter landed in the content list and was re-emitted in the column body, where
+-- the builder routes it back to the filter slot by widget type. That accident is
+-- why this went unnoticed — the common shape looked fine.
+--
+-- After the fix, describing this page and re-executing the output reports
+-- `Unchanged page`: the description reproduces the stored document exactly.
+--
+-- Note for the "visual checkbox" half of the upstream report: a read-only check
+-- box renders as the text "Yes"/"No" unless ReadOnlyStyle is Control — see
+-- ako/mxcli#490 and readonlystyle-490-checkbox-control.mdl.
+-- ============================================================================
+
+create entity BugTests.Customer (
+  Name: string(200),
+  IsActive: boolean
+);
+
+create or replace page BugTests.P_489_ColumnContentAndFilter (
+  Title: 'Column with content and filter',
+  Layout: Atlas_Core.Atlas_Default
+) {
+  datagrid dgCustomers (
+    DataSource: database from BugTests.Customer,
+    Selection: None
+  ) {
+    column Name (Attribute: Name, Caption: 'Name') {
+      textfilter tfName
+    }
+    -- The column under test: a custom-content cell AND a filter in one block.
+    column IsActive (Attribute: IsActive, Caption: 'Active') {
+      checkbox cbActive (Attribute: IsActive, Editable: Never, ReadOnlyStyle: Control)
+      dropdownfilter ddfActive
+    }
+  }
+};
+
+-- Verify by hand:
+--   mxcli exec datagrid-489-column-content-and-filter.mdl -p app.mpr
+--   mxcli -p app.mpr -c "describe page BugTests.P_489_ColumnContentAndFilter"
+--     -> the column body must list BOTH cbActive and ddfActive
+--   re-exec that description -> "Unchanged page", not "Replaced page"

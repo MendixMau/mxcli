@@ -978,12 +978,19 @@ func outputDataGrid2ColumnV3(ctx *ExecContext, prefix, colName string, col rawDa
 	// named Title/Description), mirroring the general widget-name path so DESCRIBE
 	// output re-parses. #619 added mdlIdent for widgets but missed columns (#638).
 	header := fmt.Sprintf("column %s", mdlIdent(colName))
-	hasContent := len(col.ContentWidgets) > 0
+	// A column body carries the `content` slot's widgets AND the `filter` slot's;
+	// the builder routes a filter back to its own slot by widget type. Emitting
+	// only the content widgets deleted the filter of every custom-content column
+	// on a describe→exec round trip (ako/mxcli#489).
+	hasContent := len(col.ContentWidgets) > 0 || len(col.FilterWidgets) > 0
 
 	if hasContent {
 		// Output column with content block
 		formatWidgetProps(ctx.Output, prefix, header, props, " {\n")
 		for _, widget := range col.ContentWidgets {
+			outputWidgetMDLV3(ctx, widget, len(prefix)/2+1)
+		}
+		for _, widget := range col.FilterWidgets {
 			outputWidgetMDLV3(ctx, widget, len(prefix)/2+1)
 		}
 		fmt.Fprintf(ctx.Output, "%s}\n", prefix)
