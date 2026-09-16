@@ -1,0 +1,124 @@
+-- mendixlabs/mxcli#1100 — a LOOP variable was untyped, so every expression rule
+-- was silently off inside the construct where list processing happens.
+--
+-- REPORTED SHAPE. The same mistake fires outside a loop and is silent inside it:
+--
+--   -- A: refused, E004
+--   $out = 'status=' + $Req/Status;
+--
+--   -- B: passes check, execs, fails the build
+--   LOOP $r IN $reqs BEGIN
+--     $out = $out + $r/Status;     -- [CE0117] at Change variable activity
+--   END LOOP;
+--
+-- WHAT WAS ACTUALLY BROKEN — not what the title says. The loop BODY was walked
+-- and its expressions were checked all along: the same `'status=' + $T/Status`
+-- written against a PARAMETER inside the loop was refused before the fix. Two
+-- separate holes in the variable scope produced the asymmetry, and both had to
+-- close before the reported script reported anything:
+--
+--   1. `LOOP $r IN $reqs` never recorded `$r`, so `$r/Status` resolved to no
+--      attribute and inferred Unknown — which every rule tolerates by design.
+--   2. `DECLARE $out String` never recorded `$out`, so the accumulator was
+--      Unknown too. E004 needs BOTH operands typed, so fixing (1) alone still
+--      reported nothing on `$out + $r/Status`.
+--
+-- Fixing (2) also closed the same silence one level up: `$out = $out + $T/Status`
+-- on a plain parameter, with no loop anywhere, was equally unreported.
+--
+-- The list sources a loop can iterate are typed with it — a database retrieve,
+-- an association retrieve (the far end resolved through the association index),
+-- a CREATE LIST, and the list operations that carry their input's element type
+-- through (FILTER, SORT, RANGE, UNION, …).
+--
+-- REPRODUCING: these rules are the catalog-backed tier, so they need a project:
+--
+--   mxcli check 1100-loop-variable-typing.mdl -p app.mpr --references
+--
+-- `mxcli check` with no project (what `make check-mdl` runs) cannot resolve an
+-- attribute's type at all, so this file is written in its CORRECTED form and
+-- must PASS. The failing forms are in the comments above and the regression
+-- coverage is TestTypeCheckProgramTypesLoopVariables in mdl/executor.
+
+create module Probe;
+
+create enumeration Probe.ENUM_Status (
+  Open 'Open',
+  Closed 'Closed'
+);
+
+create persistent entity Probe.Request (
+  Code: String(20),
+  Status: Enumeration(Probe.ENUM_Status)
+);
+
+create persistent entity Probe.Reporter (
+  Email: String(200)
+);
+
+create association Probe.Request_Reporter
+  from Probe.Request to Probe.Reporter;
+
+-- The reported microflow, written correctly. Before the fix the toString() was
+-- optional as far as mxcli was concerned; now leaving it out is E004.
+create or replace microflow Probe.SUB_LoopNormal ()
+returns String
+begin
+  declare $out String = '';
+  retrieve $reqs from Probe.Request;
+  loop $r in $reqs begin
+    $out = $out + toString($r/Status);
+  end loop;
+  return $out;
+end;
+
+-- The control from the report: the same expression on a parameter. It was
+-- refused before the fix and must stay refused after it.
+create or replace microflow Probe.SUB_Param ($Req: Probe.Request)
+returns String
+begin
+  declare $out String = '';
+  $out = 'status=' + toString($Req/Status);
+  return $out;
+end;
+
+-- A loop over an association retrieve. The iterator is typed from the entity at
+-- the far end of Request_Reporter, which is resolved rather than read off the
+-- statement — an expression path does not spell its intermediate entity.
+create or replace microflow Probe.SUB_LoopAssoc ($Req: Probe.Request)
+returns String
+begin
+  declare $emails String = '';
+  retrieve $reps from $Req/Probe.Request_Reporter;
+  loop $rep in $reps begin
+    $emails = $emails + $rep/Email;
+  end loop;
+  return $emails;
+end;
+
+-- A loop over a filtered list: FILTER carries the element type through, so the
+-- iterator is still a Request.
+create or replace microflow Probe.SUB_LoopFiltered ()
+returns String
+begin
+  declare $codes String = '';
+  retrieve $reqs from Probe.Request;
+  $open = FILTER($reqs, $currentObject/Status = Probe.ENUM_Status.Open);
+  loop $r in $open begin
+    $codes = $codes + $r/Code;
+  end loop;
+  return $codes;
+end;
+
+-- An ON ERROR handler body was not walked at all, so moving a statement into
+-- one exempted it from every rule.
+create or replace microflow Probe.SUB_Handler ()
+returns String
+begin
+  declare $out String = '';
+  retrieve $reqs from Probe.Request
+    on error {
+      $out = $out + 'retrieve failed';
+    };
+  return $out;
+end;
