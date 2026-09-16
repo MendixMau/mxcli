@@ -640,3 +640,35 @@ existed to close — a caller holding a concrete reader is invisible to the cens
 
 **Phase 4a is complete.** `sdk/mpr` has no importers outside itself; deleting it is now a
 scheduling decision rather than a risk assessment.
+
+### The package is gone (2026-09-16)
+
+`sdk/mpr` deleted: **163 files, 41,674 lines**. The plan is finished.
+
+**Zero importers was not the same as safe to `rm -rf`.** Two live dependencies survived, and
+neither is visible to a check written against the parent package's import path:
+
+- **`sdk/mpr/version` had six importers**, two of them shipping code (`cmd/mxcli/docker/build.go`,
+  `patch.go`). A subpackage is a *different* import path.
+- **`cmd/mxcli/docker/update_widgets_test.go` read `sdk/mpr/testdata/v1-project` by filesystem
+  path** — an `os.DirFS` string, not an import at all.
+
+> Before deleting a package, search for **three** things: its own import path, its subpackages'
+> paths, and its directory as a literal string (testdata, `go:embed`, scripts). The last two are
+> invisible to any importer census.
+
+The six went to **`mdl/types`**, not to `modelsdk/mpr/version`: `sdk/mpr/version.ProjectVersion` is
+`type ProjectVersion = types.ProjectVersion`, an **alias**, so `types.ProjectVersion` is the same
+type — while `modelsdk/mpr/version` declares a *duplicate struct* that would have been a different
+one. §7.9's trap, avoided by reading the declaration instead of the name. Everything was repointed
+and proven green **with the package still present**, which is what separates "the repoint was
+wrong" from "the deletion was wrong".
+
+Two measurements worth keeping. The shipped binary is **identical in size** before and after, so the
+linker had already dropped the package — this removes source weight, not runtime behaviour. And
+`sdk/widgets` fell to zero importers as a side effect but is **deliberately kept**:
+`modelsdk/widgets/dirty_template_test.go` reads `sdk/widgets/templates/mendix-11.6` by path. Same
+trap, caught by grepping the directory name rather than the import.
+
+The import guard from the previous slice is **removed**: with the package gone, an import is a
+compile error, which is strictly stronger than a test asserting the same thing.
