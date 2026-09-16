@@ -19,8 +19,9 @@ type CheckAdapter struct {
 	// assoc is the catalog when it can also answer association questions; the
 	// interface does not require it, so this is nil for a reader that cannot.
 	assoc associationResolver
-	// entities is set for the duration of one flow's walk.
+	// entities and kinds are set for the duration of one flow's walk.
 	entities exprcheck.EntityScope
+	kinds    exprcheck.Scope
 }
 
 // Option configures a CheckAdapter.
@@ -95,13 +96,16 @@ func (c *CheckAdapter) CheckNanoflow(stmt *ast.CreateNanoflowStmt) *Result {
 // The variable→entity map used to be built here and used only to label a
 // CHANGE's slot path; it was never handed to the checker, so `$obj/Attr` had
 // nothing to resolve against and every rule that depends on an attribute path
-// stayed quiet. It is now also the EntityScope for the whole walk.
+// stayed quiet. It is now the EntityScope for the whole walk, and the primitive
+// half is the Scope beside it — a locally declared String was Unknown until
+// then, and a rule that needs both operands typed (E004) stayed quiet on the
+// most ordinary shape in the language (mendixlabs/mxcli#1100).
 func (c *CheckAdapter) walkFlow(body []ast.MicroflowStatement, params []ast.MicroflowParam, mf string, r *Result) {
-	scope := buildVarEntityScope(body)
-	addParamEntities(scope, params)
-	c.entities = entityScope{vars: scope, assoc: c.assoc}
-	defer func() { c.entities = nil }()
-	c.walkBodyWithScope(body, mf, scope, r)
+	scope := buildFlowScope(body, params, c.assoc)
+	c.entities = entityScope{vars: scope.entities, assoc: c.assoc}
+	c.kinds = kindScope(scope.kinds)
+	defer func() { c.entities, c.kinds = nil, nil }()
+	c.walkBodyWithScope(body, mf, scope.entities, r)
 }
 
 func (c *CheckAdapter) walkBodyWithScope(body []ast.MicroflowStatement, mf string, scope map[string]string, r *Result) {
@@ -116,6 +120,8 @@ func (c *CheckAdapter) walkBodyWithScope(body []ast.MicroflowStatement, mf strin
 			c.walkBodyWithScope(n.Body, mf, scope, r)
 		case *ast.LoopStmt:
 			c.walkBodyWithScope(n.Body, mf, scope, r)
+		case *ast.ListOperationStmt:
+			c.checkListOperationCondition(n, mf, scope, r)
 		case *ast.ReturnStmt:
 			c.checkExpr(n.Value, "ReturnStmt.Value", mf, r)
 		case *ast.DeclareStmt:
@@ -153,7 +159,59 @@ func (c *CheckAdapter) walkBodyWithScope(body []ast.MicroflowStatement, mf strin
 				c.checkExpr(a.Value, "CallArgument.Value", mf, r)
 			}
 		}
+		// A custom ON ERROR body is a block of ordinary statements and its
+		// expressions are as checkable as any other. It was not walked at all,
+		// so moving a statement into a handler exempted it from every rule. It
+		// is walked after the statement that carries it, which is when it runs.
+		if eb := errorHandlerBody(s); eb != nil {
+			c.walkBodyWithScope(eb, mf, scope, r)
+		}
 	}
+}
+
+// checkListOperationCondition checks a FIND/FILTER predicate with
+// $currentObject bound to the element type of the list under test.
+//
+// The predicate is block-scoped in the same way a loop body is: $currentObject
+// exists only inside it, and it is named per statement rather than once per
+// flow — two FILTERs over different lists in one microflow mean two different
+// entities — so the binding is made for the duration of this one expression
+// rather than folded into the flow scope.
+//
+// A BARE attribute name in the predicate (`FILTER($L, Status = 'Open')`, the
+// spelling the skills recommend) still resolves to nothing: the parser reads it
+// as a variable, not as an attribute of the item. That gap is deliberate here —
+// binding bare names to the element entity would change what a bare identifier
+// means everywhere in an expression, which is a larger decision than this one.
+//
+// A KNOWN element entity is the condition for checking at all, not just for
+// binding $currentObject. `set $At = find($Hay, $Needle)` is Mendix's STRING
+// find, and the visitor still builds it as a ListOperationStmt — the ambiguity
+// is resolved later, in the flow builder, by looking at whether the input is a
+// declared String (mdl-examples/bug-tests/ledger-63-string-find.mdl). Checking
+// its second argument as a predicate reported the needle as a non-Boolean, on a
+// script that builds at 0 errors. Requiring the entity applies the same
+// disambiguation the builder already makes.
+func (c *CheckAdapter) checkListOperationCondition(n *ast.ListOperationStmt, mf string, scope map[string]string, r *Result) {
+	if n.Condition == nil {
+		return
+	}
+	if n.Operation != ast.ListOpFind && n.Operation != ast.ListOpFilter {
+		return
+	}
+	elem := scope[strings.TrimPrefix(n.InputVariable, "$")]
+	if elem == "" {
+		return
+	}
+	vars := make(map[string]string, len(scope)+1)
+	for k, v := range scope {
+		vars[k] = v
+	}
+	vars["currentObject"] = elem
+	saved := c.entities
+	c.entities = entityScope{vars: vars, assoc: c.assoc}
+	c.checkExpr(n.Condition, "ListOperation.Condition", mf, r)
+	c.entities = saved
 }
 
 func (c *CheckAdapter) checkExpr(expr ast.Expression, slot, mf string, r *Result) {
@@ -170,6 +228,7 @@ func (c *CheckAdapter) checkExpr(expr ast.Expression, slot, mf string, r *Result
 		Slots:     c.slots,
 		Catalog:   c.catalog,
 		Entities:  c.entities,
+		Scope:     c.kinds,
 	})
 	r.Hints = append(r.Hints, hints...)
 }
