@@ -802,133 +802,10 @@ func buildSetStatementNode(ctx parser.ISetStatementContext) ast.MicroflowStateme
 		valueExpr = buildExpression(expr)
 	}
 
-	// Check if the expression is a list operation or aggregate function
+	// Check if the expression is a list operation or aggregate function.
 	if funcCall, ok := valueExpr.(*ast.FunctionCallExpr); ok {
-		funcName := strings.ToUpper(funcCall.Name)
-
-		// Check for list operations: HEAD, TAIL, FIND, FILTER, SORT, UNION, INTERSECT, SUBTRACT, CONTAINS, EQUALS
-		switch funcName {
-		case "HEAD":
-			return &ast.ListOperationStmt{
-				OutputVariable: targetVar,
-				Operation:      ast.ListOpHead,
-				InputVariable:  extractVariableName(funcCall.Arguments, 0),
-			}
-		case "TAIL":
-			return &ast.ListOperationStmt{
-				OutputVariable: targetVar,
-				Operation:      ast.ListOpTail,
-				InputVariable:  extractVariableName(funcCall.Arguments, 0),
-			}
-		case "FIND":
-			// `find` is overloaded: the LIST operation find(list, condition) — which
-			// filters a list by a boolean condition — and the STRING function
-			// find(haystack, needle) → the index of a substring. A STRING-LITERAL
-			// second argument is unambiguously the string function (you never filter
-			// a list by a bare string literal); it must stay a value expression, not
-			// a lossy List operation activity whose output variable collides
-			// (CE0111). Ledger #63. When both arguments are plain variables the kind
-			// is ambiguous here; the flow builder disambiguates String-typed inputs.
-			if !isStringLiteralArg(funcCall.Arguments, 1) {
-				return &ast.ListOperationStmt{
-					OutputVariable: targetVar,
-					Operation:      ast.ListOpFind,
-					InputVariable:  extractVariableName(funcCall.Arguments, 0),
-					Condition:      getArgumentExpression(funcCall.Arguments, 1),
-				}
-			}
-			// Falls through to the default MfSetStmt (string find expression).
-		case "FILTER":
-			return &ast.ListOperationStmt{
-				OutputVariable: targetVar,
-				Operation:      ast.ListOpFilter,
-				InputVariable:  extractVariableName(funcCall.Arguments, 0),
-				Condition:      getArgumentExpression(funcCall.Arguments, 1),
-			}
-		case "SORT":
-			stmt := &ast.ListOperationStmt{
-				OutputVariable: targetVar,
-				Operation:      ast.ListOpSort,
-				InputVariable:  extractVariableName(funcCall.Arguments, 0),
-			}
-			// Parse sort specifications from remaining arguments
-			stmt.SortSpecs = extractSortSpecs(funcCall.Arguments[1:])
-			return stmt
-		case "UNION":
-			return &ast.ListOperationStmt{
-				OutputVariable: targetVar,
-				Operation:      ast.ListOpUnion,
-				InputVariable:  extractVariableName(funcCall.Arguments, 0),
-				SecondVariable: extractVariableName(funcCall.Arguments, 1),
-			}
-		case "INTERSECT":
-			return &ast.ListOperationStmt{
-				OutputVariable: targetVar,
-				Operation:      ast.ListOpIntersect,
-				InputVariable:  extractVariableName(funcCall.Arguments, 0),
-				SecondVariable: extractVariableName(funcCall.Arguments, 1),
-			}
-		case "SUBTRACT":
-			return &ast.ListOperationStmt{
-				OutputVariable: targetVar,
-				Operation:      ast.ListOpSubtract,
-				InputVariable:  extractVariableName(funcCall.Arguments, 0),
-				SecondVariable: extractVariableName(funcCall.Arguments, 1),
-			}
-		case "CONTAINS":
-			// `contains` is overloaded: the LIST operation contains(list, object)
-			// and the STRING function contains(haystack, needle). A List operation
-			// activity requires two plain list/object variables; if either argument
-			// is a literal or a computed expression it is unambiguously the string
-			// function, which must stay a value expression (a Change Variable
-			// action) — serializing it as a List operation fails the build
-			// (CE0023/CE0097/CE0111). Ledger finding #53. When both arguments are
-			// plain variables the kind is still ambiguous here (no type info); the
-			// flow builder disambiguates String-typed inputs downstream.
-			if isPlainVariableArg(funcCall.Arguments, 0) && isPlainVariableArg(funcCall.Arguments, 1) {
-				return &ast.ListOperationStmt{
-					OutputVariable: targetVar,
-					Operation:      ast.ListOpContains,
-					InputVariable:  extractVariableName(funcCall.Arguments, 0),
-					SecondVariable: extractVariableName(funcCall.Arguments, 1),
-				}
-			}
-			// Falls through to the default MfSetStmt (string contains expression).
-		case "EQUALS":
-			return &ast.ListOperationStmt{
-				OutputVariable: targetVar,
-				Operation:      ast.ListOpEquals,
-				InputVariable:  extractVariableName(funcCall.Arguments, 0),
-				SecondVariable: extractVariableName(funcCall.Arguments, 1),
-			}
-		case "RANGE":
-			stmt := &ast.ListOperationStmt{
-				OutputVariable: targetVar,
-				Operation:      ast.ListOpRange,
-				InputVariable:  extractVariableName(funcCall.Arguments, 0),
-			}
-			if len(funcCall.Arguments) > 1 {
-				stmt.OffsetExpr = funcCall.Arguments[1]
-			}
-			if len(funcCall.Arguments) > 2 {
-				stmt.LimitExpr = funcCall.Arguments[2]
-			}
-			return stmt
-		// Check for aggregate operations: COUNT, SUM, AVERAGE, MINIMUM, MAXIMUM
-		case "COUNT":
-			return &ast.AggregateListStmt{
-				OutputVariable: targetVar,
-				Operation:      ast.AggregateCount,
-				InputVariable:  extractVariableName(funcCall.Arguments, 0),
-			}
-		case "SUM":
-			return buildSetAggregate(targetVar, ast.AggregateSum, funcCall.Arguments)
-		case "AVERAGE":
-			return buildSetAggregate(targetVar, ast.AggregateAverage, funcCall.Arguments)
-		case "MINIMUM":
-			return buildSetAggregate(targetVar, ast.AggregateMinimum, funcCall.Arguments)
-		case "MAXIMUM":
-			return buildSetAggregate(targetVar, ast.AggregateMaximum, funcCall.Arguments)
+		if stmt := buildListOrAggregateStatement(targetVar, funcCall); stmt != nil {
+			return recordUnresolvedOperands(stmt, funcCall.Arguments)
 		}
 	}
 
@@ -942,6 +819,192 @@ func buildSetStatementNode(ctx parser.ISetStatementContext) ast.MicroflowStateme
 		Target: targetVar,
 		Value:  valueExpr,
 	}
+}
+
+// buildListOrAggregateStatement converts a SET whose value is a list-operation
+// or aggregate call into the matching activity statement, or returns nil when
+// the call is not one of those (or is the string-function reading of an
+// overloaded name, which must stay a value expression).
+//
+// It is a separate function so that every arm funnels through one tail in the
+// caller — recordUnresolvedOperands. Doing the same bookkeeping inline in each
+// arm is how the list operand went missing in the first place; see the note on
+// buildSetAggregate about two conversions for one syntax.
+func buildListOrAggregateStatement(targetVar string, funcCall *ast.FunctionCallExpr) ast.MicroflowStatement {
+	funcName := strings.ToUpper(funcCall.Name)
+
+	// Check for list operations: HEAD, TAIL, FIND, FILTER, SORT, UNION, INTERSECT, SUBTRACT, CONTAINS, EQUALS
+	switch funcName {
+	case "HEAD":
+		return &ast.ListOperationStmt{
+			OutputVariable: targetVar,
+			Operation:      ast.ListOpHead,
+			InputVariable:  extractVariableName(funcCall.Arguments, 0),
+		}
+	case "TAIL":
+		return &ast.ListOperationStmt{
+			OutputVariable: targetVar,
+			Operation:      ast.ListOpTail,
+			InputVariable:  extractVariableName(funcCall.Arguments, 0),
+		}
+	case "FIND":
+		// `find` is overloaded: the LIST operation find(list, condition) — which
+		// filters a list by a boolean condition — and the STRING function
+		// find(haystack, needle) → the index of a substring. A STRING-LITERAL
+		// second argument is unambiguously the string function (you never filter
+		// a list by a bare string literal); it must stay a value expression, not
+		// a lossy List operation activity whose output variable collides
+		// (CE0111). Ledger #63. When both arguments are plain variables the kind
+		// is ambiguous here; the flow builder disambiguates String-typed inputs.
+		if !isStringLiteralArg(funcCall.Arguments, 1) {
+			return &ast.ListOperationStmt{
+				OutputVariable: targetVar,
+				Operation:      ast.ListOpFind,
+				InputVariable:  extractVariableName(funcCall.Arguments, 0),
+				Condition:      getArgumentExpression(funcCall.Arguments, 1),
+			}
+		}
+		// Falls through to the default MfSetStmt (string find expression).
+	case "FILTER":
+		return &ast.ListOperationStmt{
+			OutputVariable: targetVar,
+			Operation:      ast.ListOpFilter,
+			InputVariable:  extractVariableName(funcCall.Arguments, 0),
+			Condition:      getArgumentExpression(funcCall.Arguments, 1),
+		}
+	case "SORT":
+		stmt := &ast.ListOperationStmt{
+			OutputVariable: targetVar,
+			Operation:      ast.ListOpSort,
+			InputVariable:  extractVariableName(funcCall.Arguments, 0),
+		}
+		// Parse sort specifications from remaining arguments
+		stmt.SortSpecs = extractSortSpecs(funcCall.Arguments[1:])
+		return stmt
+	case "UNION":
+		return &ast.ListOperationStmt{
+			OutputVariable: targetVar,
+			Operation:      ast.ListOpUnion,
+			InputVariable:  extractVariableName(funcCall.Arguments, 0),
+			SecondVariable: extractVariableName(funcCall.Arguments, 1),
+		}
+	case "INTERSECT":
+		return &ast.ListOperationStmt{
+			OutputVariable: targetVar,
+			Operation:      ast.ListOpIntersect,
+			InputVariable:  extractVariableName(funcCall.Arguments, 0),
+			SecondVariable: extractVariableName(funcCall.Arguments, 1),
+		}
+	case "SUBTRACT":
+		return &ast.ListOperationStmt{
+			OutputVariable: targetVar,
+			Operation:      ast.ListOpSubtract,
+			InputVariable:  extractVariableName(funcCall.Arguments, 0),
+			SecondVariable: extractVariableName(funcCall.Arguments, 1),
+		}
+	case "CONTAINS":
+		// `contains` is overloaded: the LIST operation contains(list, object)
+		// and the STRING function contains(haystack, needle). A List operation
+		// activity requires two plain list/object variables; if either argument
+		// is a literal or a computed expression it is unambiguously the string
+		// function, which must stay a value expression (a Change Variable
+		// action) — serializing it as a List operation fails the build
+		// (CE0023/CE0097/CE0111). Ledger finding #53. When both arguments are
+		// plain variables the kind is still ambiguous here (no type info); the
+		// flow builder disambiguates String-typed inputs downstream.
+		if isPlainVariableArg(funcCall.Arguments, 0) && isPlainVariableArg(funcCall.Arguments, 1) {
+			return &ast.ListOperationStmt{
+				OutputVariable: targetVar,
+				Operation:      ast.ListOpContains,
+				InputVariable:  extractVariableName(funcCall.Arguments, 0),
+				SecondVariable: extractVariableName(funcCall.Arguments, 1),
+			}
+		}
+		// Falls through to the default MfSetStmt (string contains expression).
+	case "EQUALS":
+		return &ast.ListOperationStmt{
+			OutputVariable: targetVar,
+			Operation:      ast.ListOpEquals,
+			InputVariable:  extractVariableName(funcCall.Arguments, 0),
+			SecondVariable: extractVariableName(funcCall.Arguments, 1),
+		}
+	case "RANGE":
+		stmt := &ast.ListOperationStmt{
+			OutputVariable: targetVar,
+			Operation:      ast.ListOpRange,
+			InputVariable:  extractVariableName(funcCall.Arguments, 0),
+		}
+		if len(funcCall.Arguments) > 1 {
+			stmt.OffsetExpr = funcCall.Arguments[1]
+		}
+		if len(funcCall.Arguments) > 2 {
+			stmt.LimitExpr = funcCall.Arguments[2]
+		}
+		return stmt
+	// Check for aggregate operations: COUNT, SUM, AVERAGE, MINIMUM, MAXIMUM
+	case "COUNT":
+		return &ast.AggregateListStmt{
+			OutputVariable: targetVar,
+			Operation:      ast.AggregateCount,
+			InputVariable:  extractVariableName(funcCall.Arguments, 0),
+		}
+	case "SUM":
+		return buildSetAggregate(targetVar, ast.AggregateSum, funcCall.Arguments)
+	case "AVERAGE":
+		return buildSetAggregate(targetVar, ast.AggregateAverage, funcCall.Arguments)
+	case "MINIMUM":
+		return buildSetAggregate(targetVar, ast.AggregateMinimum, funcCall.Arguments)
+	case "MAXIMUM":
+		return buildSetAggregate(targetVar, ast.AggregateMaximum, funcCall.Arguments)
+	}
+	return nil
+}
+
+// recordUnresolvedOperands notes every list operand that did not reduce to a
+// variable name, so the validator can refuse the statement instead of writing an
+// activity with an empty List (mendixlabs/mxcli#1101).
+//
+// It keys on the RESULT of the conversion rather than on the argument's node
+// type, which is what makes it uniform across the arms: buildSetAggregate reads
+// an attribute path (`sum($List.Price)`) that extractVariableName cannot, so a
+// predicate written over node types would have to differ per arm and would drift
+// apart again. An empty InputVariable means the conversion found nothing to
+// store, whatever the reason.
+func recordUnresolvedOperands(stmt ast.MicroflowStatement, args []ast.Expression) ast.MicroflowStatement {
+	operand := func(index int) ast.UnresolvedOperand {
+		op := ast.UnresolvedOperand{Index: index}
+		if index < len(args) {
+			op.Expr = args[index]
+		}
+		return op
+	}
+	switch s := stmt.(type) {
+	case *ast.ListOperationStmt:
+		if s.InputVariable == "" {
+			s.UnresolvedOperands = append(s.UnresolvedOperands, operand(0))
+		}
+		if listOperationTakesSecondList(s.Operation) && s.SecondVariable == "" {
+			s.UnresolvedOperands = append(s.UnresolvedOperands, operand(1))
+		}
+	case *ast.AggregateListStmt:
+		if s.InputVariable == "" {
+			s.UnresolvedOperands = append(s.UnresolvedOperands, operand(0))
+		}
+	}
+	return stmt
+}
+
+// listOperationTakesSecondList reports whether the operation's SECOND argument is
+// another list. It is not "has a second argument": SORT's is a sort spec,
+// FILTER/FIND's is a predicate and RANGE's is an offset, none of which belong in
+// the list-operand check.
+func listOperationTakesSecondList(op ast.ListOperationType) bool {
+	switch op {
+	case ast.ListOpUnion, ast.ListOpIntersect, ast.ListOpSubtract,
+		ast.ListOpContains, ast.ListOpEquals:
+		return true
+	}
+	return false
 }
 
 // extractVariableName extracts a variable name from an argument at the given index.
