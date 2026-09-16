@@ -9,6 +9,7 @@ import (
 
 	"github.com/mendixlabs/mxcli/mdl/ast"
 	"github.com/mendixlabs/mxcli/mdl/exprcheck"
+	"github.com/mendixlabs/mxcli/mdl/exprcheck/adapters"
 	"github.com/mendixlabs/mxcli/mdl/linter"
 )
 
@@ -102,6 +103,7 @@ func (v *microflowValidator) addViolation(ruleID string, severity linter.Severit
 func (v *microflowValidator) validate(body []ast.MicroflowStatement) {
 	v.checkListOperationIterator(body)
 	v.checkRetrieveLimitOneAsList(body)
+	v.checkListOperationSource(body)
 	v.checkMergeJoinLabels(body)
 	v.checkAnnotationLabels(body)
 
@@ -890,27 +892,11 @@ func microflowExprSource(expr ast.Expression) string {
 
 // astKindToExprKind maps an MDL primitive data-type kind to an exprcheck kind.
 // Returns false for non-primitive / unmappable kinds (entities, lists, void).
+//
+// The table lives in mdl/exprcheck/adapters because the catalog-backed checker
+// needs the same answer; a second copy here is how the two would drift apart.
 func astKindToExprKind(k ast.DataTypeKind) (exprcheck.TypeKind, bool) {
-	switch k {
-	case ast.TypeString, ast.TypeStringTemplate:
-		return exprcheck.KindString, true
-	case ast.TypeInteger, ast.TypeAutoNumber:
-		return exprcheck.KindInteger, true
-	case ast.TypeLong:
-		return exprcheck.KindLong, true
-	case ast.TypeDecimal:
-		return exprcheck.KindDecimal, true
-	case ast.TypeBoolean:
-		return exprcheck.KindBoolean, true
-	case ast.TypeDateTime, ast.TypeDate:
-		return exprcheck.KindDateTime, true
-	case ast.TypeBinary:
-		return exprcheck.KindBinary, true
-	case ast.TypeEnumeration:
-		return exprcheck.KindEnumeration, true
-	default:
-		return exprcheck.KindUnknown, false
-	}
+	return adapters.DataTypeKind(k)
 }
 
 // checkErrorHandlingInLoop warns if custom error handling is used inside a loop.
@@ -1341,57 +1327,12 @@ func exprVarRefs(expr ast.Expression) []string {
 }
 
 // stmtErrorHandling returns the ErrorHandlingClause for statements that support it.
+//
+// The table lives in mdl/exprcheck/adapters so the expression checker's walk and
+// this one cannot disagree about which statements carry a handler: a statement
+// missing from one copy is silently skipped by whichever walk holds it.
 func stmtErrorHandling(stmt ast.MicroflowStatement) *ast.ErrorHandlingClause {
-	switch s := stmt.(type) {
-	case *ast.CreateObjectStmt:
-		return s.ErrorHandling
-	case *ast.DeleteObjectStmt:
-		return s.ErrorHandling
-	case *ast.MfCommitStmt:
-		return s.ErrorHandling
-	case *ast.RetrieveStmt:
-		return s.ErrorHandling
-	case *ast.CallMicroflowStmt:
-		return s.ErrorHandling
-	case *ast.CallNanoflowStmt:
-		return s.ErrorHandling
-	case *ast.CallJavaActionStmt:
-		return s.ErrorHandling
-	case *ast.DownloadFileStmt:
-		return s.ErrorHandling
-	case *ast.SynchronizeStmt:
-		return s.ErrorHandling
-	case *ast.CallJavaScriptActionStmt:
-		return s.ErrorHandling
-	case *ast.CallWebServiceStmt:
-		return s.ErrorHandling
-	case *ast.ExecuteDatabaseQueryStmt:
-		return s.ErrorHandling
-	// The eight statements #1078 gave an onErrorClause. Without them here, MDL076
-	// cannot see a clause these statements now accept, and MDL077 cannot refuse
-	// one on a list operation or aggregate.
-	case *ast.DeclareStmt:
-		return s.ErrorHandling
-	case *ast.MfSetStmt:
-		return s.ErrorHandling
-	case *ast.ChangeObjectStmt:
-		return s.ErrorHandling
-	case *ast.LogStmt:
-		return s.ErrorHandling
-	case *ast.ShowPageStmt:
-		return s.ErrorHandling
-	case *ast.ClosePageStmt:
-		return s.ErrorHandling
-	case *ast.ShowMessageStmt:
-		return s.ErrorHandling
-	case *ast.ValidationFeedbackStmt:
-		return s.ErrorHandling
-	case *ast.ListOperationStmt:
-		return s.ErrorHandling
-	case *ast.AggregateListStmt:
-		return s.ErrorHandling
-	}
-	return nil
+	return adapters.StatementErrorHandling(stmt)
 }
 
 // isEmptyInit checks if a variable initializer is empty/nil (used to detect "DECLARE $List List of ... = empty").

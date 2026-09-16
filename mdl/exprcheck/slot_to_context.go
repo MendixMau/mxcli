@@ -12,6 +12,7 @@ func SlotToContext(slotPath string) string {
 var slotContext = map[string]string{
 	"IfStmt.Condition":         "IF condition",
 	"WhileStmt.Condition":      "WHILE condition",
+	"ListOperation.Condition":  "FIND/FILTER predicate",
 	"ChangeItem.Value":         "field of CHANGE",
 	"CreateItem.Value":         "field of CREATE",
 	"ReturnStmt.Value":         "RETURN value",

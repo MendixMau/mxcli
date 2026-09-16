@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mendixlabs/mxcli/sdk/mpr/version"
+	mxversion "github.com/mendixlabs/mxcli/mdl/types"
 )
 
 // BuildOptions configures the docker build command.
@@ -779,7 +779,7 @@ func ensureDemoUsers(projectPath string, w io.Writer) error {
 }
 
 // DescribePatches returns the list of patches that would be applied for a given version.
-func DescribePatches(pv *version.ProjectVersion) []string {
+func DescribePatches(pv *mxversion.ProjectVersion) []string {
 	var patches []string
 	is116x := pv.MajorVersion == 11 && pv.MinorVersion == 6
 	patches = append(patches, "Set bin/start execute permission")
