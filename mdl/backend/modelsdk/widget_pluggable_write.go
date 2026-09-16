@@ -35,7 +35,7 @@ func (b *Backend) LoadWidgetTemplate(widgetID string, projectPath string) (backe
 		return nil, nil
 	}
 	return widgetobj.New(widgetID, v2ToV1BSON(typeBSON), v2ToV1BSON(objBSON),
-		convertPropTypeIDs(propIDs), objectTypeID, codecChildSerializer{}), nil
+		propIDs, objectTypeID, codecChildSerializer{}), nil
 }
 
 // SerializeWidgetToOpaque converts a domain widget to its raw BSON form (for
@@ -73,16 +73,7 @@ func (b *Backend) BuildFilterWidget(spec backend.FilterWidgetSpec, projectPath s
 	// configuration (#574) — e.g. a DropdownFilter's screen-reader captions when
 	// `adjustable` is off — else the populated default trips CE0463.
 	if len(spec.VisibilityRules) > 0 {
-		pageIDs := make(map[string]pages.PropertyTypeIDEntry, len(propertyTypeIDs))
-		for k, e := range propertyTypeIDs {
-			pageIDs[k] = pages.PropertyTypeIDEntry{
-				PropertyTypeID: e.PropertyTypeID,
-				ValueTypeID:    e.ValueTypeID,
-				DefaultValue:   e.DefaultValue,
-				ValueType:      e.ValueType,
-			}
-		}
-		objV1 = widgetobj.ApplyVisibilityRules(objV1, pageIDs, spec.VisibilityRules)
+		objV1 = widgetobj.ApplyVisibilityRules(objV1, propertyTypeIDs, spec.VisibilityRules)
 	}
 	return &pages.CustomWidget{
 		BaseWidget: pages.BaseWidget{
@@ -194,34 +185,6 @@ func v2ToV1BSON(d bsonv2.D) bsonv1.D {
 	var out bsonv1.D
 	if err := bsonv1.Unmarshal(b, &out); err != nil {
 		return nil
-	}
-	return out
-}
-
-// convertPropTypeIDs maps the registry's PropertyTypeIDEntry (types form) to the
-// pages form the builder uses. NestedKeyOrder carries the template PropertyTypes
-// order for object-list widgets (DataGrid2 columns); without it the builder falls
-// back to alphabetical order and Studio Pro raises CE0463.
-func convertPropTypeIDs(src map[string]types.PropertyTypeIDEntry) map[string]pages.PropertyTypeIDEntry {
-	out := make(map[string]pages.PropertyTypeIDEntry, len(src))
-	for k, v := range src {
-		entry := pages.PropertyTypeIDEntry{
-			PropertyTypeID: v.PropertyTypeID,
-			ValueTypeID:    v.ValueTypeID,
-			DefaultValue:   v.DefaultValue,
-			ValueType:      v.ValueType,
-			Required:       v.Required,
-			ObjectTypeID:   v.ObjectTypeID,
-		}
-		for _, t := range v.DefaultTranslations {
-			entry.DefaultTranslations = append(entry.DefaultTranslations,
-				pages.PropertyTranslation{LanguageCode: t.LanguageCode, Text: t.Text})
-		}
-		if len(v.NestedPropertyIDs) > 0 {
-			entry.NestedPropertyIDs = convertPropTypeIDs(v.NestedPropertyIDs)
-			entry.NestedKeyOrder = append([]string(nil), v.NestedKeyOrder...)
-		}
-		out[k] = entry
 	}
 	return out
 }
