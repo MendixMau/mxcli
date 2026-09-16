@@ -1140,6 +1140,22 @@ func (e *PluggableWidgetEngine) entityContextFor(propertyKey string) string {
 	return e.pageBuilder.entityContext
 }
 
+// itemEntityContextFor returns the entity an object-list item property binds
+// against: the one its own datasource resolved to when the widget declares that
+// link, and the item's shared context otherwise.
+//
+// The item twin of entityContextFor. Same fallback, so a series configuring one
+// datasource — which is every series in every mode, since `dataSet` selects
+// static or dynamic — resolves exactly as before.
+func (e *PluggableWidgetEngine) itemEntityContextFor(ip ItemPropertyMapping, prebuiltEntities map[string]string) string {
+	if ip.DataSource != "" {
+		if entity := prebuiltEntities[ip.DataSource]; entity != "" {
+			return entity
+		}
+	}
+	return e.pageBuilder.entityContext
+}
+
 // recordDataSourceEntity remembers the entity a datasource property resolved to,
 // so the properties declaring it as their DataSourceProperty can bind against it.
 // Lazily allocated: resolveMapping is also called directly by unit tests, which
@@ -1539,6 +1555,15 @@ func (e *PluggableWidgetEngine) buildObjectListItem(mapping *ObjectListMapping, 
 	// regardless of schema property order. The built DataSource is emitted in
 	// the main loop's "datasource" case.
 	prebuiltDataSources := make(map[string]pages.DataSource)
+	// The entity each of those datasources resolved to, keyed by its property.
+	// pageBuilder.entityContext holds only the LAST one, which is wrong the
+	// moment an item configures two — a chart series given both a static and a
+	// dynamic datasource bound its STATIC x/y attributes against the dynamic
+	// one's entity and wrote CH.Forecast.Region, a reference to an attribute
+	// that entity does not have (CE1613). The widget states the link per
+	// property (widget.xml `dataSource="…"`, carried as ItemPropertyMapping's
+	// DataSource), so it is read rather than inferred from order.
+	prebuiltEntities := make(map[string]string)
 	for _, ip := range mapping.ItemProperties {
 		if ip.Operation != "datasource" {
 			continue
@@ -1571,6 +1596,7 @@ func (e *PluggableWidgetEngine) buildObjectListItem(mapping *ObjectListMapping, 
 		}
 		prebuiltDataSources[ip.PropertyKey] = dataSource
 		if entityName != "" {
+			prebuiltEntities[ip.PropertyKey] = entityName
 			e.pageBuilder.entityContext = entityName
 		}
 	}
@@ -1644,7 +1670,7 @@ func (e *PluggableWidgetEngine) buildObjectListItem(mapping *ObjectListMapping, 
 			prop.Expression = strVal
 		case "texttemplate":
 			prop.TextTemplate = strVal
-			prop.EntityContext = e.pageBuilder.entityContext
+			prop.EntityContext = e.itemEntityContextFor(ip, prebuiltEntities)
 			// Look up the matching params companion in the AST. Convention:
 			// when MDL writes `Caption: '{1}'` it pairs with `CaptionParams:
 			// [{1} = attr]`. The companion key is the matched name (alias or
@@ -1666,19 +1692,22 @@ func (e *PluggableWidgetEngine) buildObjectListItem(mapping *ObjectListMapping, 
 			// An attribute navigated over associations (e.g. Order_Customer/Name)
 			// resolves to a final attribute + association steps (AttributeRef.EntityRef);
 			// a flat path is left as-is. Mirrors the DynamicText contentparam path.
+			// Against THIS property's own datasource, which is the item's shared
+			// context unless the widget links it to a specific one.
+			entity := e.itemEntityContextFor(ip, prebuiltEntities)
 			if finalQN, steps, ok := e.pageBuilder.resolveAssociationAttributePath(strVal); ok {
 				prop.AttributePath = finalQN
 				prop.AttributeRefSteps = steps
-			} else if e.pageBuilder.entityContext != "" {
+			} else if entity != "" {
 				// A bare ASSOCIATION name here is not representable — it would be
 				// written as an AttributeRef and fail CE1613 (issue #830).
 				if err := e.pageBuilder.rejectAssociationAsAttribute(
-					strVal, e.pageBuilder.entityContext,
+					strVal, entity,
 					fmt.Sprintf("%s `%s` property `%s`", mapping.MDLContainer, child.Name, ip.PropertyKey),
 				); err != nil {
 					return spec, err
 				}
-				prop.AttributePath = e.pageBuilder.resolveAttributePath(strVal)
+				prop.AttributePath = e.pageBuilder.resolveAttributePathForEntity(strVal, entity)
 			} else {
 				prop.AttributePath = strVal
 			}
