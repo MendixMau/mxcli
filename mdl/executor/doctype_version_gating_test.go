@@ -10,15 +10,15 @@ import (
 	"strings"
 	"testing"
 
+	mxversion "github.com/mendixlabs/mxcli/mdl/types"
 	"github.com/mendixlabs/mxcli/mdl/visitor"
-	"github.com/mendixlabs/mxcli/sdk/mpr/version"
 )
 
 // nightlyMatrix is the Mendix version set .github/workflows/nightly.yml runs the
 // doctype scripts against. A script that only parses on the newest of them is a
 // nightly failure on the others, reported hours later against whatever landed in
 // between — which is how the DecimalScale gating below was found.
-var nightlyMatrix = []*version.ProjectVersion{
+var nightlyMatrix = []*mxversion.ProjectVersion{
 	{MajorVersion: 10, MinorVersion: 24, ProductVersion: "10.24.24.119349"},
 	{MajorVersion: 11, MinorVersion: 6, ProductVersion: "11.6.8"},
 	{MajorVersion: 11, MinorVersion: 12, ProductVersion: "11.12.2"},

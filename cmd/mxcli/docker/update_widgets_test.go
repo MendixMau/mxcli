@@ -53,7 +53,7 @@ func v2Fixture(t *testing.T) string {
 func v1Fixture(t *testing.T) string {
 	t.Helper()
 	dst := t.TempDir()
-	if err := os.CopyFS(dst, os.DirFS("../../../sdk/mpr/testdata/v1-project")); err != nil {
+	if err := os.CopyFS(dst, os.DirFS("../../../modelsdk/mpr/testdata/v1-project")); err != nil {
 		t.Fatalf("copy v1 fixture: %v", err)
 	}
 	p := filepath.Join(dst, "App.mpr")
