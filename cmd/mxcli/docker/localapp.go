@@ -249,7 +249,10 @@ func (a *LocalApp) Rebuild(projectPath string) (ApplyAction, *BuildResult, error
 		return ActionReload, nil, err
 	}
 	if !build.OK() {
-		return ActionReload, build, fmt.Errorf("build failed: %s", build.Message)
+		// The same error type the cold boot returns, so a caller can attribute the
+		// problems rather than re-parse a sentence. Message alone is identical for
+		// every failing build (mendixlabs/mxcli#1104).
+		return ActionReload, build, &BuildFailedError{Result: build}
 	}
 	action, err := a.Runtime.Controller().ApplyBuild(build, a.Runtime.Restart)
 	return action, build, err
