@@ -552,18 +552,37 @@ func parseMajorMinor(s string) (int, int, bool) {
 func filterByVersion(content string, pv *types.ProjectVersion) (string, int) {
 	var result strings.Builder
 	var currentConstraint *versionConstraint // nil = no constraint (always include)
+	// A directive placed before any statement is the FILE's floor, and later
+	// directives narrow it rather than replace it. Without this, `-- @version:
+	// any` resets the constraint to nil and re-enables a section whose fixtures
+	// were skipped: 24-workflow-examples.mdl opens at 11.0+, creates
+	// WFTest.OrderContext and WFTest.TaskPage (a page with parameters, 11.0+
+	// only -- mendixlabs/mxcli#294), and its PART H says `any` while using both.
+	// On the nightly's 10.24 leg that ran PART H against a project missing them:
+	// "entity 'WFTest.OrderContext' not found". Only that file has a line-1
+	// directive; the other six use `any` mid-file to close a gated section,
+	// where there is no baseline and nothing changes.
+	var baseline *versionConstraint
+	sawStatement := false
 	skippedLines := 0
 
 	for _, line := range strings.Split(content, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "-- @version:") {
 			currentConstraint = parseVersionDirective(trimmed)
+			if !sawStatement && baseline == nil {
+				baseline = currentConstraint
+			}
 			// Keep the directive line as a comment (so line numbers stay close)
 			result.WriteString(line)
 			result.WriteString("\n")
 			continue
 		}
-		if currentConstraint == nil || currentConstraint.matches(pv) {
+		if trimmed != "" && !strings.HasPrefix(trimmed, "--") {
+			sawStatement = true
+		}
+		if (baseline == nil || baseline.matches(pv)) &&
+			(currentConstraint == nil || currentConstraint.matches(pv)) {
 			result.WriteString(line)
 			result.WriteString("\n")
 		} else {

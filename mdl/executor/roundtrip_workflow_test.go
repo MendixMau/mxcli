@@ -35,6 +35,14 @@ import (
 // page's signature and refused them, so the fixture is a valid task page.
 func createTaskPages(t *testing.T, env *testEnv, mod string, names ...string) {
 	t.Helper()
+	// A user task's page must take $WorkflowUserTask or exec refuses it (CE7410
+	// on 11.13, which is why db61b949 added the parameter), and CREATE PAGE
+	// cannot write a parameter below 11.0 (mendixlabs/mxcli#294). The two
+	// requirements are mutually exclusive, so these fixtures cannot exist on
+	// Mendix 10 at all -- the nightly's 10.24 leg failed here for two days.
+	// The gate lives with the fixture rather than at the four call sites so a
+	// fifth caller cannot forget it.
+	env.requireMinVersion(t, 11, 0)
 	for _, name := range names {
 		mdl := `create page ` + mod + `.` + name + ` (
 			Title: '` + name + `',
