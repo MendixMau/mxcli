@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/mendixlabs/mxcli/mdl/types"
-	"github.com/mendixlabs/mxcli/sdk/mpr/version"
+	mxversion "github.com/mendixlabs/mxcli/mdl/types"
 )
 
 // TestBuild_PreservesMPRv2StorageFormat is the end-to-end guard for
@@ -96,7 +96,7 @@ func TestBuild_PreservesMPRv2StorageFormat(t *testing.T) {
 }
 
 // mprProductVersion opens the .mpr and returns its Mendix product version.
-func mprProductVersion(t *testing.T, mprPath string) *version.ProjectVersion {
+func mprProductVersion(t *testing.T, mprPath string) *mxversion.ProjectVersion {
 	t.Helper()
 	reader, err := openReadOnly(mprPath)
 	if err != nil {
