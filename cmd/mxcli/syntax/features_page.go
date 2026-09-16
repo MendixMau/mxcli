@@ -127,7 +127,16 @@ CREATE PAGE Sales.Detail (Title: 'Detail', Layout: Atlas_Core.Atlas_Default) {
 			"-- Data grid 2 column filters go INSIDE the column's own braces\nDATAGRID dg (...) { COLUMN c (Attribute: A) { TEXTFILTER tf (Attribute: A) } }\nTEXTFILTER | NUMBERFILTER | DATEFILTER | DROPDOWNFILTER | DROPDOWNSORT\n" +
 			"--   Match the filter to the column's type, or MxBuild refuses it: String ->\n" +
 			"--   TEXTFILTER, Integer/Long/Decimal -> NUMBERFILTER, Date and time -> DATEFILTER,\n" +
-			"--   Enumeration -> DROPDOWNFILTER. A Boolean column takes no filter at all.\n" +
+			"--   Enumeration AND Boolean -> DROPDOWNFILTER (the drop-down filter's own\n" +
+			"--   attribute types are Enum and Boolean; a Boolean column filters Yes/No).\n" +
+			"--   A column may carry BOTH a custom-content widget and a filter — `content`\n" +
+			"--   and `filter` are separate slots, so a read-only CHECKBOX cell and a\n" +
+			"--   DROPDOWNFILTER live in the same braces:\n" +
+			"DATAGRID dg (...) { COLUMN Active (Attribute: IsActive) {\n" +
+			"  CHECKBOX cb (Attribute: IsActive, Editable: Never, ReadOnlyStyle: Control)\n" +
+			"  DROPDOWNFILTER ddf } }\n" +
+			"--   ReadOnlyStyle (Inherit | Control | Text) is what makes a read-only check\n" +
+			"--   box render as the checkbox glyph instead of the text Yes/No.\n" +
 			"--   The grid-wide filter bar is CONTROLBAR; a GALLERY spells that same slot\n" +
 			"--   FILTER, so `FILTER f { ... }` belongs to a gallery and not to a datagrid:\n" +
 			"GALLERY g (...) { FILTER f { TEXTFILTER tf (Attribute: A) } }\n" +
