@@ -205,8 +205,11 @@ particular and is **refused**, with the keys to use instead -- neither guess is
 defensible: feeding it to every mapping duplicates one binding across unrelated
 slots, and feeding it to the first leaves the others unset (CE0642 again).
 
-`describe page` still collapses several sources to one `DataSource:` clause;
-round-tripping the named keys is not done yet (mendixlabs/mxcli#1109).
+`describe page` emits the named keys back when a widget has several configured
+sources, so describe -> exec keeps each binding on its own mapping. A widget with
+ONE source keeps the generic `DataSource:` clause it has always been described
+with. A source whose schema key cannot be resolved falls back to the generic
+spelling rather than being dropped.
 
 ## Charts (Mendix Charts.mpk)
 

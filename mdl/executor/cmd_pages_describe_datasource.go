@@ -309,6 +309,47 @@ func appendDataSourceProp(props []string, ds *rawDataSource) []string {
 	return props
 }
 
+// appendWidgetDataSources emits a widget's datasource properties: the named
+// spelling when it has several, the generic `DataSource:` clause otherwise.
+//
+// Every branch of the emitter goes through this for the same reason they all go
+// through appendDataSourceProp — a datasource must not be rendered one way in a
+// DataView and another in a Gallery, which is the drift #941 was. A branch that
+// read w.DataSource directly would silently keep describing a multi-source
+// widget as single-source.
+func appendWidgetDataSources(props []string, w rawWidget) []string {
+	if len(w.NamedDataSources) > 0 {
+		return appendNamedDataSourceProps(props, w.NamedDataSources)
+	}
+	return appendDataSourceProp(props, w.DataSource)
+}
+
+// appendNamedDataSourceProps adds one `<schemaKey>: <datasource>` property per
+// datasource on a widget that has several, so a describe → exec round trip keeps
+// each binding on the mapping it came from.
+//
+// A source whose schema key did not resolve falls back to the unnamed
+// `DataSource:` spelling — the output it would have had before there was a key
+// to print. Losing it instead would be #956 with extra steps.
+func appendNamedDataSourceProps(props []string, sources []rawNamedDataSource) []string {
+	for _, src := range sources {
+		if src.Key == "" {
+			props = appendDataSourceProp(props, src.DataSource)
+			continue
+		}
+		if expr := dataSourceExpr(src.DataSource); expr != "" {
+			props = append(props, fmt.Sprintf("%s: %s", src.Key, expr))
+			continue
+		}
+		// Not spellable in MDL — say so under this key, so a reader learns which
+		// of the widget's bindings is the one that did not come through.
+		if comment := dataSourceComment(src.DataSource); comment != "" {
+			props = append(props, strings.Replace(comment, "-- DataSource ", "-- "+src.Key+" ", 1))
+		}
+	}
+	return props
+}
+
 // xpathConstraintClause renders a stored XPath constraint as the MDL the page
 // grammar accepts after WHERE, or "" when there is no constraint.
 //

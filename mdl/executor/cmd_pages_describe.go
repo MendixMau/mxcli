@@ -609,20 +609,26 @@ type rawWidget struct {
 	// named variants are spelled identically, so a reader that keeps the name
 	// without the kind cannot avoid converting one into the other
 	// (mendixlabs/mxcli#1059). Same split as types.NavMenuItem's.
-	Icon            string // e.g. Atlas_Core.Atlas_Filled.pencil
-	IconType        string // storage $Type, "" when the widget carries no icon
-	IconCode        int    // Forms$GlyphIcon's Code — the only identity a glyph icon has
-	Selection       string // For Gallery selection mode (Single, Multi, None)
-	Class           string // CSS class from Appearance
-	Style           string // Inline CSS style from Appearance
-	DynamicClasses  string // Dynamic-classes expression from Appearance
-	Parameters      []string
-	Children        []rawWidget
-	FilterWidgets   []rawWidget // For Gallery filter widgets
-	ControlBar      []rawWidget // For DataGrid2 CONTROLBAR widgets
-	Rows            []rawWidgetRow
-	DataSource      *rawDataSource
-	DataGridColumns []rawDataGridColumn // For DataGrid2 widgets
+	Icon           string // e.g. Atlas_Core.Atlas_Filled.pencil
+	IconType       string // storage $Type, "" when the widget carries no icon
+	IconCode       int    // Forms$GlyphIcon's Code — the only identity a glyph icon has
+	Selection      string // For Gallery selection mode (Single, Multi, None)
+	Class          string // CSS class from Appearance
+	Style          string // Inline CSS style from Appearance
+	DynamicClasses string // Dynamic-classes expression from Appearance
+	Parameters     []string
+	Children       []rawWidget
+	FilterWidgets  []rawWidget // For Gallery filter widgets
+	ControlBar     []rawWidget // For DataGrid2 CONTROLBAR widgets
+	Rows           []rawWidgetRow
+	DataSource     *rawDataSource
+	// NamedDataSources holds a pluggable widget's datasources keyed by the
+	// schema property each was stored under, and is set INSTEAD of DataSource
+	// when the widget has more than one configured. Collapsing them to the one
+	// generic clause would describe two bindings as one, so a rewrite would fan
+	// a single source across both mappings or drop the second outright.
+	NamedDataSources []rawNamedDataSource
+	DataGridColumns  []rawDataGridColumn // For DataGrid2 widgets
 	// Input widget properties
 	Editable      string // "Always", "Never", "Conditional"
 	ReadOnlyStyle string // "Inherit", "Control", "Text"
@@ -722,6 +728,15 @@ type rawWidget struct {
 type rawNamedAction struct {
 	Key string
 	MDL string
+}
+
+// rawNamedDataSource is one of a widget's datasources together with the schema
+// property key it belongs to. Key is empty when the widget's PropertyTypes did
+// not resolve it, and the emitter then falls back to the unnamed spelling
+// rather than dropping the binding.
+type rawNamedDataSource struct {
+	Key        string
+	DataSource *rawDataSource
 }
 
 type rawExplicitProp struct {
