@@ -594,6 +594,16 @@ func (pb *pageBuilder) buildCheckBoxV3(w *ast.WidgetV3) (*pages.CheckBox, error)
 		cb.Label = label
 	}
 
+	// Handle ReadOnlyStyle ("Read-only style": Inherit / Control / Text). An
+	// omitted property stays empty and the writer keeps the stored default —
+	// what decides whether a read-only check box renders as "Yes"/"No" text or
+	// as the checkbox glyph (ako/mxcli#490).
+	style, err := readOnlyStyleValue(w.GetStringProp("ReadOnlyStyle"), w.Name)
+	if err != nil {
+		return nil, err
+	}
+	cb.ReadOnlyStyle = style
+
 	// Handle OnChange (the "On change" client action)
 	if err := pb.applyOnChangeV3(w, &cb.OnChangeAction); err != nil {
 		return nil, err
@@ -604,6 +614,26 @@ func (pb *pageBuilder) buildCheckBoxV3(w *ast.WidgetV3) (*pages.CheckBox, error)
 	}
 
 	return cb, nil
+}
+
+// readOnlyStyleValue canonicalises an authored `ReadOnlyStyle:` to the member
+// Mendix stores. MDL matches property values case-insensitively, but the value
+// written has to be one of the metamodel's members (generated/metamodel's
+// PagesReadOnlyStyle): an unknown one is a property Studio Pro cannot resolve,
+// and mxbuild tolerates it — so the build stays green and the project does not
+// open. Empty in, empty out: unset keeps the stored default.
+func readOnlyStyleValue(raw, widgetName string) (string, error) {
+	if raw == "" {
+		return "", nil
+	}
+	for _, member := range []string{"Inherit", "Control", "Text"} {
+		if strings.EqualFold(raw, member) {
+			return member, nil
+		}
+	}
+	return "", mdlerrors.NewValidationf(
+		"checkbox %q: ReadOnlyStyle %q is not a Mendix read-only style — use Inherit, Control or Text",
+		widgetName, raw)
 }
 
 // buildRadioButtonsV3 creates RadioButtons from V3 syntax.
