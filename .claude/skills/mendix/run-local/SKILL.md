@@ -82,8 +82,10 @@ association catalog only at startup; behavioural changes are hot-reloaded.
   The Mendix CDN publishes **Linux archives only** (the URL varies by architecture,
   not by OS), so a cached download on a Mac is a Linux `aarch64` ELF — the arch
   matches, which is why it looks fine until exec.
-- `--mxbuild-path` overrides both, and is now honoured by the local loop (it used
-  to be documented and ignored — #916).
+- `--mxbuild-path` overrides both. It is honoured by the local loop (#916) *and*
+  accepted by `run --local` (#1125) — between those two fixes the skill said the
+  first and the command rejected the flag, so the advertised workaround did not
+  exist on the platform that needed it.
 
 If nothing runnable is found, the command says so up front instead of failing with
 `fork/exec …: exec format error`:
