@@ -25,6 +25,20 @@
 -- and the pre-fix control (attributes simply absent) -> 0 errors, which is why
 -- the loss was invisible until something referenced them.
 --
+-- Three things a complex type carries that are NOT importable — each measured
+-- against the live TripPin contract in doctype-tests/10-odata-examples.mdl, and
+-- each now reported by name rather than dropped:
+--
+--   inherited properties      CE6615  (AirportLocation derives from Location;
+--                                      its inherited Address is unreachable,
+--                                      while Person.HomeAddress/Address is not)
+--   Edm.GeographyPoint etc.   CE6622  "type ... is not supported"
+--   complex within complex    (flattening is one level deep)
+--
+-- And two capability rules: a flattened attribute is never creatable/updatable,
+-- and is filterable/sortable only where its entity has an entity set — CE6630
+-- fires in BOTH directions, so neither blanket answer works.
+--
 -- Run it:
 --   cp mdl-examples/odata-local-metadata/complextype-metadata.xml /path/to/app/
 --   mxcli exec 1118-odata-complextype-flattening.mdl -p app.mpr

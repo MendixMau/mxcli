@@ -466,11 +466,25 @@ func (d *EdmxDocument) FindComplexType(qualifiedName string) *EdmComplexType {
 	return nil
 }
 
-// complexTypeProperties returns a complex type's own properties preceded by
-// those it inherits, walking the BaseType chain. The depth guard is for a
-// document whose base types form a cycle — malformed, but it arrives over the
-// network and must not hang the import.
-func (d *EdmxDocument) complexTypeProperties(ct *EdmComplexType) []*EdmProperty {
+// inheritedComplexProperties returns the properties a complex type inherits
+// from its BaseType chain — the ones that are NOT importable, so that a caller
+// can name them instead of dropping them in silence.
+//
+// Mendix imports a complex type's OWN properties only. Measured on mxbuild
+// 11.12.1 against TripPin, whose `AirportLocation` and `EventLocation` both
+// derive from `Location`: flattening the inherited `Address` gives
+//
+//	CE6615 "Attribute 'Location_Address' of external entity 'Airports' does
+//	        not exist in the OData service."
+//
+// while the same `Address` reached through `Person.HomeAddress`, typed
+// `Location` directly, is recognised — and each derived type's OWN property
+// (`Loc`, `BuildingInfo`) is recognised too. So the line is inheritance, not
+// the path syntax.
+//
+// The depth guard is for a document whose base types form a cycle — malformed,
+// but it arrives over the network and must not hang the import.
+func (d *EdmxDocument) inheritedComplexProperties(ct *EdmComplexType) []*EdmProperty {
 	var props []*EdmProperty
 	seen := map[*EdmComplexType]bool{}
 	var walk func(*EdmComplexType)
@@ -479,13 +493,32 @@ func (d *EdmxDocument) complexTypeProperties(ct *EdmComplexType) []*EdmProperty 
 			return
 		}
 		seen[c] = true
-		if c.BaseType != "" {
-			walk(d.FindComplexType(c.BaseType))
-		}
 		props = append(props, c.Properties...)
+		walk(d.FindComplexType(c.BaseType))
 	}
-	walk(ct)
+	if ct != nil && ct.BaseType != "" {
+		walk(d.FindComplexType(ct.BaseType))
+	}
 	return props
+}
+
+// importableEdmTypes are the primitive types Mendix maps to an attribute —
+// Consumed OData Service Requirements' "Supported Attribute Types", which is
+// also the list its complex-type paragraph defers to.
+//
+// It has to be a closed set, not `strings.HasPrefix(t, "Edm.")`: measured on
+// 11.12.1, flattening TripPin's `AirportLocation.Loc` (Edm.GeographyPoint) is
+//
+//	CE6622 "The type of attribute 'Location_Loc' in the OData service is not
+//	        supported. Please delete this attribute."
+//
+// Edm.Duration is absent deliberately — Mendix has no duration type, and the
+// import has always skipped it.
+var importableEdmTypes = map[string]bool{
+	"Edm.String": true, "Edm.Boolean": true, "Edm.Guid": true, "Edm.Binary": true,
+	"Edm.Byte": true, "Edm.SByte": true, "Edm.Int16": true, "Edm.Int32": true, "Edm.Int64": true,
+	"Edm.Decimal": true, "Edm.Double": true, "Edm.Single": true,
+	"Edm.Date": true, "Edm.DateTime": true, "Edm.DateTimeOffset": true,
 }
 
 // FlattenProperties expands every complex-typed property into one property per
@@ -502,13 +535,19 @@ func (d *EdmxDocument) complexTypeProperties(ct *EdmComplexType) []*EdmProperty 
 // `MaxQty_QuantityValue`, addressed over the paths `MaxQty/UoMNId` and
 // `MaxQty/QuantityValue`.
 //
-// Flattening is ONE level deep, matching the same page's "only the properties of
-// the types described in Supported Attribute Types are supported" — that list is
-// the primitive Edm types, so a complex type nested in a complex type is not
-// importable. It is returned in unsupported rather than dropped, because a
-// caller that says nothing is the defect this whole function exists to fix
-// (mendixlabs/mxcli#1118). A property whose type is not a complex type this document
-// declares is passed through unchanged for the caller's own rules to judge.
+// Three things are NOT importable, and each is returned in unsupported rather
+// than dropped — a caller that says nothing is the defect this whole function
+// exists to fix (mendixlabs/mxcli#1118):
+//
+//   - a leaf whose type is not in importableEdmTypes, which includes a complex
+//     type nested in a complex type (flattening is one level deep, matching the
+//     same page's "only the properties of the types described in Supported
+//     Attribute Types are supported");
+//   - a property INHERITED from the complex type's BaseType — see
+//     inheritedComplexProperties for the measurement.
+//
+// A property whose type is not a complex type this document declares is passed
+// through unchanged for the caller's own rules to judge.
 func (d *EdmxDocument) FlattenProperties(props []*EdmProperty) (flat []*EdmProperty, unsupported []string) {
 	for _, p := range props {
 		ct := d.FindComplexType(p.Type)
@@ -516,10 +555,14 @@ func (d *EdmxDocument) FlattenProperties(props []*EdmProperty) (flat []*EdmPrope
 			flat = append(flat, p)
 			continue
 		}
-		for _, leaf := range d.complexTypeProperties(ct) {
+		for _, leaf := range ct.Properties {
 			path := p.Name + "/" + leaf.Name
-			if !strings.HasPrefix(leaf.Type, "Edm.") {
-				unsupported = append(unsupported, fmt.Sprintf("%s (%s)", path, leaf.Type))
+			if !importableEdmTypes[leaf.Type] {
+				reason := leaf.Type
+				if d.FindComplexType(leaf.Type) != nil {
+					reason = leaf.Type + ", a complex type nested in a complex type"
+				}
+				unsupported = append(unsupported, fmt.Sprintf("%s (%s)", path, reason))
 				continue
 			}
 			expanded := *leaf
@@ -531,6 +574,13 @@ func (d *EdmxDocument) FlattenProperties(props []*EdmProperty) (flat []*EdmPrope
 			expanded.Computed = expanded.Computed || p.Computed
 			expanded.Immutable = expanded.Immutable || p.Immutable
 			flat = append(flat, &expanded)
+		}
+		// Inherited properties are not importable — name them rather than let
+		// them disappear, since a reader looking at the contract will expect
+		// them and they are exactly what CE6615 fires on.
+		for _, leaf := range d.inheritedComplexProperties(ct) {
+			unsupported = append(unsupported, fmt.Sprintf("%s/%s (inherited from %s; Mendix imports a complex type's own properties only)",
+				p.Name, leaf.Name, ct.BaseType))
 		}
 	}
 	return flat, unsupported

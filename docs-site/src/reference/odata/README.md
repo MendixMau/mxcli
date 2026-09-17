@@ -58,16 +58,26 @@ does — named `<property>_<leaf>` and read over the OData path `<property>/<lea
 The complex type may live in any `Schema` in the document — it is resolved by
 qualified name, so two namespaces may each declare a `Quantity`.
 
-Two consequences worth knowing:
+Three properties of a complex type are **not** importable. Each is reported by
+name and reason rather than dropped, so an import that loses something says so:
+
+- **Inherited properties.** Only a complex type's own properties are imported.
+  Where `AirportLocation` derives from `Location`, the inherited `Address` is not
+  reachable through it (`CE6615`) — though the same `Address` is imported
+  normally through a property typed `Location` directly.
+- **Leaves Mendix cannot represent**, such as `Edm.GeographyPoint` (`CE6622`).
+- **A complex type nested in a complex type** — flattening is one level deep.
+
+Two more consequences:
 
 - **Flattened attributes are read-only.** Mendix treats an external entity that
   contains them as readable and deletable only, whatever the entity set's
   `InsertRestrictions` / `UpdateRestrictions` say. Marking them creatable or
   updatable is `CE6630`.
-- **Flattening is one level deep.** A complex type nested inside a complex type
-  is not an importable attribute. It is *reported*, along with anything else the
-  import could not map — an import that drops a property now says which one and
-  why, rather than reporting success.
+- **They are filterable and sortable only where their entity is** — that is, on
+  an entity backed by an entity set. On a derived or contained type they are
+  neither. `CE6630` fires in both directions here, so this follows the contract
+  rather than a fixed answer.
 
 ## Contract Browsing Statements
 

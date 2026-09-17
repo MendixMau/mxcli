@@ -586,7 +586,7 @@ func createExternalEntities(ctx *ExecContext, s *ast.CreateExternalEntitiesStmt)
 			// have made (mendixlabs/mxcli#1118).
 			flatProps, nestedComplex := doc.FlattenProperties(mergedProps)
 			for _, u := range nestedComplex {
-				dropped = append(dropped, fmt.Sprintf("%s.%s — complex type nested in a complex type; Mendix imports one level only", mendixName, u))
+				dropped = append(dropped, fmt.Sprintf("%s.%s", mendixName, u))
 			}
 
 			keyPropSet := make(map[string]bool)
@@ -695,21 +695,46 @@ func createExternalEntities(ctx *ExecContext, s *ast.CreateExternalEntitiesStmt)
 				if nonUpdatable[remoteName] || p.Computed || p.Immutable {
 					updatable = false
 				}
-				// A property reached through a complex type is READ-ONLY whatever
-				// the entity set's Insert/Update restrictions say: "External
-				// entities that contain attributes of complex types can only be
-				// read or deleted. They cannot be created, updated, or used in
-				// external actions" (Consumed OData Service Requirements).
+				// A property reached through a complex type carries NONE of the
+				// four capabilities, whatever the entity set says.
 				//
-				// Measured on 11.12.1 against a contract annotated
-				// Insertable=true AND Updatable=true: Mendix still reports the
-				// flattened attributes as Creatable=False / Updatable=False, so
-				// following the entity set instead is two CE6630 per attribute
-				// ("'MaxQty_UoMNId' is marked Creatable=False in the OData
-				// service, but True in the app").
+				// Creatable/Updatable follow "External entities that contain
+				// attributes of complex types can only be read or deleted. They
+				// cannot be created, updated, or used in external actions"
+				// (Consumed OData Service Requirements), measured on 11.12.1
+				// against a contract annotated Insertable=true AND
+				// Updatable=true: Mendix still reports them Creatable=False /
+				// Updatable=False, so following the entity set is two CE6630 per
+				// attribute.
+				//
+				// Filterable/Sortable go the same way, but ONLY on an entity
+				// with no entity set. A flattened attribute is queryable exactly
+				// where its entity is: measured on TripPin (11.12.1), which
+				// carries no capability annotations at all, Mendix reports
+				//
+				//	Person   (entity set People)      HomeAddress_Address  True
+				//	Employee (derived, no entity set) HomeAddress_Address  False
+				//	Manager  (derived, no entity set) BossOffice_Address   False
+				//	Event    (derived, no entity set) OccursAt_BuildingInfo False
+				//
+				// so CE6630 fires in BOTH directions and a blanket answer cannot
+				// be right: stamping false everywhere is "marked Filterable=True
+				// in the OData service, but False in the app" on People, and
+				// leaving the default true is the same sentence inverted on the
+				// other three. Manager.BossOffice is Manager's OWN property, so
+				// the split is the entity set, not inheritance.
+				//
+				// Ordinary attributes of a derived type stay filterable — this
+				// is a property of the flattening, not of derived types.
+				filterable := entitySet.AttrFilterable(remoteName)
+				sortable := entitySet.AttrSortable(remoteName)
 				if p.RemotePath != "" {
 					creatable = false
 					updatable = false
+					if !isTopLevel {
+						filterable = false
+						sortable = false
+					}
 				}
 
 				attrName := attrNameForOData(p.Name, et.Name)
@@ -724,8 +749,8 @@ func createExternalEntities(ctx *ExecContext, s *ast.CreateExternalEntitiesStmt)
 					Type:       edmToDomainModelAttrType(p, keyPropSet[p.Name]),
 					RemoteName: remoteName,
 					RemoteType: p.Type,
-					Filterable: entitySet.AttrFilterable(remoteName),
-					Sortable:   entitySet.AttrSortable(remoteName),
+					Filterable: filterable,
+					Sortable:   sortable,
 					Creatable:  creatable,
 					Updatable:  updatable,
 				}
