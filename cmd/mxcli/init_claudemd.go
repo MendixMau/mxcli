@@ -218,7 +218,7 @@ func generateClaudeMD(projectName, mprFile string) string {
 	w("  the business can read. " + bt + "mxcli syntax workflow" + bt + ", skill " + bt + "write-workflows" + bt + ".\n")
 	w("- **An aggregation is a " + bt + "VIEW ENTITY" + bt + "** (OQL, Mendix 10.18+) — not a microflow that\n")
 	w("  retrieves rows and counts them. The database does the work instead of pulling every\n")
-	w("  object into memory. Skill " + bt + "write-oql-queries" + bt + ".\n")
+	w("  object into memory. " + bt + "mxcli syntax view-entity" + bt + ", skill " + bt + "write-oql-queries" + bt + ".\n")
 	w("- **A " + bt + "/** ... */" + bt + " comment before a statement sets that element's documentation.**\n")
 	w("- **" + bt + "@Position(x, y)" + bt + " is optional** — mxcli places microflow activities, and\n")
 	w("  " + bt + "./mxcli layout" + bt + " arranges the domain model.\n\n")

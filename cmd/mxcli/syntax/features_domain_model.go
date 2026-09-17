@@ -126,6 +126,155 @@ func init() {
 		SeeAlso: []string{"domain-model.entity.create", "domain-model.types"},
 	})
 
+	// --- View entity ---
+	//
+	// Filed under domain-model, not at the top level, because a view entity IS
+	// a domain-model document: it sits on the canvas, declares attributes,
+	// pages bind to it, and its associations are derived from its own OQL. The
+	// top-level `oql` topic is a different thing entirely — running a query
+	// against a live runtime — and a sibling `view-entity` beside it would
+	// invite exactly that confusion.
+
+	Register(SyntaxFeature{
+		Path:    "domain-model.view-entity",
+		Summary: "VIEW ENTITY — an entity whose rows come from an OQL query the database runs",
+		Keywords: []string{
+			"view entity", "view-entity", "oql view", "aggregation", "aggregate",
+			"group by", "sum", "count", "report", "dashboard", "totals",
+			"create view entity", "query performance", "read model",
+		},
+		MinVersion: "10.18.0",
+		Syntax: "CREATE VIEW ENTITY [IF NOT EXISTS] Module.Name (\n" +
+			"  Attr: Type,\n" +
+			"  ...\n" +
+			") AS ( <oql> );\n\n" +
+			"REACH FOR THIS INSTEAD OF A MICROFLOW whenever the answer is a total, a\n" +
+			"count per group, a figure on a dashboard, or anything joined across\n" +
+			"entities. The database does the work and returns rows a page binds to\n" +
+			"directly; the microflow version retrieves every object into memory to\n" +
+			"produce one number, and gets slower exactly as the app succeeds.\n\n" +
+			"A view entity is READ-ONLY: no create, change, delete or commit, and no\n" +
+			"plain association to or from one (mxbuild: CE6771 — see\n" +
+			"domain-model.view-entity.association for the form that works).\n\n" +
+			"ALTER ENTITY does not apply. Re-run CREATE OR MODIFY VIEW ENTITY with the\n" +
+			"whole definition: the attribute list and the OQL are one unit, and Mendix\n" +
+			"rejects a model where they disagree (CE6770 \"View Entity is out of sync\n" +
+			"with the OQL Query\").",
+		Example: "create view entity Sales.RevenueByRegion (\n" +
+			"  Region: String(100),\n" +
+			"  OrderCount: Integer,\n" +
+			"  Revenue: Decimal\n" +
+			") as (\n" +
+			"  select c.Region as Region, count(o.ID) as OrderCount, sum(o.Amount) as Revenue\n" +
+			"  from Sales.Order as o\n" +
+			"  join o/Sales.Order_Customer/Sales.Customer as c\n" +
+			"  group by c.Region\n" +
+			");",
+		SeeAlso: []string{"domain-model.view-entity.oql", "domain-model.view-entity.association", "domain-model.entity", "oql"},
+	})
+
+	Register(SyntaxFeature{
+		Path:    "domain-model.view-entity.oql",
+		Summary: "The OQL inside a view entity — clause order, aliases, and the length rule",
+		Keywords: []string{
+			"oql", "view entity oql", "select", "from", "join", "group by",
+			"order by", "limit", "union", "alias", "as alias", "cast",
+			"MDL030", "MDL031", "MDL072", "CE0174", "CE6770",
+		},
+		MinVersion: "10.18.0",
+		Syntax: "BOTH CLAUSE ORDERS ARE ACCEPTED — `select … from …` and Mendix's own\n" +
+			"from-first `from … join … group by … select …`.\n\n" +
+			"An association is walked with SLASHES, never dots:\n" +
+			"  join o/Module.Order_Customer/Module.Customer as c\n\n" +
+			"FOUR RULES THAT BITE, each caught by `mxcli check` before a build:\n\n" +
+			"1. EVERY select column needs an `AS` alias, and the alias is the attribute\n" +
+			"   name it fills (MDL030; mxbuild CE0174).\n" +
+			"2. ORDER BY requires a LIMIT. Prefer NEITHER, so the page or microflow\n" +
+			"   consuming the view sorts and pages as it needs; use `ORDER BY … LIMIT n`\n" +
+			"   only for a view that is intrinsically top-N (MDL030; CE0174).\n" +
+			"3. A DERIVED string column is String(200), always — a CAST to string, a\n" +
+			"   string-returning CASE, any string expression. Declare it `String(200)`\n" +
+			"   or mxbuild rejects the view with CE6770. Only a pass-through column\n" +
+			"   inherits its source attribute's length (MDL031).\n" +
+			"4. A SOURCE may be double-quoted like SQL (`s.\"Month\"`), an ALIAS may not\n" +
+			"   (MDL072). So a view attribute can never be called `Month` or `Year` —\n" +
+			"   that one is renamed, not quoted.\n\n" +
+			"UNION / UNION ALL are supported and round-trip; column count and types must\n" +
+			"line up across branches, and an ORDER BY applies to the whole result.",
+		Example: "-- A reserved word as a SOURCE: quote it. The alias is renamed instead.\n" +
+			"create view entity Sales.SalesByMonth (\n" +
+			"  MonthNo: Integer,\n" +
+			"  Total: Decimal\n" +
+			") as (\n" +
+			"  select s.\"Month\" as MonthNo, sum(s.Amount) as Total\n" +
+			"  from Sales.Order as s\n" +
+			"  group by s.\"Month\"\n" +
+			");\n\n" +
+			"-- An intrinsically top-N view: ORDER BY paired with LIMIT\n" +
+			"create view entity Sales.TopCustomers (\n" +
+			"  Name: String(100),\n" +
+			"  Revenue: Decimal\n" +
+			") as (\n" +
+			"  select c.Name as Name, sum(o.Amount) as Revenue\n" +
+			"  from Sales.Order as o\n" +
+			"  join o/Sales.Order_Customer/Sales.Customer as c\n" +
+			"  group by c.Name\n" +
+			"  order by Revenue desc\n" +
+			"  limit 100\n" +
+			");",
+		SeeAlso: []string{"domain-model.view-entity", "domain-model.view-entity.association", "oql"},
+	})
+
+	Register(SyntaxFeature{
+		Path:    "domain-model.view-entity.association",
+		Summary: "A view entity's associations are DERIVED from its OQL — select an id under an alias",
+		Keywords: []string{
+			"view entity association", "oql association", "select id as",
+			"OqlViewAssociationSource", "CE6771", "CE6770", "MDL080",
+		},
+		MinVersion: "10.18.0",
+		Syntax: "SELECTING A PERSISTENT ENTITY'S ID UNDER AN ALIAS CREATES AN ASSOCIATION,\n" +
+			"named after the alias. There is no second statement, and the id column is\n" +
+			"NOT one of the view entity's attributes:\n\n" +
+			"  select m.ID as MeterRef, sum(r.Kwh) as TotalKwh\n" +
+			"    -> association MeterRef, attribute TotalKwh\n\n" +
+			"Three things follow, each of which is refused by `mxcli check` rather than\n" +
+			"left to the build:\n\n" +
+			"- DO NOT declare the alias in the attribute list. `MeterRef: Module.Meter`\n" +
+			"  parses (a bare qualified name is how MDL spells an enumeration type) and\n" +
+			"  used to be stored as one — mxbuild: CE1613 (MDL080).\n" +
+			"- DO NOT write CREATE ASSOCIATION with a view entity at either end. Mendix\n" +
+			"  refuses it outright: CE6771 \"It is not possible to create associations\n" +
+			"  to/from View Entities.\"\n" +
+			"- THE ALIAS IS A MODULE-LEVEL NAME. It cannot collide with an entity or\n" +
+			"  enumeration in the same module, case-insensitively — Mendix: \"Duplicate\n" +
+			"  name … Entities, associations and enumerations cannot share names.\"\n\n" +
+			"The alternative is often better: CAST the id to a string and keep it as a\n" +
+			"plain attribute. That is one SQL statement instead of two and materialises\n" +
+			"no objects in the client, and the id is still there to look the real object\n" +
+			"up with.",
+		Example: "-- One attribute declared, TWO select columns: the id column is the association\n" +
+			"create view entity Trends.MeterTotals (\n" +
+			"  TotalKwh: Decimal\n" +
+			") as (\n" +
+			"  from Trends.Reading as r\n" +
+			"  join r/Trends.Reading_Meter/Trends.Meter as m\n" +
+			"  group by m.ID\n" +
+			"  select m.ID as MeterRef, sum(r.Kwh) as TotalKwh\n" +
+			");\n\n" +
+			"-- The flat alternative: the id as a String(200) attribute, no association\n" +
+			"create view entity Trends.MeterTotalsFlat (\n" +
+			"  MeterId: String(200),\n" +
+			"  TotalKwh: Decimal\n" +
+			") as (\n" +
+			"  from Trends.Reading as r\n" +
+			"  join r/Trends.Reading_Meter/Trends.Meter as m\n" +
+			"  group by m.ID\n" +
+			"  select cast(m.ID as string) as MeterId, sum(r.Kwh) as TotalKwh\n" +
+			");",
+		SeeAlso: []string{"domain-model.view-entity", "domain-model.view-entity.oql", "domain-model.association"},
+	})
+
 	// --- Association ---
 
 	Register(SyntaxFeature{

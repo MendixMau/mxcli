@@ -321,8 +321,11 @@ flags it. The cost lands later, on someone else.
   version pulls every object into memory to produce one number, and it gets slower
   exactly as the app succeeds, which is the worst possible failure curve. Needs
   **Mendix 10.18+** (`show features` confirms it). `create view entity Mod.Name (…)
-  as ( select … )`; the `write-oql-queries` skill has the two rules that bite —
-  every column needs an `AS` alias, and `ORDER BY` needs a `LIMIT`.
+  as ( select … )` — see `mxcli syntax view-entity` for the shape, its `oql` and
+  `association` subtopics for the rules that bite (every column needs an `AS`
+  alias; `ORDER BY` needs a `LIMIT`; selecting an id under an alias makes an
+  *association*, not an attribute), and the `write-oql-queries` skill for worked
+  queries.
 
 Name which of the two you are using **in the proposal**, with one line on why. Both
 are cheap to choose now and expensive to retrofit: the pages, security rules and
