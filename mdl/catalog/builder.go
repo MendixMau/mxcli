@@ -93,6 +93,12 @@ type Builder struct {
 	resolution      float64   // Leiden resolution for the graph-analysis pass
 	describeFunc    DescribeFunc
 
+	// The project's DefaultLanguageCode, resolved once per build by
+	// defaultLanguage(). Texts (enumeration value captions today) are read in
+	// this language: see language.go.
+	defaultLang       string
+	defaultLangLoaded bool
+
 	// Scheduled event → microflow edges, collected while cataloguing the events
 	// and emitted by buildReferences (a later pass). Carried on the Builder
 	// rather than re-queried because CatalogTx has no Query.

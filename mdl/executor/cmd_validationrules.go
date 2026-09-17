@@ -135,6 +135,7 @@ func validationRuleInfoFor(ctx *ExecContext, s *ast.CreateValidationRuleStmt) (d
 // the read is reported as a comment rather than skipped: silence would read as
 // "this entity has no such rule", which is the failure this whole area is about.
 func outputEntityValidationRules(ctx *ExecContext, entity *domainmodel.Entity, moduleName, entityName string, attrNames map[model.ID]string) {
+	lang := describeDefaultLanguage(ctx)
 	for _, vr := range entity.ValidationRules {
 		if vr == nil || (vr.Type != "RegEx" && vr.Type != "Range") {
 			continue
@@ -158,10 +159,7 @@ func outputEntityValidationRules(ctx *ExecContext, entity *domainmodel.Entity, m
 			continue
 		}
 
-		feedback := ""
-		if vr.ErrorMessage != nil {
-			feedback = vr.ErrorMessage.GetTranslation("en_US")
-		}
+		feedback := pickTextTranslation(vr.ErrorMessage, lang)
 		fmt.Fprintf(ctx.Output, "\ncreate validation rule for %s\n    %s\n    feedback '%s';\n",
 			target, constraint, escapeMDLString(feedback))
 	}
