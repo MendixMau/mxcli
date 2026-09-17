@@ -556,16 +556,8 @@ func formatAction(
 			node = defaultLogNodeExpression
 		}
 		message := "'Message'"
-		if a.MessageTemplate != nil && len(a.MessageTemplate.Translations) > 0 {
-			// Get message text from template (prefer en_US, fallback to any)
-			for _, text := range a.MessageTemplate.Translations {
-				message = text
-				break
-			}
-			if text, ok := a.MessageTemplate.Translations["en_US"]; ok {
-				message = text
-			}
-			message = mdlQuote(message)
+		if text := pickTextTranslation(a.MessageTemplate, describeDefaultLanguage(ctx)); text != "" {
+			message = mdlQuote(text)
 		}
 
 		// Build WITH clause if there are template parameters
@@ -774,16 +766,8 @@ func formatAction(
 			msgType = "Information"
 		}
 		message := "'...'"
-		if a.Template != nil && len(a.Template.Translations) > 0 {
-			// Get message text from template (prefer en_US, fallback to any)
-			for _, text := range a.Template.Translations {
-				message = text
-				break
-			}
-			if text, ok := a.Template.Translations["en_US"]; ok {
-				message = text
-			}
-			message = mdlQuote(message)
+		if text := pickTextTranslation(a.Template, describeDefaultLanguage(ctx)); text != "" {
+			message = mdlQuote(text)
 		}
 		result := fmt.Sprintf("show message %s type %s", message, msgType)
 		if len(a.TemplateParameters) > 0 {
@@ -811,17 +795,9 @@ func formatAction(
 		return result + ";"
 
 	case *microflows.ValidationFeedbackAction:
-		// Get the message text from template translations (prefer en_US, fallback to any)
 		msgText := "'...'"
-		if a.Template != nil && len(a.Template.Translations) > 0 {
-			for _, text := range a.Template.Translations {
-				msgText = text
-				break
-			}
-			if text, ok := a.Template.Translations["en_US"]; ok {
-				msgText = text
-			}
-			msgText = mdlQuote(msgText)
+		if text := pickTextTranslation(a.Template, describeDefaultLanguage(ctx)); text != "" {
+			msgText = mdlQuote(text)
 		}
 		// Build attribute path from variable and attribute name
 		// AttributeName format: Module.Entity.Attribute
