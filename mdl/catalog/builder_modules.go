@@ -70,9 +70,10 @@ func (b *Builder) buildEntities() error {
 		INSERT INTO entities_data (Id, Name, QualifiedName, ModuleName, Folder, EntityType,
 			Description, Generalization, AttributeCount, AssociationCount,
 			AccessRuleCount, ValidationRuleCount, HasEventHandlers,
+			HasCreatedDate, HasChangedDate, HasOwner, HasChangedBy,
 			IsExternal, ExternalService,
 			ProjectId, SnapshotId)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return err
@@ -140,6 +141,10 @@ func (b *Builder) buildEntities() error {
 				len(entity.AccessRules),
 				len(entity.ValidationRules),
 				hasEventHandlers,
+				boolToInt(entity.HasCreatedDate),
+				boolToInt(entity.HasChangedDate),
+				boolToInt(entity.HasOwner),
+				boolToInt(entity.HasChangedBy),
 				isExternal,
 				externalService,
 				projectID, snapshotID,

@@ -825,6 +825,10 @@ func entityToStarlark(e Entity) starlark.Value {
 		"validation_rule_count": starlark.MakeInt(e.ValidationRuleCount),
 		"has_event_handlers":    starlark.Bool(e.HasEventHandlers),
 		"is_external":           starlark.Bool(e.IsExternal),
+		"has_created_date":      starlark.Bool(e.HasCreatedDate),
+		"has_changed_date":      starlark.Bool(e.HasChangedDate),
+		"has_owner":             starlark.Bool(e.HasOwner),
+		"has_changed_by":        starlark.Bool(e.HasChangedBy),
 	})
 }
 

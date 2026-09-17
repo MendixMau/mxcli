@@ -7,12 +7,17 @@ package catalog
 //
 // History:
 //
-//	12 — entity_event_handlers_data + view, and the `event` edge in refs
+//	13 — entity_event_handlers_data + view, and the `event` edge in refs
 //	    (ENTITY -> MICROFLOW). Same reason as 11: refs are only written by
 //	    REFRESH CATALOG FULL, so without the bump a cached catalog keeps
 //	    reporting every handler-only microflow in GRAPH_DEAD_ASSETS and
 //	    answering `show callers` with "(no callers found)" — the wrong answer
 //	    this change exists to stop, served from a stale cache.
+//	12 — HasCreatedDate / HasChangedDate / HasOwner / HasChangedBy on entities.
+//	    A CREATE TABLE IF NOT EXISTS does not add a column to a cached
+//	    catalog, so without the bump every query naming one fails with "no
+//	    such column" on exactly the projects that have a catalog already --
+//	    a hard error rather than a wrong answer, but on the wrong machines.
 //	11 — the `widget` edge in refs (page/snippet -> widget definition) and the
 //	    graph_god_nodes change that keeps widget targets off the asset side.
 //	    Both need the bump for the same reason: refs are only written by
@@ -124,6 +129,18 @@ func (c *Catalog) createTables() error {
 			AccessRuleCount INTEGER DEFAULT 0,
 			ValidationRuleCount INTEGER DEFAULT 0,
 			HasEventHandlers INTEGER DEFAULT 0,
+			-- Mendix stores the four audit members as BOOLEANS on the entity's
+			-- generalization node, not as attributes, so they are absent from
+			-- CATALOG.ATTRIBUTES by construction: "does this entity have a
+			-- CreatedDate" was unanswerable from SQL, and a LEFT JOIN against
+			-- attributes reported every entity as missing it forever, even
+			-- after one was added. DESCRIBE ENTITY renders them in the
+			-- attribute list (CreatedDate: AutoCreatedDate), which is what
+			-- makes their absence here surprising.
+			HasCreatedDate INTEGER DEFAULT 0,
+			HasChangedDate INTEGER DEFAULT 0,
+			HasOwner INTEGER DEFAULT 0,
+			HasChangedBy INTEGER DEFAULT 0,
 			IsExternal INTEGER DEFAULT 0,
 			ExternalService TEXT,
 			ProjectId TEXT,
