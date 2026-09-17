@@ -68,14 +68,14 @@ create persistent entity Module.Photo (
 | Create external entities | `create [or modify] external entities from Module.Client [into module] [entities (...)];` | Bulk from $metadata |
 | Drop entity | `drop entity Module.Name;` | |
 | Describe entity | `describe entity Module.Name;` | Full MDL output |
-| Describe enumeration | `describe enumeration Module.Name;` | Full MDL output |
+| Describe enumeration | `describe enumeration Module.Name;` | Full MDL output. **`System.*` enumerations are included** — they are platform built-ins with no stored unit, synthesized so their values are discoverable instead of guessed at until **CE1613**. They are read-only: `describe` prints them as `--` comment lines, and `create`/`alter`/`drop`/`move` naming the System module is refused |
 | Rename entity | `rename entity Module.Old to New;` | Updates all references |
 | Rename enumeration | `rename enumeration Module.Old to New;` | Updates attribute type refs |
 | Rename association | `rename association Module.Old to New;` | Updates all references |
 | Show entities | `show entities [in module];` | List all or filter by module |
 | Create enumeration | `create [or modify] enumeration Module.Name (Value1 'caption', ...);` | |
 | Alter enumeration values | `alter enumeration Module.Name add value [if not exists] X [caption '..'] \| rename value X to Y \| modify value X caption '..' \| drop value [if exists] X;` | `modify value … caption` re-captions in place (works while referenced). `if not exists` / `if exists` make the script re-runnable — the bare forms error and stop the run |
-| Drop enumeration | `drop enumeration Module.Name;` | |
+| Drop enumeration | `drop enumeration Module.Name;` | Refused for `System.*` (read-only platform module) |
 | Create association | `create [or modify] association Module.Name from Parent to Child type reference\|ReferenceSet [owner default\|both] [delete_behavior ...];` | OR MODIFY updates existing association in-place. **The FROM entity must live in `Module`** — Mendix stores an association in its FROM entity's module, so a remote FROM writes a dangling pointer and the project stops OPENING (**MDL070**). The TO entity may be remote; that direction is stored BY NAME |
 | Drop association | `drop association Module.Name;` | |
 | Association line anchors | `@anchor(from: (0, 54), to: (100, 54))` above `create association …` | Where the connector attaches to each entity box, as a **percentage** of the box (0..100, whole numbers). `from` = the FROM entity's box, `to` = the TO entity's. Omitting an end preserves what is stored, so a `create or modify` about something else never flattens a hand-tuned line. Cross-module associations have no anchors — Mendix stores none |
@@ -597,7 +597,12 @@ and `mxbuild` were all clean. Only the running app showed it.
 | `TRY ... CATCH ... end TRY` | `on error { ... }` blocks | Use error handlers on specific activities |
 
 **Notes:**
-- `retrieve ... limit n` IS supported. `limit 1` returns a single entity, otherwise returns a list.
+- `retrieve ... limit n` IS supported. **`limit 1` with no `offset` binds a single OBJECT**, not a
+  one-element list: it is Mendix's "First object" range. Every other `limit` (including
+  `limit 1 offset n`) is a bounded range, which is a list. Using a `limit 1` variable as a list —
+  `head()`, `count()`, a `loop` — is **CE0097** at build time and **MDL-RETRIEVE01** at check time.
+  Note this is the opposite of the import-mapping clause above, where `first` binds an object and
+  `limit 1` a one-element list.
 - `rollback $entity [refresh];` IS supported. Rolls back uncommitted changes to an object.
 
 ## Project Organization
@@ -1372,7 +1377,7 @@ MDL uses explicit property declarations for pages:
 | Page CSS class / style | `Class: 'css-class', Style: 'css: rule'` | `(Title: 'Home', Class: 'container-fluid bg-light', Style: 'min-height: 100vh')` — the page's Appearance |
 | Page variables | `variables: { $name: type = 'expr' }` | `variables: { $show: boolean = 'true' }` |
 | Repeated widget entries | `<container> <name> ( … )` **in the widget body** | A repeatable property (FileUploader `allowedFileFormats`, HTML Element `attributes`, a chart's `series`) is a block, never a property value. `attributes: [(attributeName: 'x')]` is **MDL-WIDGET27** — it used to check clean, exec, and vanish from storage. `describe widget <name> -p app.mpr` lists the container keywords |
-| Data grid 2 column filter | `column c (attribute: A) { textfilter f }` | **Inside the column's braces.** `column c (…) filter f { … }` is the GALLERY form — the grammar reads it as a column with no body plus a sibling `filter` widget, which the grid has nowhere to put; it used to be dropped on write and is now **MDL-WIDGET30**. A grid-wide filter bar is `controlbar`; a gallery spells that same slot `filter`. Match the filter to the column's type (String → `textfilter`, number → `numberfilter`, DateTime → `datefilter`, Enumeration → `dropdownfilter`, Boolean → none) |
+| Data grid 2 column filter | `column c (attribute: A) { textfilter f }` | **Inside the column's braces.** `column c (…) filter f { … }` is the GALLERY form — the grammar reads it as a column with no body plus a sibling `filter` widget, which the grid has nowhere to put; it used to be dropped on write and is now **MDL-WIDGET30**. A grid-wide filter bar is `controlbar`; a gallery spells that same slot `filter`. Match the filter to the column's type (String → `textfilter`, number → `numberfilter`, DateTime → `datefilter`, Enumeration **and Boolean** → `dropdownfilter` — the drop-down filter's own attribute types are Enum and Boolean, and a Boolean column filters Yes/No). A column may carry a **custom-content widget AND a filter**: `content` and `filter` are separate slots, so `column Active (attribute: IsActive) { checkbox cb (Editable: Never, ReadOnlyStyle: Control) dropdownfilter ddf }` renders checkbox cells and still filters |
 | Widget with nowhere to go | any widget in a pluggable widget's body | A child matching no container, slot or `template` catch-all is **MDL-WIDGET30** at check time and refused by `exec`. `describe widget <name> -p app.mpr` lists what the parent declares. Needs the parent's definition, so it is silent without `-p` |
 | Inspect a widget | `describe widget <keyword\|'widget id'>;` | `describe widget combobox;` — properties, enum values, defaults and the editor rules that HIDE properties under some configurations. **Body containers** names what the widget's body takes, and for an object list the widgets-typed slots *inside one item* plus the widget types that route into each — that is where `column … { textfilter }` is spelled out. Works with no project open; with one, reads the installed `.mpk` (version-accurate, and the only place a Marketplace widget appears). Same output as `mxcli widget describe` |
 | Widget name | Required after type | `textbox txtName (...)` |

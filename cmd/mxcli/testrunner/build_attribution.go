@@ -25,12 +25,50 @@
 package testrunner
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/mendixlabs/mxcli/cmd/mxcli/docker"
 )
+
+// buildFailure is the error every path in this package returns for a build
+// MxBuild rejected.
+//
+// The type is load-bearing, not decoration. MxBuild puts the same sentence in
+// Message for every failing build — "The project cannot be deployed, because it
+// contains errors." — so an error carrying only that cannot tell "your test does
+// not compile" from "an unrelated document in the project is broken". Two paths
+// built their error with fmt.Errorf and threw the parsed problems away, which is
+// the whole of mendixlabs/mxcli#1104's first half: the detail was already in
+// hand and discarded one line before it was needed.
+func buildFailure(build *docker.BuildResult) error {
+	return &docker.BuildFailedError{Result: build}
+}
+
+// resultsForBuildFailure turns a failed build into something the reader can act
+// on, and passes any other error through untouched.
+//
+// A build error belonging to a generated test microflow is that test's problem:
+// it becomes an ERROR row and the rest become SKIP. Anything else is in the
+// project, and the returned error names the documents so the reader is not sent
+// looking through their own model for a message that came from mxcli's.
+//
+// Shared by both runners on purpose. It was wired into the --local boot only, so
+// --attach and every rebuild under --watch reported the bare sentence.
+func resultsForBuildFailure(err error, suite *TestSuite) (*SuiteResult, error) {
+	var bf *docker.BuildFailedError
+	if !errors.As(err, &bf) {
+		return nil, err
+	}
+	if results := resultsFromFailedBuild(bf.BuildErrors(), suite); results != nil {
+		return &SuiteResult{Name: suite.Name, Tests: results, Started: time.Now()}, nil
+	}
+	_, other := attributeBuildProblems(bf.BuildErrors(), suite)
+	return nil, fmt.Errorf("%w%s", err, buildFailureHint(other))
+}
 
 // testFlowDocumentPattern matches the `document` MxBuild reports for a generated
 // test microflow.
@@ -138,17 +176,51 @@ func resultsFromFailedBuild(problems []docker.BuildProblem, suite *TestSuite) []
 // buildFailureHint is appended to the error when a build failure could not be
 // attributed to any test, which means it is in the project rather than in the
 // suite.
+//
+// The errors themselves are already rendered by BuildFailedError.Error(), so
+// this says what the reader cannot work out from them: that none of them belongs
+// to a test in this run, and — for a generated microflow no current test owns —
+// that it is a leftover from an earlier run, with the command to remove it. That
+// last case is the one that fails every subsequent run of every test file until
+// someone finds it by hand (mendixlabs/mxcli#1104).
 func buildFailureHint(other []docker.BuildProblem) string {
 	if len(other) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("\n  The build errors are in the project, not in the tests:")
-	for _, p := range other {
-		b.WriteString(fmt.Sprintf("\n    %s %s", p.ErrorCode, p.Message))
-		if w := p.Where(); w != "" {
-			b.WriteString(" — at " + w)
-		}
+	b.WriteString("\n  These errors are in the project, not in this run's tests.")
+	for _, name := range leftoverFlowsIn(other) {
+		b.WriteString(fmt.Sprintf(
+			"\n  %s is a microflow an earlier `mxcli test` run left behind. Remove it with:"+
+				"\n    mxcli -p <project.mpr> -c \"DROP MICROFLOW %s\"", name, name))
 	}
 	return b.String()
+}
+
+// leftoverFlowsIn names the generated test microflows among a set of build
+// problems, deduplicated and in the order MxBuild reported them.
+//
+// A document matching the generated prefix, in the generated module, that no
+// test in this run owns, can only have come from an earlier run: the names are
+// positional and nothing else in the project is allowed to use them.
+func leftoverFlowsIn(problems []docker.BuildProblem) []string {
+	var names []string
+	seen := map[string]bool{}
+	for _, p := range problems {
+		for _, loc := range p.Locations {
+			if !strings.EqualFold(loc.Module, mxTestModule) {
+				continue
+			}
+			m := testFlowDocumentPattern.FindStringSubmatch(loc.Document)
+			if m == nil {
+				continue
+			}
+			name := mxTestModule + "." + m[1]
+			if !seen[name] {
+				seen[name] = true
+				names = append(names, name)
+			}
+		}
+	}
+	return names
 }

@@ -183,6 +183,16 @@ test: grammar sync-all
 # rule rejects). The runner inverts the exit code for these: an unexpected
 # pass is treated as a regression of the rule.
 #
+# A test file whose ANNOTATIONS are deliberately unusable is a negative test like
+# any other and is named `.fail.test.mdl`; both fixtures of that kind exist to
+# prove the runner reports an ERROR rather than a PASS.
+#
+# `.test.mdl` files are swept too. They used to be skipped because `check` could
+# not parse one at all — a test block is a microflow body, not a top-level
+# statement, so every test file reported errors about the grammar rather than
+# about itself (mendixlabs/mxcli#1103). Now that `check` renders them, the sweep
+# is what keeps that true.
+#
 # `check` runs here WITHOUT a project, so only CHECK-TIME rules can be tested
 # this way. A guard living in the executor or a backend needs a model before it
 # can decide anything, so its repro is valid MDL, `check` exits 0, and naming
@@ -192,7 +202,6 @@ test: grammar sync-all
 check-mdl: build
 	@FAILED=0; \
 	for f in mdl-examples/doctype-tests/*.mdl mdl-examples/bug-tests/*.mdl; do \
-		case "$$f" in *.test.mdl) continue ;; esac; \
 		case "$$f" in \
 			*/116-datagrid2-column-name-mismatch.mdl|\
 			*/343-list-attribute-find-filter.mdl|\
@@ -207,7 +216,7 @@ check-mdl: build
 				continue ;; \
 		esac; \
 		NAME=$$(basename "$$f"); \
-		case "$$f" in *.fail.mdl) \
+		case "$$f" in *.fail.mdl|*.fail.test.mdl) \
 			if ./$(BUILD_DIR)/$(BINARY_NAME) check "$$f" > /dev/null 2>&1; then \
 				echo "FAIL (negative test unexpectedly passed): $$NAME"; \
 				FAILED=1; \

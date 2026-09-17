@@ -3,7 +3,6 @@
 package testrunner
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -104,17 +103,7 @@ func runViaEndpoint(opts RunOptions, suite *TestSuite, token string, timeout tim
 		// test's problem, not the run's. Reporting it as an ERROR row — and the
 		// rest as SKIP — says which assertion broke, where the bare failure said
 		// only that the project would not deploy (FINDINGS #46 follow-up).
-		var bf *docker.BuildFailedError
-		if errors.As(err, &bf) {
-			if results := resultsFromFailedBuild(bf.BuildErrors(), suite); results != nil {
-				return &SuiteResult{Name: suite.Name, Tests: results, Started: time.Now()}, nil
-			}
-			// Not the tests' doing: the model itself does not build. Say so
-			// rather than letting the reader assume a test is at fault.
-			_, other := attributeBuildProblems(bf.BuildErrors(), suite)
-			return nil, fmt.Errorf("%w%s", err, buildFailureHint(other))
-		}
-		return nil, err
+		return resultsForBuildFailure(err, suite)
 	}
 	defer sess.stop()
 	return runSuite(sess.client, sess.adminOptions(), suite, opts, w)
@@ -221,7 +210,7 @@ func endpointReadyTimeout(suiteTimeout time.Duration) time.Duration {
 // the MxTest module, dropping the module removes all of it in one statement;
 // when the module was already the user's, each generated document is named
 // explicitly so nothing of theirs is touched.
-func endpointCleanupCommands(st projectState, suite *TestSuite, mxTestPresent bool) []string {
+func endpointCleanupCommands(st projectState, flows []string, mxTestPresent bool) []string {
 	restore := "ALTER SETTINGS MODEL AfterStartupMicroflow = ''"
 	if st.afterStartup != "" {
 		restore = "ALTER SETTINGS MODEL AfterStartupMicroflow = " + quoteMDLString(st.afterStartup)
@@ -233,8 +222,10 @@ func endpointCleanupCommands(st projectState, suite *TestSuite, mxTestPresent bo
 	if st.createdMxTest {
 		return append(cmds, "DROP MODULE "+mxTestModule)
 	}
-	for _, tc := range suite.Tests {
-		cmds = append(cmds, "DROP MICROFLOW "+testFlowName(tc))
+	// Every generated flow the project holds, not just this suite's — see
+	// cleanup_leftovers.go.
+	for _, name := range flows {
+		cmds = append(cmds, "DROP MICROFLOW "+name)
 	}
 	return append(cmds,
 		"DROP MICROFLOW "+endpointStartupFlow,
@@ -255,7 +246,7 @@ func cleanupEndpoint(projectPath string, st projectState, suite *TestSuite, w io
 	if mxTestPresent && !st.createdMxTest {
 		fmt.Fprintf(w, "  %s module already existed; dropping only the generated documents\n", mxTestModule)
 	}
-	return runMDLCommands(projectPath, endpointCleanupCommands(st, suite, mxTestPresent))
+	return runMDLCommands(projectPath, endpointCleanupCommands(st, testFlowsToDrop(projectPath, suite), mxTestPresent))
 }
 
 // removeGeneratedJavaSource deletes the .java file the Java action generated.

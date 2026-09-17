@@ -112,9 +112,18 @@ type ReferenceSetSelector struct {
 // CheckBox represents a checkbox widget.
 type CheckBox struct {
 	BaseWidget
-	Label          string       `json:"label,omitempty"`
-	AttributePath  string       `json:"attributePath,omitempty"`
-	ReadOnly       bool         `json:"readOnly,omitempty"`
+	Label         string `json:"label,omitempty"`
+	AttributePath string `json:"attributePath,omitempty"`
+	ReadOnly      bool   `json:"readOnly,omitempty"`
+	// ReadOnlyStyle is Mendix's "Read-only style": Inherit, Control or Text.
+	// Empty means unset — the writer keeps the stored default (Inherit), so a
+	// script that never mentions it produces the document it always did.
+	//
+	// It decides how a READ-ONLY check box renders, and the difference is not
+	// cosmetic: Text renders the words "Yes"/"No", Control renders the (disabled)
+	// checkbox glyph. That is the whole of "show a Boolean as a checkbox" in a
+	// DataGrid2 cell (ako/mxcli#490).
+	ReadOnlyStyle  string       `json:"readOnlyStyle,omitempty"`
 	OnChangeAction ClientAction `json:"onChangeAction,omitempty"`
 }
 

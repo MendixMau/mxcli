@@ -130,11 +130,20 @@ func TestResultsFromFailedBuildDeclinesUnattributableErrors(t *testing.T) {
 		t.Fatalf("expected no results for a project-level failure, got %v", results)
 	}
 
-	_, other := attributeBuildProblems([]docker.BuildProblem{p}, suite)
-	hint := buildFailureHint(other)
-	for _, want := range []string{"in the project, not in the tests", "CE0109", "SUB_Deal"} {
-		if !strings.Contains(hint, want) {
-			t.Errorf("hint %q does not mention %q", hint, want)
+	// Asserted on the whole message the reader sees, not on the hint alone: the
+	// errors are rendered once by BuildFailedError.Error() and the hint adds only
+	// what cannot be read off them. Testing the hint in isolation is what made an
+	// earlier version print every error twice.
+	_, err := resultsForBuildFailure(buildFailure(failedBuild(p)), suite)
+	if err == nil {
+		t.Fatal("err = nil, want the build failure")
+	}
+	for _, want := range []string{"in the project, not in this run's tests", "CE0109", "SUB_Deal"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("message %q does not mention %q", err.Error(), want)
 		}
+	}
+	if strings.Count(err.Error(), "CE0109") != 1 {
+		t.Errorf("CE0109 is reported %d times, want once:\n%s", strings.Count(err.Error(), "CE0109"), err.Error())
 	}
 }

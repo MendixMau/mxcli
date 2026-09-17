@@ -81,7 +81,11 @@ func (a *attachedApp) applyModelChange(projectPath string) (string, error) {
 		return "", fmt.Errorf("rebuilding through the attached app's build server on port %d: %w", a.hs.ServePort, err)
 	}
 	if !build.OK() {
-		return "", fmt.Errorf("build failed: %s", build.Message)
+		// Carries the parsed problems; the caller turns them into per-test rows or
+		// names the document they were found in. Returning only build.Message here
+		// is what made an --attach run say nothing but "the project cannot be
+		// deployed" (mendixlabs/mxcli#1104).
+		return "", buildFailure(build)
 	}
 	// No restart callback: the runtime belongs to the other process. A structural
 	// change is refused rather than half-applied — see the error below.
@@ -113,7 +117,7 @@ func runAttached(opts RunOptions, suite *TestSuite, timeout time.Duration, w io.
 	injected := suite
 	finish := func(result *SuiteResult, runErr error) (*SuiteResult, error) {
 		fmt.Fprintln(w, "Cleaning up...")
-		cleanupErr := runMDLCommands(opts.ProjectPath, dropTestFlows(injected))
+		cleanupErr := runMDLCommands(opts.ProjectPath, dropTestFlows(opts.ProjectPath, injected))
 		if cleanupErr == nil {
 			// Leave the app serving a model that matches the project on disk;
 			// otherwise the developer's next page load still runs the test flows.
@@ -122,7 +126,7 @@ func runAttached(opts RunOptions, suite *TestSuite, timeout time.Duration, w io.
 			}
 			fmt.Fprintln(w, "  test microflows removed")
 		} else {
-			reportCleanup(w, cleanupErr)
+			reportCleanup(w, cleanupErr, survivingTestFlows(opts.ProjectPath))
 		}
 		if runErr != nil {
 			return nil, runErr
@@ -133,12 +137,28 @@ func runAttached(opts RunOptions, suite *TestSuite, timeout time.Duration, w io.
 		return result, nil
 	}
 
+	// Printing is shared because a build MxBuild rejected now produces results
+	// too: the failing test gets an ERROR row instead of the run getting a bare
+	// "the project cannot be deployed".
+	report := func(result *SuiteResult, err error) (*SuiteResult, error) {
+		if result != nil {
+			PrintResults(w, result, opts.Color)
+			if jerr := writeJUnit(opts, result, w); jerr != nil && err == nil {
+				err = jerr
+			}
+		}
+		return result, err
+	}
+
 	fmt.Fprintln(w, "Injecting test microflows...")
 	if err := execMDLScript(opts.ProjectPath, GenerateTestFlows(suite), "mxtest-flows-*.mdl"); err != nil {
 		return finish(nil, fmt.Errorf("injecting test microflows: %w", err))
 	}
 	if _, err := app.applyModelChange(opts.ProjectPath); err != nil {
-		return finish(nil, err)
+		// Same treatment the --local boot gives a rejected build: attribute each
+		// error to the generated microflow it was found in, and name the document
+		// when it belongs to the project instead (mendixlabs/mxcli#1104).
+		return report(finish(resultsForBuildFailure(err, suite)))
 	}
 
 	if opts.Watch {
@@ -149,24 +169,18 @@ func runAttached(opts RunOptions, suite *TestSuite, timeout time.Duration, w io.
 	if err != nil {
 		return finish(nil, err)
 	}
-	result, err = finish(result, nil)
-	if result != nil {
-		PrintResults(w, result, opts.Color)
-		if jerr := writeJUnit(opts, result, w); jerr != nil && err == nil {
-			err = jerr
-		}
-	}
-	return result, err
+	return report(finish(result, nil))
 }
 
 // dropTestFlows returns the DROP statements for a suite's generated microflows.
-func dropTestFlows(suite *TestSuite) []string {
-	if suite == nil {
-		return nil
-	}
-	cmds := make([]string, 0, len(suite.Tests))
-	for _, tc := range suite.Tests {
-		cmds = append(cmds, "DROP MICROFLOW "+testFlowName(tc))
+func dropTestFlows(projectPath string, suite *TestSuite) []string {
+	// Keyed on what the project holds, not on this suite: an attach always runs
+	// against a project whose MxTest module pre-exists, so nothing else ever
+	// removes a flow an earlier run left behind (mendixlabs/mxcli#1104).
+	flows := testFlowsToDrop(projectPath, suite)
+	cmds := make([]string, 0, len(flows))
+	for _, name := range flows {
+		cmds = append(cmds, "DROP MICROFLOW "+name)
 	}
 	return cmds
 }

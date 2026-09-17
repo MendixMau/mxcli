@@ -462,7 +462,10 @@ func widgetToGen(w pages.Widget) (element.Element, error) {
 		}
 		g.SetOnChangeAction(onChangeCB)
 		g.SetOnEnterAction(noActionGen())
-		g.SetReadOnlyStyle("Inherit")
+		// Unset keeps Mendix's default; an authored Control/Text is what decides
+		// whether a read-only check box renders as the glyph or as "Yes"/"No"
+		// text (ako/mxcli#490). The value is canonicalised at build time.
+		g.SetReadOnlyStyle(orDefaultStr(x.ReadOnlyStyle, "Inherit"))
 		g.SetValidation(widgetValidationToGen())
 		return g, nil
 

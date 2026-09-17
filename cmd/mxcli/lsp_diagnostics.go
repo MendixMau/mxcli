@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mendixlabs/mxcli/cmd/mxcli/testrunner"
 	"github.com/mendixlabs/mxcli/mdl/ast"
 	"github.com/mendixlabs/mxcli/mdl/executor"
 	"github.com/mendixlabs/mxcli/mdl/linter"
@@ -18,6 +19,46 @@ import (
 
 // errLineRegexp parses error messages in the format "line N:M msg".
 var errLineRegexp = regexp.MustCompile(`^line (\d+):(\d+) (.+)$`)
+
+// checkableDocument renders a document as the MDL to parse, plus the diagnostics
+// that come from the document's own format rather than from the grammar.
+//
+// The extension binds the MDL language to `.mdl`, which `.test.mdl` matches, so
+// until now every test file in the editor was diagnosed against the top-level
+// grammar it is not written in — a wall of squiggles saying nothing true
+// (mendixlabs/mxcli#1103). A test block is a microflow body; testrunner renders
+// it as one, on the same lines, so the positions below need no adjustment.
+func checkableDocument(docURI uri.URI, text string) (string, []protocol.Diagnostic) {
+	path := docURI.Filename()
+	if !testrunner.IsTestFile(path) {
+		return text, nil
+	}
+	checked, err := testrunner.CheckSource(text, path)
+	if err != nil {
+		// The file is not a usable test file at all. Report that, at the top,
+		// rather than whatever the grammar makes of it.
+		return "", []protocol.Diagnostic{{
+			Range:    protocol.Range{Start: protocol.Position{Line: 0}, End: protocol.Position{Line: 0}},
+			Severity: protocol.DiagnosticSeverityError,
+			Source:   "mdl-test",
+			Message:  err.Error(),
+		}}
+	}
+	var diags []protocol.Diagnostic
+	for _, p := range checked.Problems {
+		line := uint32(0)
+		if p.Line > 0 {
+			line = uint32(p.Line - 1)
+		}
+		diags = append(diags, protocol.Diagnostic{
+			Range:    protocol.Range{Start: protocol.Position{Line: line}, End: protocol.Position{Line: line}},
+			Severity: protocol.DiagnosticSeverityError,
+			Source:   "mdl-test",
+			Message:  p.Message,
+		})
+	}
+	return checked.MDL, diags
+}
 
 // parseMDLDiagnostics runs the MDL parser on text and converts errors to LSP diagnostics.
 func parseMDLDiagnostics(text string) []protocol.Diagnostic {
@@ -60,7 +101,8 @@ func parseMDLDiagnostics(text string) []protocol.Diagnostic {
 
 // publishDiagnostics parses the document and sends diagnostics to the client.
 func (s *mdlServer) publishDiagnostics(ctx context.Context, docURI uri.URI, text string) {
-	diags := parseMDLDiagnostics(text)
+	text, diags := checkableDocument(docURI, text)
+	diags = append(diags, parseMDLDiagnostics(text)...)
 	// If no parse errors, run semantic validation inline
 	if len(diags) == 0 {
 		diags = append(diags, s.runSemanticValidation(text)...)
@@ -130,7 +172,8 @@ func (s *mdlServer) DidSave(ctx context.Context, params *protocol.DidSaveTextDoc
 	s.mu.Unlock()
 
 	// If there are parse errors, don't run semantic checks
-	if diags := parseMDLDiagnostics(text); len(diags) > 0 {
+	checkable, diags := checkableDocument(docURI, text)
+	if len(diags) > 0 || len(parseMDLDiagnostics(checkable)) > 0 {
 		return nil
 	}
 

@@ -6,8 +6,12 @@ package exprcheck
 // Add a new entry whenever a new MDL statement slot is added to the executor.
 // Slot paths mirror the AST node + field name, e.g. "IfStmt.Condition".
 var staticExpectations = map[string]SlotConstraint{
-	"IfStmt.Condition":        {Kind: KindBoolean},
-	"WhileStmt.Condition":     {Kind: KindBoolean},
+	"IfStmt.Condition":    {Kind: KindBoolean},
+	"WhileStmt.Condition": {Kind: KindBoolean},
+	// A FIND/FILTER predicate is a Boolean expression over the item under test,
+	// the same shape as a WHILE condition. Mendix reports a non-Boolean one as
+	// CE0117 on the list-operation activity.
+	"ListOperation.Condition": {Kind: KindBoolean},
 	"RetrieveStmt.LimitExpr":  {Kind: KindInteger},
 	"RetrieveStmt.OffsetExpr": {Kind: KindInteger},
 	"ChangeItem.Value":        {Kind: KindUnknown, ResolveBy: "AttributeOf:Parent"},
