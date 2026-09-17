@@ -4,7 +4,6 @@ package catalog
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/mendixlabs/mxcli/sdk/domainmodel"
@@ -280,6 +279,7 @@ func (b *Builder) buildEnumerations() error {
 
 	projectID, snapshotID := b.snapshotMeta()
 	valueCount := 0
+	lang := b.defaultLanguage()
 
 	for _, enum := range enums {
 		// Get module name using hierarchy
@@ -316,24 +316,16 @@ func (b *Builder) buildEnumerations() error {
 			if id == "" {
 				id = string(enum.ID) + "/" + v.Name
 			}
+			// The project's own language first: a hardcoded "en_US" put the
+			// English caption in the column of a Dutch project that has both, so
+			// CATALOG.ENUMERATION_VALUES and DESCRIBE disagreed about the same
+			// value (mendixlabs/mxcli#1113). Any translation still beats none —
+			// nothing downstream keys off this, the checker matches on Name —
+			// and the last resort is sorted, since a row that varies run to run
+			// is indistinguishable from a model change.
 			caption := ""
 			if v.Caption != nil {
-				// Any translation is better than none for a display caption, and
-				// nothing downstream keys off it — the checker matches on Name.
-				caption = v.Caption.GetTranslation("en_US")
-				if caption == "" {
-					// Fall back to some other language rather than storing
-					// nothing, but pick it deterministically: iterating the map
-					// directly would make the catalog row vary run to run.
-					langs := make([]string, 0, len(v.Caption.Translations))
-					for lang := range v.Caption.Translations {
-						langs = append(langs, lang)
-					}
-					sort.Strings(langs)
-					if len(langs) > 0 {
-						caption = v.Caption.Translations[langs[0]]
-					}
-				}
+				caption = pickTranslation(v.Caption.Translations, lang)
 			}
 			if _, err := valueStmt.Exec(
 				id,

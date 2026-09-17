@@ -363,15 +363,17 @@ func enumerationToMDL(ctx *ExecContext, moduleName string, enum *model.Enumerati
 
 	lines = append(lines, fmt.Sprintf("create enumeration %s.%s (", moduleName, enum.Name))
 
+	// Same read as DESCRIBE: a hardcoded "en_US" renders every caption of a
+	// non-en_US project as '' and makes the diff claim the script changes them
+	// (mendixlabs/mxcli#1113).
+	lang := describeDefaultLanguage(ctx)
+
 	for i, v := range enum.Values {
 		comma := ","
 		if i == len(enum.Values)-1 {
 			comma = ""
 		}
-		caption := ""
-		if v.Caption != nil {
-			caption = v.Caption.GetTranslation("en_US")
-		}
+		caption := pickTextTranslation(v.Caption, lang)
 		lines = append(lines, fmt.Sprintf("  %s '%s'%s", v.Name, caption, comma))
 	}
 
