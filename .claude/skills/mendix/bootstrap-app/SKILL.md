@@ -1,6 +1,6 @@
 ---
 name: bootstrap-app
-description: "Provision a Mendix project in a repo that has none — interview, `mxcli new`, session hook, project brief, first commit and boot. Use when the repository is empty or has no .mpr yet, typically from the empty-repo seed prompt."
+description: "Provision a Mendix project in a repo that has none — interview, `mxcli new`, session hook, project brief, first commit, boot and quality baseline. Use when the repository is empty or has no .mpr yet, typically from the empty-repo seed prompt."
 ---
 
 # Bootstrap a Mendix App in an Empty Repo
@@ -20,7 +20,9 @@ folder and go straight to the work.
 
 Related skills: `run-local` (the warm dev loop this ends in), `mdl-entities` and
 `create-page` (building the model you propose at the end),
-`migrate-design-prototype` (when a design was handed to you).
+`migrate-design-prototype` (when a design was handed to you), `assess-quality`
+(reading the `report` this takes a baseline with), `test-microflows` and `test-app`
+(the two gates that prove behaviour rather than syntax).
 
 ---
 
@@ -190,12 +192,27 @@ drop the `./` if it came pre-installed on `PATH`.
    clone, so committing the script is what makes the hook survive a reap.
 8. **Boot and verify:** `./mxcli run --local -p <AppName>.mpr` in the background, then
    confirm the app answers HTTP 200 at http://localhost:8080/ and report.
-9. **(Optional) browser preview from a cloud session:**
-   `./mxcli run --hub https://hub.mxcli.org -p <AppName>.mpr`, and report the preview
-   URL it prints. Needs `MXCLI_HUB_KEY` on the environment; without it, continue as a
-   normal local run. `--hub` ships in the **Linux** build only (a cloud session is a
-   Linux container, so it works there); on a native Windows/macOS mxcli it fails with
-   an explanatory message — continue as a normal local run.
+9. **Take the quality baseline** — run the two gates that score the project, on the
+   blank app, before any of your own work is in it:
+
+   ```bash
+   ./mxcli lint -p <AppName>.mpr
+   ./mxcli report -p <AppName>.mpr --format markdown
+   ```
+
+   Report the warning count and the six category scores, and put them in
+   `FINDINGS.md` with the date. This is the only moment the numbers mean "what the
+   template ships with" — afterwards every figure is yours plus the template's, and
+   there is nothing to subtract. A blank app is **not** expected to score zero
+   warnings; knowing which ones it starts with is what stops you chasing them later.
+   Read `.ai-context/skills/assess-quality/SKILL.md` before interpreting the report —
+   it covers what each category means and which findings are worth acting on.
+10. **(Optional) browser preview from a cloud session:**
+    `./mxcli run --hub https://hub.mxcli.org -p <AppName>.mpr`, and report the preview
+    URL it prints. Needs `MXCLI_HUB_KEY` on the environment; without it, continue as a
+    normal local run. `--hub` ships in the **Linux** build only (a cloud session is a
+    Linux container, so it works there); on a native Windows/macOS mxcli it fails with
+    an explanatory message — continue as a normal local run.
 
 ---
 
@@ -293,6 +310,34 @@ see `migrate-design-prototype`.
 ./mxcli run --local -p <AppName>.mpr --watch --screenshot   # warm dev loop + screenshots
 ./mxcli exec change.mdl -p <AppName>.mpr                     # edit the model; the loop hot-applies
 ```
+
+### The gates — the same list the project's CLAUDE.md publishes
+
+`mxcli init` wrote these into the project's `CLAUDE.md`, so every later session has
+them in context. They are the **definition of done**, not a menu: run them in order,
+stop at the first that fails, and say what each one reported.
+
+```bash
+./mxcli check change.mdl -p <AppName>.mpr --references   # syntax + references (~2s)
+./mxcli exec change.mdl -p <AppName>.mpr                 # apply
+./mxcli lint -p <AppName>.mpr                            # rules (~3s)
+./mxcli report -p <AppName>.mpr                          # scored quality report
+./mxcli docker check -p <AppName>.mpr                    # mxbuild, the slow one (~25s)
+./mxcli test tests/ -p <AppName>.mpr --local             # microflow tests (~30s cold, ~2s warm)
+./mxcli run --local --watch -p <AppName>.mpr             # the app, hot-reloading
+```
+
+Two of them are easy to mistake for optional and are not:
+
+- **`report` is the quality report**, and its six category scores are what the
+  baseline in step 9 exists to be compared against. A score that fell is a finding,
+  not a detail. `assess-quality` covers how to read it.
+- **`test` needs a suite to run.** Write the first one with the **first microflow you
+  build** — not "later", because later is after the code is written and the expected
+  values have stopped being obvious. One `tests/<Slice>.test.mdl` per slice is the
+  shape that keeps up; `test-microflows` has the annotations, and `--local` needs no
+  Docker daemon. For pages and rendering, `test-app` drives a real browser: a page can
+  serialize correctly, pass `check`, build clean and still render wrong.
 
 Keep the plan current as you go — it is the only record of scope that outlives the
 conversation:
