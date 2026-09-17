@@ -75,7 +75,12 @@ a longer prompt.
    is no status column to maintain.
 5. **Commits, then boots and verifies** — HTTP 200 at `http://localhost:8080/`, plus
    an optional `run --hub` preview URL.
-6. **Proposes the model in MDL and waits** — module, entities, roles, pages — before
+6. **Takes the quality baseline** — `mxcli lint` and the scored `mxcli report` on the
+   blank app, recorded in `FINDINGS.md`. This is the only moment those numbers mean
+   "what the template ships with"; afterwards every figure is yours plus the
+   template's, with nothing to subtract. See [mxcli report](mxcli-report.md) for how to
+   read the six category scores.
+7. **Proposes the model in MDL and waits** — module, entities, roles, pages — before
    building anything.
 
 For a solution repo it also covers the parts that bite: per-app ports, a hostname per
@@ -140,7 +145,7 @@ keep straight.
 
 ## Two rules that make this robust
 
-- **Committing the config is mandatory** (the skill's provisioning step 6). The prompt
+- **Committing the config is mandatory** (the skill's provisioning step 7). The prompt
   is a *one-time seed*. Its output — `.mpr` + `.devcontainer/` + `.claude/` with the
   SessionStart hook and `bootstrap-mxcli.sh` — must be committed so the steady state is
   file-driven and deterministic. After that, every new session runs the hook
@@ -160,6 +165,35 @@ keep straight.
 ./mxcli run --local -p <AppName>.mpr --watch --screenshot   # warm dev loop + screenshots
 ./mxcli exec change.mdl -p <AppName>.mpr                     # edit the model; the loop hot-applies
 ```
+
+### The gates
+
+`mxcli init` writes this list into the project's `CLAUDE.md`, so an agent has it in
+context in every session without being asked — it is the **definition of done**, not a
+menu. The same list is in the `bootstrap-app` skill, and the three are held together
+by a test, because a gate that is named in two of the three places is a gate that only
+runs when someone remembers to ask for it.
+
+```bash
+./mxcli check change.mdl -p <AppName>.mpr --references   # syntax + references (~2s)
+./mxcli exec change.mdl -p <AppName>.mpr                 # apply
+./mxcli lint -p <AppName>.mpr                            # rules (~3s)
+./mxcli report -p <AppName>.mpr                          # scored quality report
+./mxcli docker check -p <AppName>.mpr                    # mxbuild, the slow one (~25s)
+./mxcli test tests/ -p <AppName>.mpr --local             # microflow tests (~30s cold, ~2s warm)
+./mxcli run --local --watch -p <AppName>.mpr             # the app, hot-reloading
+```
+
+Each buys something the one above it cannot: [`lint`](mxcli-lint.md) and
+[`report`](mxcli-report.md) score the model that `check` only proved was well-formed,
+[`test`](testing.md) proves behaviour that a clean build does not, and the running app
+is the only thing that proves how a page renders. `report`'s six category scores are
+comparable against the baseline taken at bootstrap — a score that fell is a finding.
+
+Writing the first test with the first microflow, rather than later, is what keeps
+`test` from being permanently skipped: after the code is written the expected values
+have stopped being obvious. `--local` needs no Docker daemon, so it works in a web
+session.
 
 In a solution, run one loop per app from its own folder, with the second app on the
 alternate ports, and start the producer first so the consumer's external entities

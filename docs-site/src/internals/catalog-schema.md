@@ -198,17 +198,19 @@ rather than trusting a list here:
 | `calculate` | calculated attribute uses a microflow |
 | `schedule` | scheduled event runs a microflow |
 | `publish` | published REST operation runs a microflow |
+| `event` | entity event handler runs a microflow |
 | `settings` | a project setting (after-startup / before-shutdown / health check) names a microflow |
 | `sync` | offline navigation profile synchronizes an entity |
 | `validate` | attribute validation rule uses a regular expression |
 | `widget` | page or snippet uses a pluggable / custom widget |
 
-`schedule`, `publish` and `settings` are **entry points**: the platform invokes
-the microflow, so nothing in the model calls it. They are what stops
-`GRAPH_DEAD_ASSETS`, `SHOW CALLERS OF` and lint rule QUAL004 from reporting a
-live scheduled job or API handler as unused. `sync` is not one — it names an
-entity a profile downloads, which is a use of a type, so `SHOW CALLERS` excludes
-it for the same reason it excludes `datasource`.
+`schedule`, `publish`, `event` and `settings` are **entry points**: something
+outside the call graph runs the microflow, so nothing in the model calls it.
+They are what stops `GRAPH_DEAD_ASSETS`, `SHOW CALLERS OF` and lint rule QUAL004
+from reporting a live scheduled job, API handler or event handler as unused.
+`sync` is not one — it names an entity a profile downloads, which is a use of a
+type, so `SHOW CALLERS` excludes it for the same reason it excludes
+`datasource`.
 
 #### WIDGET targets
 
