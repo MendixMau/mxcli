@@ -30,6 +30,21 @@ type Microflow struct {
 	// MarkAsUsed (#723 §A).
 	ApplyEntityAccess bool `json:"applyEntityAccess"`
 
+	// ConcurrencyErrorMessage and ConcurrencyErrorMicroflow are what Mendix does
+	// when a second invocation arrives while one is already running and
+	// AllowConcurrentExecution is false — show this (translatable) message, or
+	// run this microflow. Mendix requires one of them in that case (CE4899).
+	//
+	// Neither has MDL syntax, and neither did AllowConcurrentExecution or
+	// MarkAsUsed, so the executor's rebuild wrote its own defaults over all
+	// four. The direction matters: the rebuild hardcoded `true`, so a microflow
+	// that DISALLOWED concurrent execution came back allowing it — the app's
+	// concurrency protection removed — and because "allow" needs no error
+	// message, CE4899 does not fire and nothing reports it. The error message
+	// and microflow went with it, translations included.
+	ConcurrencyErrorMessage   *model.Text `json:"concurrencyErrorMessage,omitempty"`
+	ConcurrencyErrorMicroflow string      `json:"concurrencyErrorMicroflow,omitempty"`
+
 	// ExportLevel is Studio Pro's "Export level" — `Hidden` or `API`, the two
 	// members MicroflowsExportLevel declares. It decides whether the microflow
 	// is part of the module's public surface when the module is exported as a
@@ -76,7 +91,10 @@ type Microflow struct {
 	// Allowed module roles for execution
 	AllowedModuleRoles []model.ID `json:"allowedModuleRoles,omitempty"`
 
-	// Concurrent execution settings
+	// Deprecated: never read and never written, and it does not describe what
+	// Mendix stores — there is no thread count in the model. The real
+	// concurrency state is AllowConcurrentExecution plus the two
+	// ConcurrencyError fields above. Kept only because the type is exported.
 	ConcurrentExecutionSettings *ConcurrentExecutionSettings `json:"concurrentExecutionSettings,omitempty"`
 
 	// Toolbox entries. A microflow can be exposed twice — once for the microflow
@@ -501,6 +519,9 @@ type ActionActivity struct {
 }
 
 // ConcurrentExecutionSettings represents settings for concurrent execution.
+// Deprecated: a fiction — nothing reads or writes it, and Mendix stores no
+// thread count. See Microflow.AllowConcurrentExecution and its
+// ConcurrencyErrorMessage / ConcurrencyErrorMicroflow siblings.
 type ConcurrentExecutionSettings struct {
 	model.BaseElement
 	Enabled         bool `json:"enabled"`

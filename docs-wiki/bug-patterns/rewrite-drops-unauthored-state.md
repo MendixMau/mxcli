@@ -98,6 +98,23 @@ user changed by hand with values derived from somewhere else. A field set on the
 construct the element separately, so both need checking, by grepping the struct
 literal rather than the field name.
 
+**A guard at one layer is not a guard for the property.** A round-trip test that
+proves the codec reads a property back says nothing about whether the caller
+above it overwrites the value first. Two execution flags had exactly such a test,
+green since the day their codec bug was fixed, while the executor's rebuild
+struct kept stamping literals over both before the codec ever saw them. When a
+property is being reset, find the **last** writer on the path, not the first one
+that looks responsible.
+
+**Which way the reset goes decides whether anything catches it.** The same two
+flags were lost twice in opposite directions. The codec wrote Go's zero value,
+turning *allow concurrent execution* into *disallow* — and disallow without an
+error message is CE4899, so it was caught at once. The executor's literal wrote
+the opposite, turning *disallow* into *allow* — and CE4899 never fires on allow,
+so the reset silently switched off the one error that covers this area. A checker
+that catches a property's loss in one direction is not coverage for that
+property; ask what the *other* direction produces.
+
 **Order the candidates by what makes them findable, not by severity.** A
 mechanical audit produces the candidate list; it does not say which candidate
 gets found before a user hits it. Two things do that, and neither is severity. A

@@ -11,6 +11,15 @@ import (
 	"github.com/mendixlabs/mxcli/sdk/microflows"
 )
 
+// Executor-level coverage for the microflow properties MDL cannot author and a
+// rewrite therefore has to carry: the deep link, the export level, and the four
+// concurrency settings. All were hardcoded in buildMicroflowFromStmt's rebuild
+// struct or in microflowToGen, and all were lost with every checker green.
+//
+// Each has a paired control here — a CREATE must not acquire what only a stored
+// microflow can supply — because "preserve the stored value" and "invent one"
+// are the same edit seen from opposite sides.
+
 // TestCreateOrModifyMicroflow_PreservesDeepLinkURL is the executor half of
 // #1120: a statement that never mentions the deep link must not clear one.
 //
@@ -133,5 +142,88 @@ func TestDescribeMicroflow_ReportsUnauthorableProperties(t *testing.T) {
 	plain := render(&microflows.Microflow{Name: "ACT_Item", ExportLevel: "Hidden"})
 	if strings.Contains(plain, "-- URL:") || strings.Contains(plain, "-- Export level:") {
 		t.Errorf("describe commented on defaults:\n%s", plain)
+	}
+}
+
+// TestCreateOrModifyMicroflow_PreservesConcurrencySettings is the executor half,
+// and the one that was actually reachable by a user: the backend already read
+// AllowConcurrentExecution and MarkAsUsed back, but the rebuild in
+// buildMicroflowFromStmt overwrote both with its own literals before the backend
+// ever saw them.
+//
+// The direction is why this went unreported. The rebuild wrote `true`, so a
+// microflow that DISALLOWED concurrent execution came back allowing it — the
+// running app's concurrency protection removed. CE4899 fires on
+// disallow-without-a-message, never on allow, so no checker says anything; the
+// error message and its translations go at the same time.
+func TestCreateOrModifyMicroflow_PreservesConcurrencySettings(t *testing.T) {
+	const moduleID = model.ID("module-1")
+	stored := []*microflows.Microflow{{
+		BaseElement:              model.BaseElement{ID: "mf-serial"},
+		ContainerID:              moduleID,
+		Name:                     "ACT_Serial",
+		AllowConcurrentExecution: false,
+		MarkAsUsed:               true,
+		ConcurrencyErrorMessage: &model.Text{Translations: map[string]string{
+			"en_US": "Already running",
+			"nl_NL": "Wordt al uitgevoerd",
+		}},
+		ConcurrencyErrorMicroflow: "MyModule.ACT_OnBusy",
+	}}
+	ctx, written := microflowWriteProbe(t, stored, moduleID)
+
+	stmt := &ast.CreateMicroflowStmt{
+		Name:           ast.QualifiedName{Module: "MyModule", Name: "ACT_Serial"},
+		CreateOrModify: true,
+	}
+	if err := execCreateMicroflow(ctx, stmt); err != nil {
+		t.Fatalf("CREATE OR MODIFY MICROFLOW failed: %v", err)
+	}
+	if *written == nil {
+		t.Fatal("no microflow was written")
+	}
+	if (*written).AllowConcurrentExecution {
+		t.Error("rewrite re-allowed concurrent execution; the app's concurrency " +
+			"protection is gone and no checker reports it")
+	}
+	if !(*written).MarkAsUsed {
+		t.Error("rewrite cleared MarkAsUsed; the document is reported unused again")
+	}
+	if got := (*written).ConcurrencyErrorMicroflow; got != "MyModule.ACT_OnBusy" {
+		t.Errorf("rewrite dropped the concurrency error microflow: %q", got)
+	}
+	msg := (*written).ConcurrencyErrorMessage
+	if msg == nil || len(msg.Translations) != 2 {
+		t.Fatalf("rewrite dropped the concurrency error message (or its translations): %#v", msg)
+	}
+}
+
+// TestCreateMicroflow_ConcurrencyDefaults is the control: a NEW microflow still
+// gets Mendix's defaults. Carrying is only ever from a stored document, so the
+// fix must not change what a create produces — allow concurrency, not marked as
+// used, no error handling.
+func TestCreateMicroflow_ConcurrencyDefaults(t *testing.T) {
+	const moduleID = model.ID("module-1")
+	ctx, written := microflowWriteProbe(t, nil, moduleID)
+
+	stmt := &ast.CreateMicroflowStmt{
+		Name: ast.QualifiedName{Module: "MyModule", Name: "ACT_Fresh"},
+	}
+	if err := execCreateMicroflow(ctx, stmt); err != nil {
+		t.Fatalf("CREATE MICROFLOW failed: %v", err)
+	}
+	got := *written
+	if got == nil {
+		t.Fatal("no microflow was written")
+	}
+	if !got.AllowConcurrentExecution {
+		t.Error("a new microflow must default to allowing concurrent execution")
+	}
+	if got.MarkAsUsed {
+		t.Error("a new microflow must not be marked as used")
+	}
+	if got.ConcurrencyErrorMessage != nil || got.ConcurrencyErrorMicroflow != "" {
+		t.Errorf("a new microflow acquired concurrency error handling: %#v / %q",
+			got.ConcurrencyErrorMessage, got.ConcurrencyErrorMicroflow)
 	}
 }

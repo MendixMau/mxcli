@@ -218,8 +218,20 @@ func microflowToGen(mf *microflows.Microflow, major int) *genMf.Microflow {
 	// turned a microflow's "apply entity access" OFF on every rewrite.
 	out.SetApplyEntityAccess(mf.ApplyEntityAccess)
 	out.SetMarkAsUsed(mf.MarkAsUsed)
-	out.SetConcurrencyErrorMicroflowQualifiedName("")
-	out.SetConcurrencyErrorMessage(genTexts.NewText()) // empty Texts$Text (Items=[3] via default)
+	// Carried, not hardcoded. These two are what Mendix does to a second caller
+	// when AllowConcurrentExecution is false, and Mendix requires one of them in
+	// that case (CE4899) — writing both empty on every rewrite deleted the
+	// answer along with the question. nil still yields the bare empty
+	// Texts$Text this line always wrote (Items=[3] via the registered default),
+	// so a microflow without a message is unchanged — semantically, which is
+	// the level that matters: the element's $ID is minted fresh on every encode,
+	// so it is canon.Equal that holds here, never bytes.Equal (ADR-0008).
+	out.SetConcurrencyErrorMicroflowQualifiedName(mf.ConcurrencyErrorMicroflow)
+	if mf.ConcurrencyErrorMessage != nil {
+		out.SetConcurrencyErrorMessage(textToGen(mf.ConcurrencyErrorMessage))
+	} else {
+		out.SetConcurrencyErrorMessage(genTexts.NewText())
+	}
 	out.SetAllowedModuleRolesQualifiedNames(moduleRoleNames(mf.AllowedModuleRoles))
 	out.SetMicroflowReturnType(microflowDataTypeToGen(mf.ReturnType))
 

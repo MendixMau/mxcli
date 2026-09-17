@@ -539,6 +539,24 @@ It is a **security** setting and it only ever narrows, so the rules mirror
   the same rule that catches `@applyentityacces` and any other annotation the
   document does not read. The message names what that document does accept.
 
+## Concurrency settings are preserved, not authorable
+
+Studio Pro's **"Disallow concurrent execution"**, its error message and error
+microflow, and **"Mark as used"** have no MDL syntax. All four now survive a
+`create or modify microflow`; before, the rebuild wrote its own values over
+every one of them.
+
+The concurrency one is worth knowing about even though it is fixed, because of
+which way it failed. The rebuild hardcoded *allow*, so a microflow that
+**disallowed** concurrent execution came back allowing it — the running app's
+concurrency protection silently removed. **CE4899 only fires on
+disallow-without-a-message**, never on allow, so the one check that exists in
+this area could not see it, and the error message went the same way,
+translations included.
+
+There is nothing to write in a script. What matters is the same rule as below:
+use `create or modify` to edit such a microflow, never `drop` + `create`.
+
 ## Export level is preserved, not authorable
 
 A microflow carries an **export level** — Studio Pro's `Hidden` or `API` — which
@@ -574,4 +592,5 @@ Two consequences for scripts:
   so the new microflow has no URL. Set it in Studio Pro after copying.
 - **`drop microflow` followed by `create microflow` loses it** for the same
   reason. Use `create or modify` to edit a microflow that has a deep link — or a
-  non-default export level, which the drop path loses the same way.
+  non-default export level or any concurrency setting, which the drop path loses
+  the same way.

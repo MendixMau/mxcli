@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/mendixlabs/mxcli/model"
+	"github.com/mendixlabs/mxcli/modelsdk/canon"
 	"github.com/mendixlabs/mxcli/modelsdk/codec"
 	genMf "github.com/mendixlabs/mxcli/modelsdk/gen/microflows"
 	"github.com/mendixlabs/mxcli/sdk/microflows"
@@ -160,5 +161,104 @@ func TestMicroflowRoundTrip_ExportLevel(t *testing.T) {
 		if got := roundTripMicroflow(t, mf); got.ExportLevel != "Hidden" {
 			t.Errorf("stored %q came back %q, want %q", stored, got.ExportLevel, "Hidden")
 		}
+	}
+}
+
+// TestMicroflowRoundTrip_ConcurrencyErrorHandling covers the other half of the
+// concurrency settings: what Mendix does to a second caller when concurrent
+// execution is disallowed. Mendix requires one of the two (CE4899), and the
+// writer emitted an empty message and no microflow unconditionally, so a
+// rewrite deleted the answer — translations included.
+func TestMicroflowRoundTrip_ConcurrencyErrorHandling(t *testing.T) {
+	mf := &microflows.Microflow{
+		Name:                     "ACT_Serial",
+		AllowConcurrentExecution: false,
+		ConcurrencyErrorMessage: &model.Text{Translations: map[string]string{
+			"en_US": "Already running",
+			"nl_NL": "Wordt al uitgevoerd",
+		}},
+		ConcurrencyErrorMicroflow: "MyModule.ACT_OnBusy",
+	}
+	mf.ID = model.ID("mf-8")
+
+	got := roundTripMicroflow(t, mf)
+	if got.AllowConcurrentExecution {
+		t.Error("AllowConcurrentExecution flipped to true — the app's concurrency protection is gone")
+	}
+	if got.ConcurrencyErrorMicroflow != "MyModule.ACT_OnBusy" {
+		t.Errorf("ConcurrencyErrorMicroflow = %q, want MyModule.ACT_OnBusy", got.ConcurrencyErrorMicroflow)
+	}
+	// Every translation, not just the source language: a message that comes
+	// back with one of its two languages is the translated-caption loss that
+	// the delete-then-create path produced elsewhere.
+	if got.ConcurrencyErrorMessage == nil {
+		t.Fatal("ConcurrencyErrorMessage lost entirely → CE4899 on a disallow-concurrency microflow")
+	}
+	for lang, want := range mf.ConcurrencyErrorMessage.Translations {
+		if got.ConcurrencyErrorMessage.Translations[lang] != want {
+			t.Errorf("translation %s = %q, want %q", lang,
+				got.ConcurrencyErrorMessage.Translations[lang], want)
+		}
+	}
+}
+
+// TestMicroflowRoundTrip_NoConcurrencyMessageIsInert is the control that keeps
+// the carry from disturbing the ordinary microflow — the one with no
+// concurrency message at all, which is nearly all of them.
+//
+// Before the carry, the writer always emitted a bare empty Texts$Text. A nil
+// message must still produce exactly that, or every microflow in every project
+// would come out different and defeat write elision (ADR-0008) — a "fix" that
+// rewrites the whole project is worse than the bug.
+//
+// The comparison is canon.Equal on the MESSAGE ELEMENT, and both halves of that
+// are deliberate. Not bytes: every encode mints a fresh random $ID per
+// sub-element, which is the reason canon compares a canonical form at all. Not
+// the whole microflow either: canon.Equal does not mask, and a microflow's
+// StableId is a fresh GUID *value* on every encode, so two encodes of one
+// unchanged microflow are never Equal — only Reconcile, which masks the
+// identity fields, may be asked that question.
+func TestMicroflowRoundTrip_NoConcurrencyMessageIsInert(t *testing.T) {
+	encMessage := func(t *testing.T, mf *microflows.Microflow) []byte {
+		t.Helper()
+		mf.ID = model.ID("mf-9")
+		raw, err := (&codec.Encoder{}).Encode(microflowToGen(mf, 11).ConcurrencyErrorMessage())
+		if err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+		return raw
+	}
+
+	absent := encMessage(t, &microflows.Microflow{Name: "ACT_Plain", AllowConcurrentExecution: true})
+	empty := encMessage(t, &microflows.Microflow{
+		Name: "ACT_Plain", AllowConcurrentExecution: true,
+		ConcurrencyErrorMessage: &model.Text{Translations: map[string]string{}},
+	})
+	same, err := canon.Equal(absent, empty)
+	if err != nil {
+		t.Fatalf("canon.Equal: %v", err)
+	}
+	if !same {
+		t.Error("a nil concurrency message no longer encodes as the bare empty Texts$Text " +
+			"the writer always wrote; every microflow in every project would be rewritten " +
+			"on the next run (ADR-0008 elision)")
+	}
+
+	// The control for the control: canon.Equal must still be able to tell an
+	// empty message from a real one, or the assertion above proves nothing.
+	real := encMessage(t, &microflows.Microflow{
+		Name: "ACT_Plain", AllowConcurrentExecution: true,
+		ConcurrencyErrorMessage: &model.Text{Translations: map[string]string{"en_US": "Busy"}},
+	})
+	if same, _ := canon.Equal(absent, real); same {
+		t.Error("canon.Equal cannot see a real concurrency message")
+	}
+
+	// And the model must not invent one on the way back.
+	plain := &microflows.Microflow{Name: "ACT_Plain", AllowConcurrentExecution: true}
+	plain.ID = model.ID("mf-9")
+	if got := roundTripMicroflow(t, plain); got.ConcurrencyErrorMessage != nil {
+		t.Errorf("an absent concurrency message came back as %#v, want nil",
+			got.ConcurrencyErrorMessage)
 	}
 }

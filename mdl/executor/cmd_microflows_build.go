@@ -133,6 +133,20 @@ func buildMicroflowFromStmt(ctx *ExecContext, s *ast.CreateMicroflowStmt, opts b
 	// carries it. Empty means "no stored microflow", which the writer turns
 	// into the "Hidden" default.
 	var existingExportLevel string
+	// Concurrency. None of these four has MDL syntax either, and the rebuild
+	// used to write its own values over all of them. The initial values here
+	// are the defaults for a NEW microflow, which is why no separate "preserve"
+	// flag is needed: a stored microflow overwrites them below, and anything
+	// else is a create.
+	//
+	// The direction is what made this one invisible. The rebuild hardcoded
+	// `true`, so a microflow that DISALLOWED concurrent execution came back
+	// allowing it — and CE4899 only fires on disallow-without-a-message, so
+	// removing the app's concurrency protection reported nothing at all.
+	existingAllowConcurrentExecution := true
+	existingMarkAsUsed := false
+	var existingConcurrencyErrorMessage *model.Text
+	var existingConcurrencyErrorMicroflow string
 	var existingDocumentation string
 	preserveDocumentation := false
 	var existingActionInfo, existingWorkflowInfo *types.MicroflowActionInfo
@@ -159,6 +173,10 @@ func buildMicroflowFromStmt(ctx *ExecContext, s *ast.CreateMicroflowStmt, opts b
 		existingExcluded = existing.Excluded
 		existingApplyEntityAccess = existing.ApplyEntityAccess
 		existingExportLevel = existing.ExportLevel
+		existingAllowConcurrentExecution = existing.AllowConcurrentExecution
+		existingMarkAsUsed = existing.MarkAsUsed
+		existingConcurrencyErrorMessage = existing.ConcurrencyErrorMessage
+		existingConcurrencyErrorMicroflow = existing.ConcurrencyErrorMicroflow
 		existingURL = existing.URL
 		existingURLSearchParams = append([]string(nil), existing.URLSearchParameters...)
 		// The toolbox entries hold four PNG bitmaps MDL cannot name, so a
@@ -215,16 +233,18 @@ func buildMicroflowFromStmt(ctx *ExecContext, s *ast.CreateMicroflowStmt, opts b
 		BaseElement: model.BaseElement{
 			ID: microflowID,
 		},
-		ContainerID:              containerID,
-		Name:                     s.Name.Name,
-		Documentation:            s.Documentation,
-		AllowConcurrentExecution: true, // Default: allow concurrent execution
-		MarkAsUsed:               false,
-		Excluded:                 s.Excluded || existingExcluded,
-		ApplyEntityAccess:        carriedApplyEntityAccess(s.ApplyEntityAccess, existingApplyEntityAccess),
-		ExportLevel:              existingExportLevel,
-		URL:                      existingURL,
-		URLSearchParameters:      existingURLSearchParams,
+		ContainerID:               containerID,
+		Name:                      s.Name.Name,
+		Documentation:             s.Documentation,
+		AllowConcurrentExecution:  existingAllowConcurrentExecution, // new microflows default to true
+		MarkAsUsed:                existingMarkAsUsed,
+		Excluded:                  s.Excluded || existingExcluded,
+		ApplyEntityAccess:         carriedApplyEntityAccess(s.ApplyEntityAccess, existingApplyEntityAccess),
+		ConcurrencyErrorMessage:   existingConcurrencyErrorMessage,
+		ConcurrencyErrorMicroflow: existingConcurrencyErrorMicroflow,
+		ExportLevel:               existingExportLevel,
+		URL:                       existingURL,
+		URLSearchParameters:       existingURLSearchParams,
 	}
 	if preserveDocumentation {
 		mf.Documentation = carriedDocumentation(s.DocumentationSet, s.Documentation, existingDocumentation)
