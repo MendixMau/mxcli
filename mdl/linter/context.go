@@ -168,6 +168,13 @@ type Entity struct {
 	ValidationRuleCount int
 	HasEventHandlers    bool
 	IsExternal          bool
+	// The four audit members. Mendix stores these as booleans on the entity's
+	// generalization node rather than as attributes, so they are not in
+	// AttributeCount and a rule cannot find them by walking Attributes().
+	HasCreatedDate bool
+	HasChangedDate bool
+	HasOwner       bool
+	HasChangedBy   bool
 }
 
 // Entities returns an iterator over all entities (excluding system modules).
@@ -183,7 +190,8 @@ func (ctx *LintContext) Entities() iter.Seq[Entity] {
 			       END,
 			       e.Description, e.Generalization, e.AttributeCount,
 			       e.AccessRuleCount, e.ValidationRuleCount,
-			       e.HasEventHandlers, e.IsExternal
+			       e.HasEventHandlers, e.IsExternal,
+			       e.HasCreatedDate, e.HasChangedDate, e.HasOwner, e.HasChangedBy
 			FROM entities e
 			LEFT JOIN modules m ON e.ModuleName = m.Name
 			WHERE %s
@@ -199,10 +207,17 @@ func (ctx *LintContext) Entities() iter.Seq[Entity] {
 			var e Entity
 			var desc, gen, folder sql.NullString
 			var hasEventHandlers, isExternal int
+			// Nullable on purpose: a row written before these columns existed,
+			// or any fixture that does not name them, scans as NULL, and NULL
+			// into a plain int fails the whole query -- which the iterator
+			// reports as "no entities" and every rule then reads as "nothing
+			// to flag". A silent green run, not an error.
+			var hasCreatedDate, hasChangedDate, hasOwner, hasChangedBy sql.NullInt64
 			err := rows.Scan(&e.ID, &e.Name, &e.QualifiedName, &e.ModuleName, &folder,
 				&e.EntityType, &desc, &gen, &e.AttributeCount,
 				&e.AccessRuleCount, &e.ValidationRuleCount,
-				&hasEventHandlers, &isExternal)
+				&hasEventHandlers, &isExternal,
+				&hasCreatedDate, &hasChangedDate, &hasOwner, &hasChangedBy)
 			if err != nil {
 				ctx.recordQueryError("Entities (row scan)", err)
 				continue
@@ -212,6 +227,10 @@ func (ctx *LintContext) Entities() iter.Seq[Entity] {
 			e.Generalization = gen.String
 			e.HasEventHandlers = hasEventHandlers == 1
 			e.IsExternal = isExternal == 1
+			e.HasCreatedDate = hasCreatedDate.Int64 == 1
+			e.HasChangedDate = hasChangedDate.Int64 == 1
+			e.HasOwner = hasOwner.Int64 == 1
+			e.HasChangedBy = hasChangedBy.Int64 == 1
 
 			if ctx.IsExcluded(e.ModuleName) {
 				continue
