@@ -538,3 +538,66 @@ It is a **security** setting and it only ever narrows, so the rules mirror
   no such property. Writing it there is **MDL059**, not a silent no-op —
   the same rule that catches `@applyentityacces` and any other annotation the
   document does not read. The message names what that document does accept.
+
+## Concurrency settings are preserved, not authorable
+
+Studio Pro's **"Disallow concurrent execution"**, its error message and error
+microflow, and **"Mark as used"** have no MDL syntax. All four now survive a
+`create or modify microflow`; before, the rebuild wrote its own values over
+every one of them.
+
+The concurrency one is worth knowing about even though it is fixed, because of
+which way it failed. The rebuild hardcoded *allow*, so a microflow that
+**disallowed** concurrent execution came back allowing it — the running app's
+concurrency protection silently removed. **CE4899 only fires on
+disallow-without-a-message**, never on allow, so the one check that exists in
+this area could not see it, and the error message went the same way,
+translations included.
+
+There is nothing to write in a script. What matters is the same rule as below:
+use `create or modify` to edit such a microflow, never `drop` + `create`.
+
+## Export level is preserved, not authorable
+
+A microflow carries an **export level** — Studio Pro's `Hidden` or `API` — which
+decides whether it is part of the module's public surface when the module is
+exported as a package. Like the URL below, MDL cannot write it, and like the URL
+it now **survives a `create or modify microflow`**; before, every rewrite pinned
+it to `Hidden`, quietly removing the microflow from a protected module's API.
+
+`Hidden` is the normal value by a wide margin — measured across Business Events
+3.12.0 and External Database Connector 6.2.3/6.3.0, every document of every type
+stores it — so `describe microflow` mentions the export level **only when it is
+not `Hidden`**, as a `-- Export level:` comment. The copy caveat below applies to
+it identically.
+
+## The deep-link URL is preserved, not authorable
+
+A microflow can carry a **URL** (Mendix 10.6+) — Studio Pro's "URL" field, e.g.
+`item/{Key}` — which makes it reachable as a deep link. MDL has **no syntax for
+it**, so there is no annotation to write and nothing to check.
+
+What matters is that it **survives**: a `create or modify microflow` that
+rewrites the body keeps the stored URL and its search parameters. It did not
+before #1120, and this one was harder to notice than the flags above, because a
+microflow *without* a URL is a valid microflow — `mxcli check`, `mx check` and
+mxbuild all reported success, and the deep link was simply gone the next time
+someone opened Studio Pro.
+
+**A parameter in the URL path may not also be a search parameter.** mxbuild
+rejects that combination with **CE5612** ("The Microflow parameter … cannot be
+used as a URL parameter if it is already a URL search parameter"). Path
+parameters and query parameters are disjoint sets. mxcli cannot author either,
+so this only matters when reading a describe comment or reasoning about a
+project — but it is the rule that decides whether a stored pair is valid.
+
+Two consequences for scripts:
+
+- **`describe microflow` emits it as a `-- URL:` comment**, not as executable
+  MDL, because there is nothing to execute. That comment is a warning, not
+  decoration: a **describe → rename → exec copy has nothing to preserve from**,
+  so the new microflow has no URL. Set it in Studio Pro after copying.
+- **`drop microflow` followed by `create microflow` loses it** for the same
+  reason. Use `create or modify` to edit a microflow that has a deep link — or a
+  non-default export level or any concurrency setting, which the drop path loses
+  the same way.
