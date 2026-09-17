@@ -146,6 +146,7 @@ Examples:
 		appPort, _ := cmd.Flags().GetInt("app-port")
 		adminPort, _ := cmd.Flags().GetInt("admin-port")
 		servePort, _ := cmd.Flags().GetInt("serve-port")
+		mxbuildPath, _ := cmd.Flags().GetString("mxbuild-path")
 		dbHost, _ := cmd.Flags().GetString("db-host")
 		dbName, _ := cmd.Flags().GetString("db-name")
 		dbUser, _ := cmd.Flags().GetString("db-user")
@@ -200,6 +201,7 @@ Examples:
 			AppPort:            appPort,
 			AdminPort:          adminPort,
 			ServePort:          servePort,
+			MxBuildPath:        mxbuildPath,
 			Watch:              watch,
 			EnsureDB:           ensureDB,
 			SetupOnly:          setupOnly,
@@ -310,6 +312,7 @@ func init() {
 	runCmd.Flags().Int("app-port", 0, "HTTP port for the app (default 8080)")
 	runCmd.Flags().Int("admin-port", 0, "M2EE admin API port (default 8090)")
 	runCmd.Flags().Int("serve-port", 0, "mxbuild --serve port (default 6543)")
+	runCmd.Flags().String("mxbuild-path", "", "Path to the mxbuild to build with, overriding resolution (Studio Pro's bundled mxbuild on macOS/Windows, the cached CDN download on Linux)")
 	runCmd.Flags().String("db-host", "", "Database host:port (IPv6: [::1]:5432; default 127.0.0.1:5432)")
 	runCmd.Flags().String("db-name", "", "Database name (default derived from the project name)")
 	runCmd.Flags().String("db-user", "", "Database user (default mendix)")
