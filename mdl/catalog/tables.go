@@ -7,6 +7,12 @@ package catalog
 //
 // History:
 //
+//	12 — entity_event_handlers_data + view, and the `event` edge in refs
+//	    (ENTITY -> MICROFLOW). Same reason as 11: refs are only written by
+//	    REFRESH CATALOG FULL, so without the bump a cached catalog keeps
+//	    reporting every handler-only microflow in GRAPH_DEAD_ASSETS and
+//	    answering `show callers` with "(no callers found)" — the wrong answer
+//	    this change exists to stop, served from a stale cache.
 //	11 — the `widget` edge in refs (page/snippet -> widget definition) and the
 //	    graph_god_nodes change that keeps widget targets off the asset side.
 //	    Both need the bump for the same reason: refs are only written by
@@ -29,7 +35,7 @@ package catalog
 //	    SnapshotSource / SourceId / SourceBranch / SourceRevision columns
 //	    from every row (issue #576).
 //	1 — initial flat schema with denormalized snapshot columns on every row.
-const CatalogSchemaVersion = "11"
+const CatalogSchemaVersion = "12"
 
 // MetaSchemaVersion is the catalog_meta key that records the schema version
 // the cache was built against.
@@ -717,6 +723,28 @@ func (c *Catalog) createTables() error {
 			SnapshotId TEXT
 		)`,
 		viewWithFullSnapshot("offline_entity_configs"),
+
+		// entity_event_handlers — one row per entity event handler.
+		// CATALOG.ENTITIES.HasEventHandlers is a flag: it says some exist and
+		// nothing else. Which moment, which event and which microflow is the
+		// whole question, and refs has no column for the first two — a `before
+		// commit` handler that returns false blocks the commit, an `after
+		// delete` one cannot. The edge says the microflow is reachable; this
+		// table says what it does.
+		`CREATE TABLE IF NOT EXISTS entity_event_handlers_data (
+			Id TEXT,
+			EntityId TEXT,
+			EntityQualifiedName TEXT,
+			ModuleName TEXT,
+			Moment TEXT,
+			Event TEXT,
+			Microflow TEXT,
+			RaiseErrorOnFalse INTEGER DEFAULT 0,
+			PassEventObject INTEGER DEFAULT 0,
+			ProjectId TEXT,
+			SnapshotId TEXT
+		)`,
+		viewWithFullSnapshot("entity_event_handlers"),
 
 		// Already-clean tables (no denormalized columns) — kept as plain tables.
 		`CREATE TABLE IF NOT EXISTS navigation_menu_items (
