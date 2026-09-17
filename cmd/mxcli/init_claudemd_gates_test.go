@@ -117,3 +117,35 @@ func TestBootstrapAndDefaultBehaviourAgreeOnQualityAndPlan(t *testing.T) {
 			"plus the template's with nothing to subtract")
 	}
 }
+
+// Two modelling choices are first-class in Mendix and get reinvented in
+// microflows by default, because the microflow version passes `check`, builds,
+// and is flagged by nothing: a business process with human steps (a WORKFLOW)
+// and an aggregation (a VIEW ENTITY). Neither is something a command can
+// prompt for — `lint` cannot know that a Status attribute is standing in for a
+// state machine — so if the instruction is not in all three descriptions of
+// the procedure, it reaches an agent only when the user already knows to ask,
+// which is exactly when it is least needed.
+func TestModellingDefaultsAreStatedEverywhere(t *testing.T) {
+	sources := map[string]string{
+		"the generated CLAUDE.md": generateClaudeMD("Demo", "Demo.mpr"),
+		"the bootstrap-app skill": bootstrapSkill(t),
+	}
+	const docPath = "../../docs-site/src/tools/bootstrap-prompt.md"
+	doc, err := os.ReadFile(docPath)
+	if err != nil {
+		t.Fatalf("cannot read %s: %v", docPath, err)
+	}
+	sources[docPath] = string(doc)
+
+	for _, want := range []struct{ phrase, why string }{
+		{"workflow", "a process with human steps belongs in a workflow, not a status attribute plus microflows"},
+		{"view entity", "an aggregation belongs in a view entity, not a microflow that retrieves every row to produce one number"},
+	} {
+		for name, body := range sources {
+			if !strings.Contains(strings.ToLower(body), want.phrase) {
+				t.Errorf("%s does not mention %q — %s", name, want.phrase, want.why)
+			}
+		}
+	}
+}

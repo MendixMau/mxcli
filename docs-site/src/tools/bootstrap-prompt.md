@@ -81,7 +81,15 @@ a longer prompt.
    template's, with nothing to subtract. See [mxcli report](mxcli-report.md) for how to
    read the six category scores.
 7. **Proposes the model in MDL and waits** — module, entities, roles, pages — before
-   building anything.
+   building anything. Two of those choices it makes deliberately rather than by
+   default: a process with steps someone has to act on becomes a **workflow** (state
+   machine, user-task inbox, timers, a definition the business can read) rather than
+   a status attribute and some microflows, and a total or count across records
+   becomes a **view entity** — OQL the database executes — rather than a microflow
+   that retrieves every row to produce one number. Both are cheap to choose at the
+   proposal and expensive to retrofit, because the pages, security rules and tests
+   bind to whichever was picked. The same two rules are in the project's generated
+   `CLAUDE.md`, so later sessions apply them without being asked.
 
 For a solution repo it also covers the parts that bite: per-app ports, a hostname per
 app so the two apps do not share one cookie jar, the root SessionStart hook that

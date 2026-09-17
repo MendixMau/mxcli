@@ -269,15 +269,85 @@ CREATE PAGE Sales.Detail (Title: 'Detail', Layout: Atlas_Core.Atlas_Default) {
 
 	Register(SyntaxFeature{
 		Path:    "page.styling",
-		Summary: "CSS classes, inline styles, dynamic (runtime-computed) classes, and Atlas design properties on widgets",
+		Summary: "CSS classes, inline styles, dynamic classes and Atlas design properties — written inline, or ALTERed in place",
 		Keywords: []string{
 			"class", "style", "css", "design properties", "atlas",
 			"spacing", "full width", "dynamic classes", "dynamicclasses",
 			"conditional class", "runtime class",
+			"alter styling", "restyle", "clear design properties", "restyle a widget",
 		},
-		Syntax:  "Class: 'css-class-name'                 -- static CSS classes\nStyle: 'color: red; padding: 8px;'      -- inline CSS\nDynamicClasses: '<expression>'          -- runtime-computed classes (stacks on Class)\nDesignProperties: ['Spacing top': 'Large']\nDesignProperties: ['Full width': ON]",
-		Example: "CONTAINER ctn (\n  Class: 'my-card',\n  DynamicClasses: 'if $currentObject/Priority = ''High'' then ''card-danger'' else ''card-normal'''\n) {\n  DYNAMICTEXT txt (Content: 'Styled text')\n}",
-		SeeAlso: []string{"page.widgets"},
+		Syntax: "ON A WIDGET, inside CREATE PAGE / CREATE SNIPPET:\n\n" +
+			"  Class: 'css-class-name'                 -- static CSS classes\n" +
+			"  Style: 'color: red; padding: 8px;'      -- inline CSS\n" +
+			"  DynamicClasses: '<expression>'          -- runtime-computed (stacks on Class)\n" +
+			"  DesignProperties: ['Spacing top': 'Large']\n" +
+			"  DesignProperties: ['Full width': ON]\n\n" +
+			"ON A PAGE THAT ALREADY EXISTS, without rewriting it:\n\n" +
+			"  ALTER STYLING ON PAGE|SNIPPET Module.Name WIDGET <widgetName>\n" +
+			"    SET Class = 'css-class', Style = 'css', 'Design property' = 'Value'|ON|OFF;\n\n" +
+			"  ALTER STYLING ON PAGE|SNIPPET Module.Name WIDGET <widgetName>\n" +
+			"    CLEAR DESIGN PROPERTIES;\n\n" +
+			"The widget is named by its MDL NAME — the identifier after the widget\n" +
+			"keyword (`ACTIONBUTTON btnSave`), not its caption. `DESCRIBE PAGE` prints\n" +
+			"the names.\n\n" +
+			"A bare `Class =` REPLACES the widget's classes rather than adding to them.\n" +
+			"Read the current value first if you meant to append.\n\n" +
+			"Reach for ALTER STYLING rather than CREATE OR REPLACE PAGE whenever only\n" +
+			"the look changes: replacing the page rewrites every widget in it, so the\n" +
+			"diff is the whole document and anything MDL cannot yet spell is lost.",
+		Example: "CONTAINER ctn (\n  Class: 'my-card',\n  DynamicClasses: 'if $currentObject/Priority = ''High'' then ''card-danger'' else ''card-normal'''\n) {\n  DYNAMICTEXT txt (Content: 'Styled text')\n}\n\n" +
+			"-- Restyle one widget on a page that already exists\n" +
+			"alter styling on page Sales.OrderOverview widget btnSave\n" +
+			"  set Class = 'btn-primary', 'Spacing top' = 'Large';\n\n" +
+			"-- Back to Atlas defaults\n" +
+			"alter styling on snippet Sales.OrderRow widget ctnMain\n" +
+			"  clear design properties;",
+		SeeAlso: []string{"page.widgets", "page.alter", "page.update-widgets"},
+	})
+
+	Register(SyntaxFeature{
+		Path:    "page.update-widgets",
+		Summary: "SHOW / UPDATE WIDGETS — find widgets across every page, and set a property on all of them",
+		Keywords: []string{
+			"show widgets", "update widgets", "bulk", "bulk update", "across pages",
+			"widgettype", "dry run", "every page", "all pages", "sweep", "mass edit",
+		},
+		Syntax: "SHOW WIDGETS [WHERE <cond> [AND <cond>...]] [IN Module];\n\n" +
+			"UPDATE WIDGETS\n" +
+			"  SET 'property' = <value> [, 'property' = <value>...]\n" +
+			"  WHERE <cond> [AND <cond>...]\n" +
+			"  [IN Module]\n" +
+			"  [DRY RUN];\n\n" +
+			"A condition is `WidgetType = 'x'` or `WidgetType LIKE '%x%'`, or any other\n" +
+			"property name against `=` / `LIKE`. Values are strings, numbers, booleans\n" +
+			"or NULL. The property name is QUOTED — it is the widget's own key, as\n" +
+			"`DESCRIBE WIDGET` prints it, not an MDL keyword.\n\n" +
+			"WHERE IS MANDATORY on UPDATE. There is no \"all widgets\" form, because the\n" +
+			"statement rewrites every page a match lands on.\n\n" +
+			"RUN IT WITH `DRY RUN` FIRST. It reports the matches and the containers they\n" +
+			"sit in and writes nothing — the only way to see what a pattern actually\n" +
+			"selects before it has selected it. `SHOW WIDGETS` with the same WHERE\n" +
+			"answers the same question read-only.\n\n" +
+			"Needs a full catalog, which the statement builds itself, and a project open\n" +
+			"for writing. The catalog is NOT refreshed by the update — run\n" +
+			"`REFRESH CATALOG FULL FORCE` afterwards, or the next query answers from the\n" +
+			"model as it was before.\n\n" +
+			"EXPERIMENTAL: this reaches into pluggable-widget property bags, where a key\n" +
+			"that does not belong to a widget's schema is what CE0463 is made of. Check\n" +
+			"the build afterwards.",
+		Example: "-- What would match, read-only\n" +
+			"show widgets where WidgetType like '%combobox%' in Sales;\n\n" +
+			"-- What would change, still writing nothing\n" +
+			"update widgets\n" +
+			"  set 'showLabel' = false\n" +
+			"  where WidgetType like '%combobox%'\n" +
+			"  dry run;\n\n" +
+			"-- Apply, scoped to one module\n" +
+			"update widgets\n" +
+			"  set 'filterMode' = 'contains', 'labelWidth' = 4\n" +
+			"  where WidgetType like '%DataGrid%'\n" +
+			"  in Sales;",
+		SeeAlso: []string{"page.widget-describe", "page.alter", "page.styling"},
 	})
 
 	Register(SyntaxFeature{
