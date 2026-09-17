@@ -18,13 +18,19 @@ import (
 var graphRefKinds = []string{
 	"call", "retrieve", "create", "change", "delete", "associate", "generalize",
 	"parameter", "return",
-	// A scheduled event is an entry point: the microflow it runs is reachable
-	// even though nothing calls it. Without this kind, GRAPH_DEAD_ASSETS reports
-	// every scheduled microflow as dead.
+	// Entry points: something outside the call graph invokes these, so the
+	// microflow they run is reachable even though nothing in the model calls it. Leaving one out does
+	// not hide it from GRAPH_DEAD_ASSETS — that view asks only whether ANY refs
+	// row targets the name, whatever its kind — but it does cut the microflow out
+	// of the analysis graph, so communities, layers, cycles and centrality all
+	// see the API and scheduling surface as unreachable roots.
+	// schedule  a scheduled event runs it
+	// publish   a published REST operation runs it
+	// event     an entity event handler runs it on every commit/delete — the
+	//           entity rather than the platform, but reached the same way, and
+	//           structural rather than UI coupling
 	"schedule",
-	// An entity event handler is the same shape: the entity invokes the
-	// microflow on every commit/delete, so the edge is structural — it is how
-	// the handler is reached, not UI coupling.
+	"publish",
 	"event",
 }
 

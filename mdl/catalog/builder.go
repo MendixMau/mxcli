@@ -102,6 +102,12 @@ type Builder struct {
 	// collected while cataloguing regexes and emitted by buildReferences.
 	regexRuleRefs []regexRuleRef
 
+	// Published REST operation → microflow edges, collected while cataloguing
+	// the services and emitted by buildReferences. Same arrangement as
+	// scheduledEventRefs above, and for the same reason: the operation is an
+	// entry point, so nothing in the model calls the microflow it runs.
+	publishedRestRefs []publishedRestRef
+
 	// Entity → microflow edges from entity event handlers, collected while
 	// cataloguing the handlers and emitted by buildReferences.
 	eventHandlerRefs []eventHandlerRef
