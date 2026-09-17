@@ -359,14 +359,42 @@ func init() {
 
 	Register(SyntaxFeature{
 		Path:    "microflow.nanoflow",
-		Summary: "CREATE NANOFLOW — client-side logic, same syntax as microflow",
+		Summary: "CREATE NANOFLOW — client-side logic; microflow syntax minus the server-only half",
 		Keywords: []string{
-			"nanoflow", "create nanoflow", "client-side",
-			"offline", "client logic",
+			"nanoflow", "create nanoflow", "client-side", "runs in the browser",
+			"offline", "client logic", "disallowed in nanoflow", "nanoflow restrictions",
 		},
-		Syntax:  "CREATE NANOFLOW Module.Name ($Param: Type) RETURNS Type AS $Result\nBEGIN\n  <statements>\nEND;",
-		Example: "CREATE NANOFLOW MyModule.NF_ValidateInput ($Input: String)\nRETURNS Boolean AS $IsValid\nBEGIN\n  IF $Input = empty THEN\n    VALIDATION FEEDBACK $Input MESSAGE 'Required';\n    RETURN false;\n  END IF;\n  RETURN true;\nEND;",
-		SeeAlso: []string{"microflow.create"},
+		Syntax: "CREATE [OR REPLACE] NANOFLOW Module.Name ($Param: Type)\n" +
+			"RETURNS Type AS $Result\nBEGIN\n  <statements>\nEND;\n\n" +
+			"The body is microflow syntax — every topic under `microflow` applies —\n" +
+			"MINUS what cannot run in the browser. `mxcli check` refuses each of these\n" +
+			"before a build, nested inside IF/LOOP/WHILE and error-handler bodies too:\n\n" +
+			"  RAISE ERROR                    ErrorEvent has no nanoflow equivalent\n" +
+			"  CALL JAVA ACTION               server-side\n" +
+			"  EXECUTE DATABASE QUERY         server-side\n" +
+			"  CALL EXTERNAL ACTION           server-side\n" +
+			"  CALL REST SERVICE / SEND REST REQUEST\n" +
+			"  IMPORT FROM MAPPING / EXPORT TO MAPPING\n" +
+			"  TRANSFORM JSON\n" +
+			"  DOWNLOAD FILE\n" +
+			"  SHOW HOME PAGE\n" +
+			"  every WORKFLOW action (call, open, set task outcome, notify, lock, …)\n\n" +
+			"A Binary RETURN type is not allowed either.\n\n" +
+			"ON ERROR is not universal here. Six activities reject it — change, log,\n" +
+			"show page, close page, show message, validation feedback — because Mendix\n" +
+			"answers CE6035 \"Error handling type is not supported\"; a nanoflow activity\n" +
+			"aborts the flow on error by default, so drop the clause. The other\n" +
+			"activities (create, commit, retrieve, the calls, declare, set) take it.\n\n" +
+			"SYNCHRONIZE is the mirror image: allowed ONLY in a nanoflow (MDL057 flags\n" +
+			"it in a microflow) — see microflow.synchronize.\n\n" +
+			"Security is the same shape as a microflow's:\n" +
+			"  GRANT EXECUTE ON NANOFLOW Module.Name TO Module.Role;",
+		Example: "CREATE NANOFLOW MyModule.NF_ValidateInput ($Input: String)\nRETURNS Boolean AS $IsValid\nBEGIN\n  IF $Input = empty THEN\n    VALIDATION FEEDBACK $Input MESSAGE 'Required';\n    RETURN false;\n  END IF;\n  RETURN true;\nEND;\n\n" +
+			"-- Server-side work belongs behind a microflow call, which IS allowed\n" +
+			"CREATE NANOFLOW MyModule.NF_Submit ($Order: Sales.Order)\nBEGIN\n" +
+			"  CALL MICROFLOW MyModule.ACT_SubmitOrder (Order = $Order);\n" +
+			"  CLOSE PAGE;\nEND;",
+		SeeAlso: []string{"microflow.create", "microflow.synchronize", "microflow.error-handling"},
 	})
 
 	Register(SyntaxFeature{

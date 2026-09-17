@@ -51,7 +51,11 @@ it is building.
    below is derived from this.
 4. **What does it keep track of?** Three to six nouns that will become entities, and a
    word on how they relate (e.g. "a Job has many Visits; each Visit has Photos"). For
-   a solution, also ask which app owns each noun.
+   a solution, also ask which app owns each noun. Ask two follow-ups here, because
+   both change the model rather than decorate it: does anything go through **steps
+   someone has to act on** (approval, hand-off, review, a deadline), and is there a
+   **number or count across records** anyone needs to see. The first is a workflow and
+   the second a view entity — see "Two choices to make deliberately" below.
 5. **Who logs in?** The user roles, and roughly what each may do (e.g. "Requester
    creates and sees their own; Approver sees everything and approves").
 6. **Look and feel.** One of the bundled themes: `signal` (light, high contrast),
@@ -294,6 +298,38 @@ named after it. From the brief, propose in chat:
 - the handful of pages that make it usable
 - for a solution: which app owns each entity, and what crosses the boundary — publish
   only what the other app actually needs
+
+### Two choices to make deliberately — the lazy answer is wrong both times
+
+Both of these are first-class in Mendix and both are easy to reinvent in microflows,
+because the microflow version *works*: it passes `check`, it builds, and nothing
+flags it. The cost lands later, on someone else.
+
+- **A business process with human steps is a `WORKFLOW`**, not a status attribute and
+  a handful of microflows. Approvals, hand-offs, "someone has to look at this",
+  anything with a due date or a timer, anything that can sit waiting for days. You
+  get the state machine, the user-task inbox (`System.WorkflowUserTask`), assignment
+  and targeting, timers and boundary events, and a definition the business can read.
+  Rebuild it from status attributes and every one of those is yours to write and
+  maintain, and the process stops being inspectable — nobody can answer "where is
+  this request" except by reading microflows. `create workflow`; see
+  `mxcli syntax workflow` and the `write-workflows` skill.
+- **An aggregation is a `VIEW ENTITY`**, not a microflow that retrieves the rows and
+  counts them. Totals, counts per group, a figure on a dashboard, a report, anything
+  joined across entities: a view entity is OQL the **database** executes — joins,
+  `GROUP BY`, `SUM`/`COUNT` — returning rows a page binds to directly. The microflow
+  version pulls every object into memory to produce one number, and it gets slower
+  exactly as the app succeeds, which is the worst possible failure curve. Needs
+  **Mendix 10.18+** (`show features` confirms it). `create view entity Mod.Name (…)
+  as ( select … )` — see `mxcli syntax view-entity` for the shape, its `oql` and
+  `association` subtopics for the rules that bite (every column needs an `AS`
+  alias; `ORDER BY` needs a `LIMIT`; selecting an id under an alias makes an
+  *association*, not an attribute), and the `write-oql-queries` skill for worked
+  queries.
+
+Name which of the two you are using **in the proposal**, with one line on why. Both
+are cheap to choose now and expensive to retrofit: the pages, security rules and
+tests all bind to whichever you picked.
 
 Show it as **MDL the user can read**, and wait for their go-ahead before executing it.
 Name the elements the same way the plan's anchors do — if a requirement is anchored
