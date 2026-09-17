@@ -45,6 +45,30 @@ CREATE EXTERNAL ENTITIES FROM Module.Service ENTITIES (Customer, Order);
 CREATE OR MODIFY EXTERNAL ENTITIES FROM Module.Service;
 ```
 
+### Complex types are flattened
+
+The Mendix domain model has no complex types. A property typed as an OData
+`ComplexType` is imported as one attribute per leaf — the same thing Studio Pro
+does — named `<property>_<leaf>` and read over the OData path `<property>/<leaf>`:
+
+| $metadata | Mendix attribute | Remote name |
+|-----------|------------------|-------------|
+| `MaxQty` of type `Shared.Uom.Quantity` { `UoMNId`, `QuantityValue` } | `MaxQty_UoMNId`, `MaxQty_QuantityValue` | `MaxQty/UoMNId`, `MaxQty/QuantityValue` |
+
+The complex type may live in any `Schema` in the document — it is resolved by
+qualified name, so two namespaces may each declare a `Quantity`.
+
+Two consequences worth knowing:
+
+- **Flattened attributes are read-only.** Mendix treats an external entity that
+  contains them as readable and deletable only, whatever the entity set's
+  `InsertRestrictions` / `UpdateRestrictions` say. Marking them creatable or
+  updatable is `CE6630`.
+- **Flattening is one level deep.** A complex type nested inside a complex type
+  is not an importable attribute. It is *reported*, along with anything else the
+  import could not map — an import that drops a property now says which one and
+  why, rather than reporting success.
+
 ## Contract Browsing Statements
 
 Browse available assets from cached service contracts without network access.

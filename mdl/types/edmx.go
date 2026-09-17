@@ -19,9 +19,24 @@ type EdmxDocument struct {
 
 // EdmSchema represents an EDM schema namespace.
 type EdmSchema struct {
-	Namespace   string
-	EntityTypes []*EdmEntityType
-	EnumTypes   []*EdmEnumType
+	Namespace    string
+	EntityTypes  []*EdmEntityType
+	ComplexTypes []*EdmComplexType
+	EnumTypes    []*EdmEnumType
+}
+
+// EdmComplexType represents a <ComplexType> — a keyless structured value.
+//
+// The Mendix domain model has no complex types. Studio Pro imports the
+// PROPERTIES of one as attributes of the containing entity, named
+// `<complexProperty>_<leaf>`; see EdmxDocument.FlattenProperties. Parsing them
+// is what makes that possible: with no ComplexType in the model, a property
+// typed `Shared.Uom.Quantity` is indistinguishable from a property of a type
+// nothing knows about, and every consumer drops it (mendixlabs/mxcli#1118).
+type EdmComplexType struct {
+	Name       string
+	BaseType   string // Qualified name of the base complex type, empty if none
+	Properties []*EdmProperty
 }
 
 // EdmEntityType represents an entity type definition.
@@ -44,6 +59,12 @@ type EdmProperty struct {
 	Nullable  *bool  // nil = not specified (default true)
 	MaxLength string // e.g. "200", "max"
 	Scale     string // e.g. "variable"
+
+	// RemotePath is how the SERVICE addresses this property when it was reached
+	// through a complex-typed property: "MaxQty/UoMNId". Empty on a property the
+	// entity type declares directly, where the path is just the name — use
+	// Path() rather than reading this field, so the two cases stay one lookup.
+	RemotePath string
 
 	// Capability annotations (OData Core V1). When true, the property is not
 	// settable by the client:
@@ -196,6 +217,15 @@ func ParseEdmx(metadataXML string) (*EdmxDocument, error) {
 				schema.EntityTypes = append(schema.EntityTypes, entityType)
 			}
 
+			// Parse complex types
+			for _, ct := range s.ComplexTypes {
+				complexType := &EdmComplexType{Name: ct.Name, BaseType: ct.BaseType}
+				for i := range ct.Properties {
+					complexType.Properties = append(complexType.Properties, parseXmlProperty(&ct.Properties[i]))
+				}
+				schema.ComplexTypes = append(schema.ComplexTypes, complexType)
+			}
+
 			// Parse enum types
 			for _, en := range s.EnumTypes {
 				enumType := &EdmEnumType{Name: en.Name}
@@ -341,31 +371,8 @@ func parseXmlEntityType(et *xmlEntityType) *EdmEntityType {
 	}
 
 	// Parse properties
-	for _, p := range et.Properties {
-		prop := &EdmProperty{
-			Name:      p.Name,
-			Type:      p.Type,
-			MaxLength: p.MaxLength,
-			Scale:     p.Scale,
-		}
-		if p.Nullable != "" {
-			v := p.Nullable != "false"
-			prop.Nullable = &v
-		}
-		// ConcurrencyMode="Fixed" (OData v3) marks a property as an optimistic
-		// concurrency token — the server manages it, the client cannot set it.
-		if p.ConcurrencyMode == "Fixed" {
-			prop.Computed = true
-		}
-		for _, ann := range p.Annotations {
-			switch ann.Term {
-			case "Org.OData.Core.V1.Computed":
-				prop.Computed = ann.Bool == "" || ann.Bool == "true"
-			case "Org.OData.Core.V1.Immutable":
-				prop.Immutable = ann.Bool == "" || ann.Bool == "true"
-			}
-		}
-		entityType.Properties = append(entityType.Properties, prop)
+	for i := range et.Properties {
+		entityType.Properties = append(entityType.Properties, parseXmlProperty(&et.Properties[i]))
 	}
 
 	// Parse navigation properties
@@ -389,6 +396,144 @@ func parseXmlEntityType(et *xmlEntityType) *EdmEntityType {
 	}
 
 	return entityType
+}
+
+// parseXmlProperty converts one <Property> element. Shared by entity types and
+// complex types: a complex type's properties are turned into entity attributes
+// verbatim, facets and capability annotations included, so a second copy of this
+// would drift the two apart (the duplicate-resolver failure class).
+func parseXmlProperty(p *xmlProperty) *EdmProperty {
+	prop := &EdmProperty{
+		Name:      p.Name,
+		Type:      p.Type,
+		MaxLength: p.MaxLength,
+		Scale:     p.Scale,
+	}
+	if p.Nullable != "" {
+		v := p.Nullable != "false"
+		prop.Nullable = &v
+	}
+	// ConcurrencyMode="Fixed" (OData v3) marks a property as an optimistic
+	// concurrency token — the server manages it, the client cannot set it.
+	if p.ConcurrencyMode == "Fixed" {
+		prop.Computed = true
+	}
+	for _, ann := range p.Annotations {
+		switch ann.Term {
+		case "Org.OData.Core.V1.Computed":
+			prop.Computed = ann.Bool == "" || ann.Bool == "true"
+		case "Org.OData.Core.V1.Immutable":
+			prop.Immutable = ann.Bool == "" || ann.Bool == "true"
+		}
+	}
+	return prop
+}
+
+// Path returns how the OData service addresses this property — the name for a
+// property the entity type declares itself, "MaxQty/UoMNId" for one reached
+// through a complex-typed property. It is what belongs in the Mendix attribute's
+// RemoteName, and what a capability annotation's PropertyPath names.
+func (p *EdmProperty) Path() string {
+	if p.RemotePath != "" {
+		return p.RemotePath
+	}
+	return p.Name
+}
+
+// FindComplexType resolves a complex type by its QUALIFIED name.
+//
+// Qualified, not short: one $metadata document may declare `Quantity` in two
+// namespaces, and a short-name lookup would hand the entity whichever schema
+// happened to parse first — a wrong set of attributes rather than a missing one,
+// which is strictly harder to notice. FindEntityType's short-name fallback is
+// deliberately not copied here.
+func (d *EdmxDocument) FindComplexType(qualifiedName string) *EdmComplexType {
+	idx := strings.LastIndex(qualifiedName, ".")
+	if idx < 0 {
+		return nil
+	}
+	namespace, name := qualifiedName[:idx], qualifiedName[idx+1:]
+	for _, s := range d.Schemas {
+		if s.Namespace != namespace {
+			continue
+		}
+		for _, ct := range s.ComplexTypes {
+			if ct.Name == name {
+				return ct
+			}
+		}
+	}
+	return nil
+}
+
+// complexTypeProperties returns a complex type's own properties preceded by
+// those it inherits, walking the BaseType chain. The depth guard is for a
+// document whose base types form a cycle — malformed, but it arrives over the
+// network and must not hang the import.
+func (d *EdmxDocument) complexTypeProperties(ct *EdmComplexType) []*EdmProperty {
+	var props []*EdmProperty
+	seen := map[*EdmComplexType]bool{}
+	var walk func(*EdmComplexType)
+	walk = func(c *EdmComplexType) {
+		if c == nil || seen[c] {
+			return
+		}
+		seen[c] = true
+		if c.BaseType != "" {
+			walk(d.FindComplexType(c.BaseType))
+		}
+		props = append(props, c.Properties...)
+	}
+	walk(ct)
+	return props
+}
+
+// FlattenProperties expands every complex-typed property into one property per
+// leaf, and passes everything else through untouched.
+//
+// This is what Studio Pro does on import, and the reason it has to exist here:
+// "Complex types are not supported by the domain model. However, Studio Pro
+// allows you to read external entities that contain attributes of a complex type
+// by importing the properties of the complex type as attributes of the
+// containing entity […] the attribute names consist of the name of the complex
+// attribute and the name of the property that is part of the complex type,
+// separated by an underscore" (Consumed OData Service Requirements). So
+// `MaxQty` of type `Shared.Uom.Quantity` becomes `MaxQty_UoMNId` and
+// `MaxQty_QuantityValue`, addressed over the paths `MaxQty/UoMNId` and
+// `MaxQty/QuantityValue`.
+//
+// Flattening is ONE level deep, matching the same page's "only the properties of
+// the types described in Supported Attribute Types are supported" — that list is
+// the primitive Edm types, so a complex type nested in a complex type is not
+// importable. It is returned in unsupported rather than dropped, because a
+// caller that says nothing is the defect this whole function exists to fix
+// (mendixlabs/mxcli#1118). A property whose type is not a complex type this document
+// declares is passed through unchanged for the caller's own rules to judge.
+func (d *EdmxDocument) FlattenProperties(props []*EdmProperty) (flat []*EdmProperty, unsupported []string) {
+	for _, p := range props {
+		ct := d.FindComplexType(p.Type)
+		if ct == nil {
+			flat = append(flat, p)
+			continue
+		}
+		for _, leaf := range d.complexTypeProperties(ct) {
+			path := p.Name + "/" + leaf.Name
+			if !strings.HasPrefix(leaf.Type, "Edm.") {
+				unsupported = append(unsupported, fmt.Sprintf("%s (%s)", path, leaf.Type))
+				continue
+			}
+			expanded := *leaf
+			expanded.Name = p.Name + "_" + leaf.Name
+			expanded.RemotePath = path
+			// The containing property's own capability annotations apply to
+			// every leaf underneath it: a computed complex value has no
+			// individually settable parts.
+			expanded.Computed = expanded.Computed || p.Computed
+			expanded.Immutable = expanded.Immutable || p.Immutable
+			flat = append(flat, &expanded)
+		}
+	}
+	return flat, unsupported
 }
 
 // applyCapabilityAnnotations reads Org.OData.Capabilities.V1.{Insert,Update,
@@ -530,6 +675,7 @@ type xmlDataService struct {
 type xmlSchema struct {
 	Namespace        string                  `xml:"Namespace,attr"`
 	EntityTypes      []xmlEntityType         `xml:"EntityType"`
+	ComplexTypes     []xmlComplexType        `xml:"ComplexType"`
 	EnumTypes        []xmlEnumType           `xml:"EnumType"`
 	EntityContainers []xmlEntityContainer    `xml:"EntityContainer"`
 	Actions          []xmlAction             `xml:"Action"`
@@ -555,6 +701,12 @@ type xmlEntityType struct {
 	NavigationProperties []xmlNavigationProperty `xml:"NavigationProperty"`
 	Documentation        *xmlDocumentation       `xml:"Documentation"`
 	Annotations          []xmlAnnotation         `xml:"Annotation"`
+}
+
+type xmlComplexType struct {
+	Name       string        `xml:"Name,attr"`
+	BaseType   string        `xml:"BaseType,attr"`
+	Properties []xmlProperty `xml:"Property"`
 }
 
 type xmlKey struct {
