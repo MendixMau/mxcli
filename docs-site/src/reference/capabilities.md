@@ -48,7 +48,7 @@ Everything mxcli can do, organized by use case.
 | Retrieve | `RETRIEVE ... FROM ... WHERE` | Database/association queries |
 | Control flow | `IF/THEN/ELSE`, `LOOP`, `WHILE` | Including nested |
 | Call flows | `CALL MICROFLOW`, `CALL NANOFLOW` | With parameters |
-| Show page | `LIST PAGE Module.Page(...)` | With page parameters (11.0+) |
+| Show page | `LIST PAGE Module.Page(...)` | With page parameters (9.7+) |
 | REST requests | `SEND REST REQUEST` | GET/POST/PUT/DELETE |
 | Database queries | `EXECUTE DATABASE QUERY` | External databases |
 | Log messages | `LOG INFO\|WARNING\|ERROR` | With templates |
@@ -140,7 +140,6 @@ Everything mxcli can do, organized by use case.
 
 | Area | Limitation | Workaround |
 |---|---|---|
-| Page parameters | Requires Mendix 11.0+ | Use non-persistent entity pattern on 10.x |
 | Design properties (Atlas v3) | Requires Mendix 11.0+ | Use CSS classes on 10.x |
 | REST query parameters | Requires Mendix 11.0+ | Build query string manually on 10.x |
 | Pluggable widget ImageUrl mode | Cannot set imageUrl from MDL | Configure in Studio Pro |

@@ -7,6 +7,12 @@ package catalog
 //
 // History:
 //
+//	13 — entity_event_handlers_data + view, and the `event` edge in refs
+//	    (ENTITY -> MICROFLOW). Same reason as 11: refs are only written by
+//	    REFRESH CATALOG FULL, so without the bump a cached catalog keeps
+//	    reporting every handler-only microflow in GRAPH_DEAD_ASSETS and
+//	    answering `show callers` with "(no callers found)" — the wrong answer
+//	    this change exists to stop, served from a stale cache.
 //	12 — HasCreatedDate / HasChangedDate / HasOwner / HasChangedBy on entities.
 //	    A CREATE TABLE IF NOT EXISTS does not add a column to a cached
 //	    catalog, so without the bump every query naming one fails with "no
@@ -734,6 +740,34 @@ func (c *Catalog) createTables() error {
 			SnapshotId TEXT
 		)`,
 		viewWithFullSnapshot("offline_entity_configs"),
+
+		// entity_event_handlers — one row per entity event handler.
+		// CATALOG.ENTITIES.HasEventHandlers is a flag: it says some exist and
+		// nothing else. Which moment, which event and which microflow is the
+		// whole question, and refs has no column for the first two — a `before
+		// commit` handler that returns false blocks the commit, an `after
+		// delete` one cannot. The edge says the microflow is reachable; this
+		// table says what it does.
+		//
+		// Event holds the value Mendix stores: Create/Commit/Delete/RollBack.
+		// The capital B in RollBack is Mendix's, confirmed against
+		// generated/metamodel, and disagrees with every neighbouring enum
+		// there — a query spelling it `Rollback` returns zero rows, not an
+		// error.
+		`CREATE TABLE IF NOT EXISTS entity_event_handlers_data (
+			Id TEXT,
+			EntityId TEXT,
+			EntityQualifiedName TEXT,
+			ModuleName TEXT,
+			Moment TEXT,
+			Event TEXT,
+			Microflow TEXT,
+			RaiseErrorOnFalse INTEGER DEFAULT 0,
+			PassEventObject INTEGER DEFAULT 0,
+			ProjectId TEXT,
+			SnapshotId TEXT
+		)`,
+		viewWithFullSnapshot("entity_event_handlers"),
 
 		// Already-clean tables (no denormalized columns) — kept as plain tables.
 		`CREATE TABLE IF NOT EXISTS navigation_menu_items (

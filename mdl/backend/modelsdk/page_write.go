@@ -5,6 +5,7 @@ package modelsdkbackend
 import (
 	"fmt"
 
+	"github.com/mendixlabs/mxcli/mdl/types"
 	"github.com/mendixlabs/mxcli/model"
 	"github.com/mendixlabs/mxcli/modelsdk/codec"
 	"github.com/mendixlabs/mxcli/modelsdk/element"
@@ -42,7 +43,7 @@ func (b *Backend) CreatePage(page *pages.Page) error {
 	if page.ID == "" {
 		page.ID = model.ID(mmpr.GenerateID())
 	}
-	g, err := pageToGen(page)
+	g, err := pageToGen(page, b.ProjectVersion())
 	if err != nil {
 		return err
 	}
@@ -74,7 +75,7 @@ func (b *Backend) UpdatePage(page *pages.Page) error {
 	if b.writer == nil {
 		return fmt.Errorf("UpdatePage: not connected for writing")
 	}
-	g, err := pageToGen(page)
+	g, err := pageToGen(page, b.ProjectVersion())
 	if err != nil {
 		return err
 	}
@@ -109,7 +110,7 @@ func popupDimension(n int) int32 {
 
 // pageToGen builds the full gen Page: header, layout call, the widget tree (under
 // the layout call's form-call arguments), parameters, and variables.
-func pageToGen(page *pages.Page) (*genPg.Page, error) {
+func pageToGen(page *pages.Page, pv *types.ProjectVersion) (*genPg.Page, error) {
 	out := genPg.NewPage()
 	out.SetName(page.Name)
 	out.SetDocumentation(page.Documentation)
@@ -137,7 +138,7 @@ func pageToGen(page *pages.Page) (*genPg.Page, error) {
 	}
 
 	for _, p := range page.Parameters {
-		out.AddParameters(pageParameterToGen(p))
+		out.AddParameters(pageParameterToGen(p, pv))
 	}
 	for _, v := range page.Variables {
 		out.AddVariables(localVariableToGen(v))
@@ -221,18 +222,32 @@ func layoutCallToGen(lc *pages.LayoutCall) (*genPg.LayoutCall, error) {
 	return out, nil
 }
 
+// pageParameterVersion is the Mendix version that introduced PageParameter's
+// IsRequired and DefaultValue properties. The element itself is 9.4.0.
+const pageParamOptionalMajor, pageParamOptionalMinor = 11, 5
+
 // pageParameterToGen converts a page parameter, including its ParameterType — an
 // entity (DataTypes$ObjectType) or a primitive (DataTypes$StringType, …). Without
 // the type the parameter can't resolve (CE5601/CE5606).
-func pageParameterToGen(p *pages.PageParameter) *genPg.PageParameter {
+//
+// IsRequired and DefaultValue are written only on 11.5+. MDL cannot express
+// either — every page parameter it writes is required with no default — so below
+// 11.5 they carry no information and are simply two keys the project's metamodel
+// does not declare. That is the CLAUDE.md "never invent a key" case: mxbuild
+// accepts unknown properties, Studio Pro throws InvalidOperationException at
+// MprProperty.cs. An unreadable version omits them, because an absent optional
+// property is filled in on load while an unknown one is unopenable.
+func pageParameterToGen(p *pages.PageParameter, pv *types.ProjectVersion) *genPg.PageParameter {
 	gp := genPg.NewPageParameter()
 	if p.ID != "" {
 		gp.SetID(element.ID(p.ID))
 	}
 	assignID(gp)
 	gp.SetName(p.Name)
-	gp.SetIsRequired(p.IsRequired)
-	gp.SetDefaultValue(p.DefaultValue)
+	if pv != nil && pv.IsAtLeast(pageParamOptionalMajor, pageParamOptionalMinor) {
+		gp.SetIsRequired(p.IsRequired)
+		gp.SetDefaultValue(p.DefaultValue)
+	}
 	gp.SetParameterType(pageParamTypeToGen(p))
 	return gp
 }

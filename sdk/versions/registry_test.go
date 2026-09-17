@@ -79,8 +79,9 @@ func TestIsAvailable(t *testing.T) {
 		{"domain_model", "view_entities", SemVer{11, 0, 0}, true},
 		// Basic entities available in 9.x+
 		{"domain_model", "entities", SemVer{9, 0, 0}, true},
-		// Page parameters require 11.0+
-		{"pages", "page_parameters", SemVer{10, 24, 0}, false},
+		// Page parameters require 9.4+ (see page_parameter_floor_test.go)
+		{"pages", "page_parameters", SemVer{9, 3, 0}, false},
+		{"pages", "page_parameters", SemVer{10, 24, 0}, true},
 		{"pages", "page_parameters", SemVer{11, 0, 0}, true},
 		// Unknown feature
 		{"domain_model", "teleportation", SemVer{11, 0, 0}, false},
@@ -119,11 +120,11 @@ func TestFeaturesForVersion(t *testing.T) {
 		t.Error("view_entities not found in features list")
 	}
 
-	// Check that page_parameters is NOT available at 10.24
+	// Check that design_properties_v3 is NOT available at 10.24 (Atlas v3 is 11.0+)
 	for _, f := range features {
-		if f.Area == "pages" && f.Name == "page_parameters" {
+		if f.Area == "pages" && f.Name == "design_properties_v3" {
 			if f.Available {
-				t.Error("page_parameters should NOT be available at 10.24")
+				t.Error("design_properties_v3 should NOT be available at 10.24")
 			}
 		}
 	}
@@ -140,16 +141,16 @@ func TestFeaturesAddedSince(t *testing.T) {
 		t.Fatal("expected features added since 10.24.0, got none")
 	}
 
-	// page_parameters (11.0+) should be in the list
+	// design_properties_v3 (11.0+) should be in the list
 	found := false
 	for _, f := range added {
-		if f.Name == "page_parameters" {
+		if f.Name == "design_properties_v3" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Error("page_parameters should appear in features added since 10.24")
+		t.Error("design_properties_v3 should appear in features added since 10.24")
 	}
 
 	// entities (10.0+) should NOT be in the list
