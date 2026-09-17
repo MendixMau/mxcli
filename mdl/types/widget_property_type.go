@@ -24,6 +24,13 @@ type PropertyTypeIDEntry struct {
 	// This is what `mx update-widgets` itself writes.
 	DefaultTranslations []PropertyTranslation
 	DataSourceProperty  string // Non-empty when this attribute is linked to another DataSource property
+	// IsLinked marks a datasource the PLATFORM wires from the containing widget
+	// rather than one the developer sets: a Data Grid 2 column filter's
+	// `linkedDs` is filled from the grid it sits in. Studio Pro stores it empty
+	// on every such widget, and a value written there does not satisfy the
+	// property — mxbuild still reports CE0642 for it. So it is not authorable,
+	// and a .def.json mapping one is refused at build time rather than written.
+	IsLinked bool
 	// For object list properties (IsList=true with ObjectType), these hold nested IDs
 	ObjectTypeID      string                         // ID of the nested ObjectType (for object lists like columns)
 	NestedPropertyIDs map[string]PropertyTypeIDEntry // Property IDs within the nested ObjectType

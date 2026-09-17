@@ -351,6 +351,7 @@ func jsonToBSONWithMappingAndObjectType(data map[string]any, idMapping map[strin
 	var defaultValue string
 	var valueType string
 	var required bool
+	var isLinked bool
 	var dataSourceProp string
 	var nestedObjectTypeID string
 	var nestedPropertyIDs map[string]PropertyTypeIDEntry
@@ -396,7 +397,7 @@ func jsonToBSONWithMappingAndObjectType(data map[string]any, idMapping map[strin
 		} else if key == "ValueType" && isPropertyType {
 			// For PropertyTypes, extract ValueType info including nested ObjectType, DefaultValue, Type, Required
 			nestedPropertyIDs = make(map[string]PropertyTypeIDEntry)
-			elem.Value = jsonValueToBSONWithNestedObjectType(val, idMapping, &valueTypeID, &nestedObjectTypeID, nestedPropertyIDs, &nestedKeyOrder, &defaultValue, &valueType, &required, &dataSourceProp)
+			elem.Value = jsonValueToBSONWithNestedObjectType(val, idMapping, &valueTypeID, &nestedObjectTypeID, nestedPropertyIDs, &nestedKeyOrder, &defaultValue, &valueType, &required, &isLinked, &dataSourceProp)
 		} else {
 			elem.Value = jsonValueToBSONWithMappingAndObjectType(val, idMapping, propertyTypeIDs, &valueTypeID, key == "ValueType", objectTypeID)
 		}
@@ -412,6 +413,7 @@ func jsonToBSONWithMappingAndObjectType(data map[string]any, idMapping map[strin
 			DefaultValue:       defaultValue,
 			ValueType:          valueType,
 			Required:           required,
+			IsLinked:           isLinked,
 			DataSourceProperty: dataSourceProp,
 		}
 		if nestedObjectTypeID != "" {
@@ -426,7 +428,7 @@ func jsonToBSONWithMappingAndObjectType(data map[string]any, idMapping map[strin
 }
 
 // jsonValueToBSONWithNestedObjectType extracts ValueType info including nested ObjectType, DefaultValue, and Type.
-func jsonValueToBSONWithNestedObjectType(val any, idMapping map[string]string, valueTypeID *string, nestedObjectTypeID *string, nestedPropertyIDs map[string]PropertyTypeIDEntry, nestedKeyOrder *[]string, defaultValue *string, valueType *string, required *bool, dataSourceProperty ...*string) any {
+func jsonValueToBSONWithNestedObjectType(val any, idMapping map[string]string, valueTypeID *string, nestedObjectTypeID *string, nestedPropertyIDs map[string]PropertyTypeIDEntry, nestedKeyOrder *[]string, defaultValue *string, valueType *string, required *bool, isLinked *bool, dataSourceProperty ...*string) any {
 	switch v := val.(type) {
 	case map[string]any:
 		result := make(bson.D, 0, len(v))
@@ -464,6 +466,13 @@ func jsonValueToBSONWithNestedObjectType(val any, idMapping map[string]string, v
 				// Extract required flag
 				if r, ok := fieldVal.(bool); ok {
 					*required = r
+				}
+				elem.Value = jsonValueToBSONSimple(fieldVal, idMapping)
+			} else if key == "IsLinked" {
+				// A datasource the platform wires from the containing widget, not
+				// one the developer sets. See types.PropertyTypeIDEntry.IsLinked.
+				if l, ok := fieldVal.(bool); ok && isLinked != nil {
+					*isLinked = l
 				}
 				elem.Value = jsonValueToBSONSimple(fieldVal, idMapping)
 			} else if key == "DataSourceProperty" && len(dataSourceProperty) > 0 && dataSourceProperty[0] != nil {

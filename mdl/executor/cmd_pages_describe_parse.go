@@ -483,15 +483,42 @@ func parseRawWidget(ctx *ExecContext, w map[string]any, parentEntityContext ...s
 		// (the action's parameter has no default once its datasource is gone),
 		// while the DESCRIBE text was byte-identical before and after (#956).
 		//
-		// anyCustomWidgetDataSource, not firstObjectPropertyDataSource: the latter
-		// stops at the first property whose DataSource parses at all, and a File
-		// Uploader has one carrying no reference ahead of its real one.
-		if widget.DataSource == nil {
-			if ds := anyCustomWidgetDataSource(w); ds != nil {
-				widget.DataSource = ds
-				if widget.EntityContext == "" {
-					widget.EntityContext = dataSourceEntityContext(ctx, ds)
-				}
+		// namedCustomWidgetDataSources, not firstObjectPropertyDataSource: the
+		// latter stops at the first property whose DataSource parses at all, and
+		// a File Uploader has one carrying no reference ahead of its real one.
+		//
+		// One configured datasource keeps the generic `DataSource:` clause it has
+		// always been described with — which is every widget shipped today, so
+		// their output is unchanged. Several are emitted under their own schema
+		// keys, because one clause cannot say which binding is which.
+		//
+		// This runs even when a per-widget extractor above already found one,
+		// because those extractors each know about ONE of their widget's
+		// datasources: the drop-down filter's reads `refOptions` and never
+		// `linkedDs`, so a filter carrying both described back as single-source
+		// and a rewrite dropped the grid's list. Whether a widget is
+		// multi-source is a property of the stored document, not of which
+		// extractor happened to run.
+		switch named := namedCustomWidgetDataSources(w); {
+		case len(named) > 1:
+			widget.NamedDataSources = named
+			// One context for a widget with several is a guess, and it is only a
+			// guess about how CHILD widgets render. The widget's own attribute
+			// properties are emitted as bare names (shortAttributeName takes the
+			// last segment and never consults this), and on re-exec each binds
+			// against its own datasource's entity through the template's
+			// DataSourceProperty link — which is what makes this round trip at all.
+			if widget.EntityContext == "" {
+				widget.EntityContext = dataSourceEntityContext(ctx, named[0].DataSource)
+			}
+			// w.DataSource is left as an extractor set it: several emitter
+			// branches are gated on it being non-nil, and
+			// appendWidgetDataSources prefers the named set, so it is not
+			// emitted twice.
+		case len(named) == 1 && widget.DataSource == nil:
+			widget.DataSource = named[0].DataSource
+			if widget.EntityContext == "" {
+				widget.EntityContext = dataSourceEntityContext(ctx, named[0].DataSource)
 			}
 		}
 		return []rawWidget{widget}
