@@ -124,6 +124,11 @@ func buildMicroflowFromStmt(ctx *ExecContext, s *ast.CreateMicroflowStmt, opts b
 	// SECURITY setting, so an absent annotation must preserve a stored true
 	// rather than widening what the microflow may read and write.
 	existingApplyEntityAccess := false
+	// The deep link (Mendix 10.6+). MDL has no syntax for it, so a rewrite
+	// carries the stored value rather than rebuilding it — hardcoding "" is
+	// what deleted it on every CREATE OR MODIFY (#1120).
+	var existingURL string
+	var existingURLSearchParams []string
 	var existingDocumentation string
 	preserveDocumentation := false
 	var existingActionInfo, existingWorkflowInfo *types.MicroflowActionInfo
@@ -149,6 +154,8 @@ func buildMicroflowFromStmt(ctx *ExecContext, s *ast.CreateMicroflowStmt, opts b
 		preserveAllowedRoles = true
 		existingExcluded = existing.Excluded
 		existingApplyEntityAccess = existing.ApplyEntityAccess
+		existingURL = existing.URL
+		existingURLSearchParams = append([]string(nil), existing.URLSearchParameters...)
 		// The toolbox entries hold four PNG bitmaps MDL cannot name, so a
 		// rewrite carries them rather than rebuilding from the clause.
 		existingActionInfo = existing.MicroflowActionInfo
@@ -210,6 +217,8 @@ func buildMicroflowFromStmt(ctx *ExecContext, s *ast.CreateMicroflowStmt, opts b
 		MarkAsUsed:               false,
 		Excluded:                 s.Excluded || existingExcluded,
 		ApplyEntityAccess:        carriedApplyEntityAccess(s.ApplyEntityAccess, existingApplyEntityAccess),
+		URL:                      existingURL,
+		URLSearchParameters:      existingURLSearchParams,
 	}
 	if preserveDocumentation {
 		mf.Documentation = carriedDocumentation(s.DocumentationSet, s.Documentation, existingDocumentation)

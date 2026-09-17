@@ -98,6 +98,20 @@ user changed by hand with values derived from somewhere else. A field set on the
 construct the element separately, so both need checking, by grepping the struct
 literal rather than the field name.
 
+**Order the candidates by what makes them findable, not by severity.** A
+mechanical audit produces the candidate list; it does not say which candidate
+gets found before a user hits it. Two things do that, and neither is severity. A
+property is findable if some gate downstream complains — the concurrency flags
+became CE4899, a cleared exclusion became CE0122 — or if it is *salient* enough
+that someone thinks to audit it: "apply entity access" was caught in-house purely
+because it is a security setting, with every checker silent. A microflow's
+deep-link URL is neither. It breaks no build, it narrows no permission, nothing
+in `describe` shows it missing, and the only place it exists after the rewrite is
+Studio Pro's properties pane — so it sat there until a user reported it. The
+properties that are neither checked nor interesting are not this class's
+low-severity tail; they are the part of it that reaches users, and they are
+exactly what an audit ordered by "what could go badly wrong?" leaves for last.
+
 **Partial statements are the honest hazard.** `create or modify entity` with a
 subset of attributes drops the rest, which is arguably what "modify to this shape"
 means. The remedy there was not refusal but telling the truth loudly: diff the

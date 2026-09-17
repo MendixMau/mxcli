@@ -30,6 +30,22 @@ type Microflow struct {
 	// MarkAsUsed (#723 §A).
 	ApplyEntityAccess bool `json:"applyEntityAccess"`
 
+	// URL is the microflow's deep link (Mendix 10.6+) — Studio Pro's "URL"
+	// field, e.g. `item/{Key}`. MDL has no syntax for it, so it is carried
+	// across a rewrite rather than authored.
+	//
+	// The fourth property in this struct to be lost the way #723 §A describes,
+	// after AllowConcurrentExecution, MarkAsUsed and ApplyEntityAccess: the
+	// writer hardcoded "" and this struct had no field, so every rewrite
+	// deleted the deep link. Nothing reports it — `mxcli check` and `mx check`
+	// both pass, because a microflow without a URL is perfectly valid; the loss
+	// is only visible in Studio Pro, which is how it reached a user (#1120).
+	URL string `json:"url,omitempty"`
+	// URLSearchParameters names the microflow parameters supplied as query-string
+	// arguments of the deep link, as qualified names. Stored beside URL and lost
+	// with it.
+	URLSearchParameters []string `json:"urlSearchParameters,omitempty"`
+
 	// Return type
 	ReturnType         DataType `json:"returnType,omitempty"`
 	ReturnVariableName string   `json:"returnVariableName,omitempty"` // Variable name for return value (e.g., "$Result")

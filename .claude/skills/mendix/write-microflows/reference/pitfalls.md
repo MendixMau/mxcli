@@ -538,3 +538,25 @@ It is a **security** setting and it only ever narrows, so the rules mirror
   no such property. Writing it there is **MDL059**, not a silent no-op —
   the same rule that catches `@applyentityacces` and any other annotation the
   document does not read. The message names what that document does accept.
+
+## The deep-link URL is preserved, not authorable
+
+A microflow can carry a **URL** (Mendix 10.6+) — Studio Pro's "URL" field, e.g.
+`item/{Key}` — which makes it reachable as a deep link. MDL has **no syntax for
+it**, so there is no annotation to write and nothing to check.
+
+What matters is that it **survives**: a `create or modify microflow` that
+rewrites the body keeps the stored URL and its search parameters. It did not
+before #1120, and this one was harder to notice than the flags above, because a
+microflow *without* a URL is a valid microflow — `mxcli check`, `mx check` and
+mxbuild all reported success, and the deep link was simply gone the next time
+someone opened Studio Pro.
+
+Two consequences for scripts:
+
+- **`describe microflow` emits it as a `-- URL:` comment**, not as executable
+  MDL, because there is nothing to execute. That comment is a warning, not
+  decoration: a **describe → rename → exec copy has nothing to preserve from**,
+  so the new microflow has no URL. Set it in Studio Pro after copying.
+- **`drop microflow` followed by `create microflow` loses it** for the same
+  reason. Use `create or modify` to edit a microflow that has a deep link.

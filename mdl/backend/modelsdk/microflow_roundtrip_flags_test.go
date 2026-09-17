@@ -87,3 +87,43 @@ func TestMicroflowRoundTrip_ApplyEntityAccess(t *testing.T) {
 		t.Error("ApplyEntityAccess invented on round-trip (want false)")
 	}
 }
+
+// TestMicroflowRoundTrip_DeepLinkURL is the fifth property in this struct to go
+// the way #723 §A describes, and the first with no checker behind it at all.
+//
+// A microflow's Url is its deep link (Mendix 10.6+) — Studio Pro's "URL" field,
+// e.g. `item/{Key}`. MDL has no syntax for one, so microflowToGen wrote `""`
+// unconditionally and microflowFromGen never read the stored value back: a
+// CREATE OR MODIFY MICROFLOW that changed only the body deleted the deep link.
+//
+// Nothing reports it. Unlike the concurrency flags above (CE4899), a microflow
+// without a URL is entirely valid, so `mxcli check`, `mx check` and mxbuild all
+// pass before and after — the loss is visible only in Studio Pro, which is how
+// it reached a user as #1120. UrlSearchParameters is stored beside it and was
+// lost with it.
+func TestMicroflowRoundTrip_DeepLinkURL(t *testing.T) {
+	mf := &microflows.Microflow{
+		Name:                "ACT_Item",
+		URL:                 "item/{Key}",
+		URLSearchParameters: []string{"Mod.ACT_Item.Key"},
+	}
+	mf.ID = model.ID("mf-4")
+
+	got := roundTripMicroflow(t, mf)
+	if got.URL != "item/{Key}" {
+		t.Errorf("deep-link URL lost on round-trip: got %q, want %q", got.URL, "item/{Key}")
+	}
+	if len(got.URLSearchParameters) != 1 || got.URLSearchParameters[0] != "Mod.ACT_Item.Key" {
+		t.Errorf("UrlSearchParameters lost on round-trip: got %v, want [Mod.ACT_Item.Key]",
+			got.URLSearchParameters)
+	}
+
+	// The other direction: a microflow that has no deep link must not acquire
+	// one, or the fix is a different silent change in the same place. An empty
+	// UrlSearchParameters must stay the empty marker-1 list the codec writes.
+	none := &microflows.Microflow{Name: "ACT_Plain"}
+	none.ID = model.ID("mf-5")
+	if got := roundTripMicroflow(t, none); got.URL != "" || len(got.URLSearchParameters) != 0 {
+		t.Errorf("deep link invented on round-trip: URL=%q params=%v", got.URL, got.URLSearchParameters)
+	}
+}

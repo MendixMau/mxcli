@@ -205,6 +205,13 @@ func microflowFromGen(mf *genMf.Microflow, containerID model.ID) *microflows.Mic
 		// microflow may read and write. mx check and mxbuild are both silent,
 		// because the model is valid either way.
 		ApplyEntityAccess: mf.ApplyEntityAccess(),
+		// The deep link (Mendix 10.6+). Same class again: the writer emitted an
+		// empty Url on every rewrite and nothing read the stored one back, so a
+		// CREATE OR MODIFY that touched only the body deleted it. Both checkers
+		// stay silent — a microflow with no URL is valid — so the loss only
+		// showed up in Studio Pro (#1120).
+		URL:                 mf.Url(),
+		URLSearchParameters: mf.UrlSearchParametersQualifiedNames(),
 	}
 	out.ID = model.ID(mf.ID())
 	// AllowedModuleRoles (BY_NAME role references) — without these DESCRIBE omits

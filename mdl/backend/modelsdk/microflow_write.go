@@ -241,10 +241,14 @@ func microflowToGen(mf *microflows.Microflow, major int) *genMf.Microflow {
 
 	if major >= 10 {
 		out.SetReturnVariableName(mf.ReturnVariableName)
-		out.SetUrl("")
+		// Carried, not hardcoded. These two were `""` and `nil` unconditionally,
+		// so every rewrite deleted the microflow's deep link (#1120). A fresh
+		// microflow has neither, so the empty values still come out empty —
+		// SetUrlSearchParametersQualifiedNames(nil) is the empty marker-1 list.
+		out.SetUrl(mf.URL)
 		// StableId is emitted as a fresh GUID binary via the registered default
 		// (the gen mistypes it as a string), not set here.
-		out.SetUrlSearchParametersQualifiedNames(nil) // empty marker-1 list
+		out.SetUrlSearchParametersQualifiedNames(mf.URLSearchParameters)
 	}
 	return out
 }

@@ -622,6 +622,16 @@ func renderMicroflowMDL(
 	if mf.ApplyEntityAccess && flowType == "microflow" {
 		lines = append(lines, "@applyentityaccess")
 	}
+	// The deep link (Mendix 10.6+) has no MDL spelling at all, so it cannot be
+	// emitted as re-executable text. A rewrite preserves it (#1120), but a
+	// describe -> rename -> exec COPY has nothing to preserve from — same gap
+	// the annotation above notes, one step further along. Say so rather than
+	// producing output that silently omits it.
+	if mf.URL != "" && flowType == "microflow" {
+		lines = append(lines, fmt.Sprintf(
+			"-- URL: %s  (deep link; MDL cannot author one. Kept when this "+
+				"microflow is rewritten, NOT copied to a new one — set it in Studio Pro.)", mf.URL))
+	}
 
 	qualifiedName := name.Module + "." + name.Name
 	if len(mf.Parameters) > 0 {
