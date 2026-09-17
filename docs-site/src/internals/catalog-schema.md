@@ -199,6 +199,8 @@ rather than trusting a list here:
 | `schedule` | scheduled event runs a microflow |
 | `validate` | attribute validation rule uses a regular expression |
 | `widget` | page or snippet uses a pluggable / custom widget |
+| `sync` | offline navigation profile synchronizes an entity |
+| `event` | entity event handler runs a microflow |
 
 #### WIDGET targets
 

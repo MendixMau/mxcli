@@ -22,6 +22,10 @@ var graphRefKinds = []string{
 	// even though nothing calls it. Without this kind, GRAPH_DEAD_ASSETS reports
 	// every scheduled microflow as dead.
 	"schedule",
+	// An entity event handler is the same shape: the entity invokes the
+	// microflow on every commit/delete, so the edge is structural — it is how
+	// the handler is reached, not UI coupling.
+	"event",
 }
 
 // graphRefKindsSQL renders graphRefKinds as a quoted SQL IN list, so the schema

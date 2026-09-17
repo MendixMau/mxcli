@@ -102,6 +102,10 @@ type Builder struct {
 	// collected while cataloguing regexes and emitted by buildReferences.
 	regexRuleRefs []regexRuleRef
 
+	// Entity → microflow edges from entity event handlers, collected while
+	// cataloguing the handlers and emitted by buildReferences.
+	eventHandlerRefs []eventHandlerRef
+
 	// Built-in widget definitions supplied by the caller — used to populate
 	// the widget_definitions catalog table alongside project widgets/.
 	builtinWidgetMetas []WidgetDefinitionMeta
@@ -391,6 +395,10 @@ func (b *Builder) Build(progress ProgressFunc) error {
 
 	if err := b.buildEntities(); err != nil {
 		return fmt.Errorf("failed to build entities: %w", err)
+	}
+
+	if err := b.buildEntityEventHandlers(); err != nil {
+		return fmt.Errorf("failed to build entity event handlers: %w", err)
 	}
 
 	if err := b.buildAssociations(); err != nil {

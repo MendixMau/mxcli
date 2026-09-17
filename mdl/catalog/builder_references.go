@@ -37,6 +37,7 @@ const (
 	RefKindWidget     = "widget"     // Page/snippet uses a pluggable or custom widget
 	RefKindSettings   = "settings"   // A project setting names a microflow
 	RefKindSync       = "sync"       // An offline navigation profile synchronizes an entity
+	RefKindEvent      = "event"      // An entity event handler runs a microflow
 )
 
 // collectActionActivities returns all ActionActivity objects from an ObjectCollection,
@@ -568,6 +569,12 @@ func (b *Builder) buildReferences() error {
 	// pattern.
 	refCount += b.extractRegexRuleRefs(stmt, projectID, snapshotID)
 
+	// Entity event handlers run a microflow on every create/commit/delete of
+	// the entity. Same class as the scheduled-event edge above, and worse in
+	// degree: a handler runs on every commit, so the false "dead" verdict lands
+	// on code that is hotter than most of what IS reported as live.
+	refCount += b.extractEventHandlerRefs(stmt, projectID, snapshotID)
+
 	// Three project settings name a microflow the runtime calls. Same class as
 	// the scheduled-event edge above and found the same way: a microflow wired as
 	// AfterStartupMicroflow reported no callers and no references, QUAL004 said
@@ -608,6 +615,32 @@ func (b *Builder) extractScheduledEventRefs(stmt *sql.Stmt, projectID, snapshotI
 			"SCHEDULED_EVENT", "", r.qualifiedName,
 			"MICROFLOW", "", r.microflow,
 			RefKindSchedule, r.moduleName, projectID, snapshotID,
+		); err == nil {
+			count++
+		}
+	}
+	return count
+}
+
+// extractEventHandlerRefs emits one `event` edge per entity event handler, from
+// the entity to the microflow it runs.
+//
+// The edge carries neither the moment nor the event — refs has no column for
+// them, and inventing a kind per combination ("before_commit", "after_delete")
+// would put eight kinds into every consumer's list to say one thing. Which
+// moment and which event is CATALOG.ENTITY_EVENT_HANDLERS' question; this edge
+// answers "is the microflow reachable", which is the one three tools were
+// getting wrong.
+//
+// The edges are collected by buildEntityEventHandlers, which runs earlier in
+// the same transaction.
+func (b *Builder) extractEventHandlerRefs(stmt *sql.Stmt, projectID, snapshotID string) int {
+	count := 0
+	for _, r := range b.eventHandlerRefs {
+		if _, err := stmt.Exec(
+			"ENTITY", "", r.entityQualifiedName,
+			"MICROFLOW", "", r.microflow,
+			RefKindEvent, r.moduleName, projectID, snapshotID,
 		); err == nil {
 			count++
 		}

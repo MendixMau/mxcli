@@ -31,6 +31,11 @@ func TestCallerRefKinds(t *testing.T) {
 		"home_page",  // navigation
 		"login_page", //
 		"menu_item",  //
+		"schedule",   // scheduled event running a microflow
+		// An entity event handler runs its microflow on every create/commit/
+		// delete of the entity. Omitting it reported the hottest code in the
+		// app as uncalled (mendixlabs/mxcli#1127).
+		"event",
 	} {
 		if !in[k] {
 			t.Errorf("%q means one document invokes another and must count as a caller — "+

@@ -38,6 +38,7 @@ var callerRefKinds = []string{
 	RefKindCallerLoginPage,
 	RefKindCallerMenuItem,
 	RefKindCallerSchedule, // scheduled event: the microflow it runs
+	RefKindCallerEvent,    // entity event handler: the microflow it runs
 }
 
 // Kind literals, kept next to the set that uses them so the SQL below cannot
@@ -51,6 +52,7 @@ const (
 	RefKindCallerLoginPage = "login_page"
 	RefKindCallerMenuItem  = "menu_item"
 	RefKindCallerSchedule  = "schedule"
+	RefKindCallerEvent     = "event"
 )
 
 // callerRefKindsSQL renders callerRefKinds as a SQL IN list.
