@@ -98,6 +98,7 @@ func TestQUAL004EntryKindsAreRealRefKinds(t *testing.T) {
 		RefKindParameter, RefKindAction, RefKindHomePage, RefKindLoginPage,
 		RefKindMenuItem, RefKindChange, RefKindDelete, RefKindCalculate,
 		RefKindReturn, RefKindSchedule, RefKindValidate, RefKindSettings,
+		RefKindSync, RefKindPublish,
 	} {
 		known[k] = true
 	}
@@ -123,7 +124,7 @@ func TestQUAL004CountsEveryEntryPointKind(t *testing.T) {
 
 	for _, want := range []string{
 		RefKindCall, RefKindSchedule, RefKindDatasource, RefKindAction, RefKindCalculate,
-		RefKindSettings,
+		RefKindSettings, RefKindPublish,
 	} {
 		if !contains(starListItems(src, "MICROFLOW_ENTRY_KINDS"), want) {
 			t.Errorf("MICROFLOW_ENTRY_KINDS is missing %q — a microflow reached only that way "+

@@ -102,6 +102,12 @@ type Builder struct {
 	// collected while cataloguing regexes and emitted by buildReferences.
 	regexRuleRefs []regexRuleRef
 
+	// Published REST operation → microflow edges, collected while cataloguing
+	// the services and emitted by buildReferences. Same arrangement as
+	// scheduledEventRefs above, and for the same reason: the operation is an
+	// entry point, so nothing in the model calls the microflow it runs.
+	publishedRestRefs []publishedRestRef
+
 	// Built-in widget definitions supplied by the caller — used to populate
 	// the widget_definitions catalog table alongside project widgets/.
 	builtinWidgetMetas []WidgetDefinitionMeta

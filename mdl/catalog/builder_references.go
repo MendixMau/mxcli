@@ -37,6 +37,7 @@ const (
 	RefKindWidget     = "widget"     // Page/snippet uses a pluggable or custom widget
 	RefKindSettings   = "settings"   // A project setting names a microflow
 	RefKindSync       = "sync"       // An offline navigation profile synchronizes an entity
+	RefKindPublish    = "publish"    // A published REST operation runs a microflow
 )
 
 // collectActionActivities returns all ActionActivity objects from an ObjectCollection,
@@ -576,6 +577,13 @@ func (b *Builder) buildReferences() error {
 	// the runtime refused to start (ako/CapTrackV4 049).
 	refCount += b.extractProjectSettingsRefs(stmt, projectID, snapshotID)
 
+	// A published REST operation runs a microflow the same way a scheduled event
+	// does — the platform invokes it, so nothing in the model calls it. Without
+	// this edge every microflow behind the public API reads as dead: on the
+	// reported model, 92 of 93 operations name a microflow and all 92 were listed
+	// by GRAPH_DEAD_ASSETS, whose advice is to delete them (#1126).
+	refCount += b.extractPublishedRestRefs(stmt, projectID, snapshotID)
+
 	b.report("References", refCount)
 	return nil
 }
@@ -608,6 +616,31 @@ func (b *Builder) extractScheduledEventRefs(stmt *sql.Stmt, projectID, snapshotI
 			"SCHEDULED_EVENT", "", r.qualifiedName,
 			"MICROFLOW", "", r.microflow,
 			RefKindSchedule, r.moduleName, projectID, snapshotID,
+		); err == nil {
+			count++
+		}
+	}
+	return count
+}
+
+// extractPublishedRestRefs emits one `publish` edge per published REST operation
+// that names a microflow, from the operation to the microflow it runs.
+//
+// The source is the OPERATION, not the service, because that is the granularity
+// the question is asked at: `show references to <microflow>` should name the one
+// endpoint that reaches it, not the service holding thirty of them. The
+// operation's catalog id travels with the edge so the path and summary are one
+// join away.
+//
+// The edges are collected by buildPublishedRestServices, which runs earlier in
+// the same transaction.
+func (b *Builder) extractPublishedRestRefs(stmt *sql.Stmt, projectID, snapshotID string) int {
+	count := 0
+	for _, r := range b.publishedRestRefs {
+		if _, err := stmt.Exec(
+			"PUBLISHED_REST_OPERATION", r.sourceID, r.qualifiedName,
+			"MICROFLOW", "", r.microflow,
+			RefKindPublish, r.moduleName, projectID, snapshotID,
 		); err == nil {
 			count++
 		}

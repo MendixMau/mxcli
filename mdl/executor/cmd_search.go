@@ -20,15 +20,22 @@ import (
 //
 // A false negative here reads as "nothing uses this", which is the answer
 // somebody acts on before deleting a document — so the set errs toward
-// including a kind rather than omitting it. 'schedule' is the same shape: a
-// microflow run only by a scheduled event reported "(no callers found)", was
-// listed in GRAPH_DEAD_ASSETS, and drew QUAL004 "is not called from anywhere"
-// with the suggestion "Remove if unused" — on a microflow that runs nightly.
+// including a kind rather than omitting it.
+//
+// The recurring shape is an ENTRY POINT: something the PLATFORM invokes, so
+// nothing in the model calls it. 'schedule' was the first (a microflow run only
+// by a scheduled event reported "(no callers found)" on a job that runs nightly);
+// 'publish' is a published REST operation (#1126); 'settings' is a microflow
+// wired as after-startup, before-shutdown or health check, whose edge shipped in
+// v0.22.0 and was added to QUAL004 but not here, so `show callers` stayed blind
+// to it. Every new way for the platform to run a microflow belongs in this list,
+// in graphRefKinds, and in QUAL004's MICROFLOW_ENTRY_KINDS — three consumers,
+// none of which shares the others' list.
 //
 // Deliberately excluded: 'datasource', 'parameter', 'return', 'retrieve',
-// 'create', 'change', 'delete', 'associate', 'generalize' and 'layout'. Those
-// are uses of a TYPE or a LAYOUT, not invocations, and folding them in would
-// make `show callers of <entity>` a synonym for `show references to`.
+// 'create', 'change', 'delete', 'associate', 'generalize', 'layout' and 'sync'.
+// Those are uses of a TYPE or a LAYOUT, not invocations, and folding them in
+// would make `show callers of <entity>` a synonym for `show references to`.
 var callerRefKinds = []string{
 	RefKindCallerCall,      // microflow/nanoflow call activity
 	RefKindCallerAction,    // widget action: button, on-change, on-click
@@ -38,6 +45,8 @@ var callerRefKinds = []string{
 	RefKindCallerLoginPage,
 	RefKindCallerMenuItem,
 	RefKindCallerSchedule, // scheduled event: the microflow it runs
+	RefKindCallerPublish,  // published REST operation: the microflow behind the endpoint
+	RefKindCallerSettings, // project setting: after-startup, before-shutdown, health check
 }
 
 // Kind literals, kept next to the set that uses them so the SQL below cannot
@@ -51,6 +60,8 @@ const (
 	RefKindCallerLoginPage = "login_page"
 	RefKindCallerMenuItem  = "menu_item"
 	RefKindCallerSchedule  = "schedule"
+	RefKindCallerPublish   = "publish"
+	RefKindCallerSettings  = "settings"
 )
 
 // callerRefKindsSQL renders callerRefKinds as a SQL IN list.

@@ -18,10 +18,14 @@ import (
 var graphRefKinds = []string{
 	"call", "retrieve", "create", "change", "delete", "associate", "generalize",
 	"parameter", "return",
-	// A scheduled event is an entry point: the microflow it runs is reachable
-	// even though nothing calls it. Without this kind, GRAPH_DEAD_ASSETS reports
-	// every scheduled microflow as dead.
+	// Entry points: the platform invokes these, so the microflow they run is
+	// reachable even though nothing in the model calls it. Leaving one out does
+	// not hide it from GRAPH_DEAD_ASSETS — that view asks only whether ANY refs
+	// row targets the name, whatever its kind — but it does cut the microflow out
+	// of the analysis graph, so communities, layers, cycles and centrality all
+	// see the API and scheduling surface as unreachable roots.
 	"schedule",
+	"publish",
 }
 
 // graphRefKindsSQL renders graphRefKinds as a quoted SQL IN list, so the schema
