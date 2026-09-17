@@ -3,6 +3,7 @@
 package pages
 
 import (
+	"github.com/mendixlabs/mxcli/mdl/types"
 	"github.com/mendixlabs/mxcli/model"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -183,29 +184,24 @@ type CustomWidget struct {
 	ObjectTypeID string `json:"-"`
 }
 
-// PropertyTypeIDEntry holds the IDs for a property type from a cloned widget.
-// PropertyTranslation is one widget-shipped translation of a property's
-// default text.
-type PropertyTranslation struct {
-	LanguageCode string
-	Text         string
-}
-
-type PropertyTypeIDEntry struct {
-	PropertyTypeID string
-	ValueTypeID    string
-	DefaultValue   string // Default value from the template's ValueType
-	ValueType      string // Type of value (Boolean, Integer, String, DataSource, etc.)
-	Required       bool   // Whether this property is required
-	// DefaultTranslations are the widget-shipped <translations> for this
-	// property. A required TextTemplate the author leaves unset serializes with
-	// this text — null is CE0463, empty is CE4899 (#891).
-	DefaultTranslations []PropertyTranslation
-	// For object list properties (IsList=true with ObjectType), these hold nested IDs
-	ObjectTypeID      string                         // ID of the nested ObjectType (for object lists like columns)
-	NestedPropertyIDs map[string]PropertyTypeIDEntry // Property IDs within the nested ObjectType
-	NestedKeyOrder    []string                       // Keys of NestedPropertyIDs in template PropertyTypes order; empty when no nested ObjectType
-}
+// PropertyTypeIDEntry and PropertyTranslation are re-exports of the canonical
+// types in mdl/types, NOT separate definitions.
+//
+// They used to be a second declaration of the same shape, with
+// convertPropTypeIDs (mdl/backend/modelsdk) copying field by field between the
+// two. That copy is where a template's DataSourceProperty — the widget's own
+// statement of which datasource a dependent property binds against — was
+// silently dropped: the loader reads it, the engine never saw it, and nothing
+// failed. A hand-maintained copy between two spellings of one type can only
+// lose fields, never gain them, so the two spellings are now one type.
+//
+// mdl/types has no internal dependencies, so aliasing it here adds no import
+// cycle. Same pattern as sdk/mpr's re-exports (CLAUDE.md: shared types live in
+// mdl/types; other packages re-export as aliases, never as duplicates).
+type (
+	PropertyTranslation = types.PropertyTranslation
+	PropertyTypeIDEntry = types.PropertyTypeIDEntry
+)
 
 // CustomWidgetType defines the pluggable widget type (CustomWidgets$CustomWidgetType).
 type CustomWidgetType struct {

@@ -226,6 +226,11 @@ func validateDatasourceXPathAssociationEmpty(w *ast.WidgetV3, locationPrefix str
 	return out
 }
 
+// comboBoxOptionsDataSourceKey is the ComboBox schema property holding the
+// association mode's option list — the named spelling of what the generic
+// `datasource:` clause fills.
+const comboBoxOptionsDataSourceKey = "optionsSourceAssociationDataSource"
+
 // validateComboBoxAssociation flags an incomplete association-mode ComboBox.
 // A ComboBox that binds an association (`Association:`) needs an options
 // datasource (`DataSource:`, the entity whose objects populate the dropdown) and
@@ -242,6 +247,13 @@ func validateComboBoxAssociation(w *ast.WidgetV3, locationPrefix string) []linte
 	}
 	if w.GetDataSource() != nil {
 		return nil // has an options datasource — association mode is complete enough
+	}
+	// The option list may also be given under the schema key the widget declares
+	// for it. Reading only the generic clause made this rule contradict
+	// MDL-WIDGET05, which had just accepted the same value: one said the
+	// datasource was fine, the other that there was none.
+	if _, named := lookupProperty(w.Properties, comboBoxOptionsDataSourceKey); named {
+		return nil
 	}
 	return []linter.Violation{{
 		RuleID:   "MDL-WIDGET16",
@@ -1106,17 +1118,27 @@ func validatePluggableWidgetProperties(w *ast.WidgetV3, registry *WidgetRegistry
 		}
 		lower := strings.ToLower(key)
 
-		// A datasource-typed property must be supplied via the widget's
-		// `datasource:` clause (which the engine reads), NOT as a named value
-		// like `optionsSourceAssociationDataSource: Module.Entity` — that lands
-		// in a different slot and is silently dropped, so the widget builds
-		// without an entity (CE0642). Flag it instead of passing it (issue #643).
+		// A datasource-typed property takes a DATASOURCE, which the engine reads
+		// under the property's own key — `optionsSourceAssociationDataSource:
+		// database from Module.Entity`. That is how a widget exposing several of
+		// them is addressed, and it is accepted here.
+		//
+		// A scalar in the same slot is not: `optionsSourceAssociationDataSource:
+		// Module.Entity` merely names an entity, cannot be stored as a
+		// datasource, and used to pass `check` and `exec` and then fail the build
+		// with CE0642 "Property 'Entity' is required" — the silent drop behind
+		// issue #643. The distinction is the VALUE's shape, not the key's.
 		if dsKeys[lower] {
+			if raw, ok := lookupProperty(w.Properties, key); ok {
+				if _, isDS := raw.(*ast.DataSourceV3); isDS {
+					continue
+				}
+			}
 			out = append(out, linter.Violation{
 				RuleID:   "MDL-WIDGET05",
 				Severity: linter.SeverityError,
 				Message: fmt.Sprintf(
-					"%s: widget `%s` (%s) property `%s` is datasource-typed — provide it via the widget `datasource:` clause (e.g. `datasource: database Module.Entity`); a value written as `%s: …` is not persisted",
+					"%s: widget `%s` (%s) property `%s` is datasource-typed — give it a datasource (e.g. `%s: database from Module.Entity`) or use the widget `datasource:` clause; the value written here names an entity but is not a datasource, and is not persisted",
 					locationPrefix, w.Name, def.MDLName, key, key,
 				),
 			})
@@ -1248,13 +1270,28 @@ func actionStorageKeys(def *WidgetDefinition) map[string]string {
 	return out
 }
 
-// These must be authored via the widget `datasource:` clause, not by name.
+// datasourceTypedKeys returns every MDL spelling that takes a datasource: each
+// datasource mapping's property key AND its aliases.
+//
+// The aliases belong here for the same reason the key does. namedDataSourceValue
+// resolves a value under either, so both are authorable — and a SCALAR under
+// either has to be caught. Listing only the key let `ItemsSource: 'x'` past this
+// check and on into the generic property handling below, which is the exact
+// silent drop (#643) this rule exists to stop, reached by the other spelling.
 func datasourceTypedKeys(def *WidgetDefinition) map[string]bool {
 	out := make(map[string]bool)
 	collect := func(ms []PropertyMapping) {
 		for _, m := range ms {
-			if m.Operation == "datasource" && m.PropertyKey != "" {
+			if m.Operation != "datasource" {
+				continue
+			}
+			if m.PropertyKey != "" {
 				out[strings.ToLower(m.PropertyKey)] = true
+			}
+			for _, alias := range m.MdlAliases {
+				if alias != "" {
+					out[strings.ToLower(alias)] = true
+				}
 			}
 		}
 	}

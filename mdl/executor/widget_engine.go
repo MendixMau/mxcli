@@ -257,6 +257,34 @@ type PluggableWidgetEngine struct {
 	// consults it to tell the widget's PRIMARY attribute property from its others
 	// (#238); nil outside a build.
 	currentDef *WidgetDefinition
+
+	// currentPropertyTypeIDs is the loaded template's property metadata for the
+	// build in progress. Its DataSourceProperty is the WIDGET'S OWN statement of
+	// which of its datasources each dependent property binds against — read from
+	// widget.xml's `dataSource="…"`, so it is the vendor's answer rather than
+	// ours. nil outside a build.
+	currentPropertyTypeIDs map[string]pages.PropertyTypeIDEntry
+
+	// dataSourceEntities maps a datasource property's KEY to the entity that
+	// property's value resolved to, for the build in progress.
+	//
+	// pageBuilder.entityContext holds only ONE entity — whichever datasource
+	// mapping ran last — so on a widget with several datasources a dependent
+	// property bound to whatever happened to be applied before it. That is
+	// correct only while the .def.json interleaves each datasource with its own
+	// dependents, which is a convention nothing enforces and which a regenerated
+	// definition can silently break. Keyed per datasource, the binding is a
+	// property of the widget's schema rather than of its mapping order.
+	//
+	// Reset per Build and restored for nested widgets, like the fields above.
+	dataSourceEntities map[string]string
+
+	// currentDataSourceKeys lists, in definition order, the property keys of the
+	// selected mode's datasource mappings. One key (or none) means the generic
+	// `datasource:` clause is unambiguous and stays the convenience form it has
+	// always been; more than one means it names nothing in particular, and the
+	// keys here are what the refusal offers instead. nil outside a build.
+	currentDataSourceKeys []string
 }
 
 // NewPluggableWidgetEngine creates a new engine with the given backend and page builder.
@@ -303,9 +331,31 @@ func (e *PluggableWidgetEngine) Build(def *WidgetDefinition, w *ast.WidgetV3) (*
 
 	propertyTypeIDs := builder.PropertyTypeIDs()
 
+	// The template's per-property datasource links, and the per-datasource
+	// entities the mappings below will fill in. Saved/restored like currentDef,
+	// so a nested widget cannot see its parent's.
+	oldPropertyTypeIDs := e.currentPropertyTypeIDs
+	oldDataSourceEntities := e.dataSourceEntities
+	oldDataSourceKeys := e.currentDataSourceKeys
+	e.currentPropertyTypeIDs = propertyTypeIDs
+	e.dataSourceEntities = nil
+	e.currentDataSourceKeys = nil
+	defer func() {
+		e.currentPropertyTypeIDs = oldPropertyTypeIDs
+		e.dataSourceEntities = oldDataSourceEntities
+		e.currentDataSourceKeys = oldDataSourceKeys
+	}()
+
 	// 2. Select mode and get mappings/slots
 	mappings, slots, err := e.selectMappings(def, w)
 	if err != nil {
+		return nil, err
+	}
+	e.currentDataSourceKeys = dataSourceMappingKeys(mappings)
+	if err := refuseLinkedDataSourceMapping(def, mappings, propertyTypeIDs); err != nil {
+		return nil, err
+	}
+	if err := refuseAmbiguousGenericDataSource(def, w, e.currentDataSourceKeys); err != nil {
 		return nil, err
 	}
 
@@ -378,19 +428,30 @@ func (e *PluggableWidgetEngine) Build(def *WidgetDefinition, w *ast.WidgetV3) (*
 	}
 	if !dsHandledByMapping {
 		if ds := w.GetDataSource(); ds != nil {
-			for propKey, entry := range propertyTypeIDs {
-				if entry.ValueType == "DataSource" {
-					dataSource, entityName, err := e.pageBuilder.buildDataSourceV3(ds)
-					if err != nil {
-						return nil, mdlerrors.NewBackend("auto datasource for "+propKey, err)
-					}
-					builder.SetDataSource(propKey, dataSource)
-					if entityName != "" {
-						e.pageBuilder.entityContext = entityName
-						e.pageBuilder.contextVarName = contextVarFor(ds)
-						e.pageBuilder.contextKnown = true
-					}
-					break
+			// The template's datasource-typed properties, sorted — propertyTypeIDs
+			// is a map, and this used to take the first one Go's randomised
+			// iteration happened to yield, then break. On a widget declaring two
+			// (a DatagridDropdownFilter's linkedDs and refOptions) that made the
+			// clause land somewhere different from run to run: the same script
+			// produced different documents, with no error either way.
+			dsProps := dataSourceTypedTemplateKeys(propertyTypeIDs)
+			if len(dsProps) > 1 {
+				return nil, mdlerrors.NewValidationf(
+					"widget `%s` (%s) declares %d datasource properties, so a generic `datasource:` clause "+
+						"is ambiguous — name the one you mean: %s",
+					w.Name, def.MDLName, len(dsProps), strings.Join(dsProps, ", "))
+			}
+			for _, propKey := range dsProps {
+				dataSource, entityName, err := e.pageBuilder.buildDataSourceV3(ds)
+				if err != nil {
+					return nil, mdlerrors.NewBackend("auto datasource for "+propKey, err)
+				}
+				builder.SetDataSource(propKey, dataSource)
+				e.recordDataSourceEntity(propKey, entityName)
+				if entityName != "" {
+					e.pageBuilder.entityContext = entityName
+					e.pageBuilder.contextVarName = contextVarFor(ds)
+					e.pageBuilder.contextKnown = true
 				}
 			}
 		}
@@ -877,7 +938,7 @@ func (e *PluggableWidgetEngine) selectMappings(def *WidgetDefinition, w *ast.Wid
 			}
 			continue
 		}
-		if e.evaluateCondition(mode.Condition, w) {
+		if e.evaluateCondition(mode.Condition, w, mode.PropertyMappings) {
 			return mode.PropertyMappings, mode.ChildSlots, nil
 		}
 	}
@@ -893,10 +954,33 @@ func (e *PluggableWidgetEngine) selectMappings(def *WidgetDefinition, w *ast.Wid
 }
 
 // evaluateCondition checks a built-in condition string against the AST widget.
-func (e *PluggableWidgetEngine) evaluateCondition(condition string, w *ast.WidgetV3) bool {
+//
+// mappings are the candidate mode's own PropertyMappings, which the datasource
+// conditions need: a mode gated on a datasource must be selected by the
+// datasource THAT MODE owns, not by any datasource-shaped value on the widget.
+func (e *PluggableWidgetEngine) evaluateCondition(condition string, w *ast.WidgetV3, mappings []PropertyMapping) bool {
 	switch {
+	case strings.HasPrefix(condition, "hasDataSource:"):
+		// One named datasource selects the mode. This is the legible form for a
+		// widget whose modes are mutually exclusive by WHICH datasource is set —
+		// a ComboBox's association vs database — because the def.json then says
+		// which one, instead of leaving it to mode order.
+		key := strings.TrimPrefix(condition, "hasDataSource:")
+		return namedDataSourceValue(dataSourceMappingFor(mappings, key), w) != nil
 	case condition == "hasDataSource":
-		return w.GetDataSource() != nil
+		if w.GetDataSource() != nil {
+			return true
+		}
+		// A mode whose datasource was given by name must still activate. Only
+		// the mode's DATASOURCE mappings are consulted: a microflow action and a
+		// microflow datasource parse to the same AST shape, so scanning every
+		// property would let an `OnChange:` select a datasource mode.
+		for _, m := range mappings {
+			if m.Operation == "datasource" && namedDataSourceValue(m, w) != nil {
+				return true
+			}
+		}
+		return false
 	case condition == "hasAttribute":
 		return w.GetAttribute() != ""
 	case strings.HasPrefix(condition, "hasProp:"):
@@ -905,6 +989,20 @@ func (e *PluggableWidgetEngine) evaluateCondition(condition string, w *ast.Widge
 	default:
 		return false
 	}
+}
+
+// dataSourceMappingFor returns the mode's datasource mapping with the given
+// property key, so the condition resolves the value under that mapping's aliases
+// too. A key the mode does not declare yields a bare mapping, which still matches
+// the property written under that exact name — a condition naming a key with no
+// mapping is a definition bug, not a reason to ignore what the script wrote.
+func dataSourceMappingFor(mappings []PropertyMapping, key string) PropertyMapping {
+	for _, m := range mappings {
+		if strings.EqualFold(m.PropertyKey, key) {
+			return m
+		}
+	}
+	return PropertyMapping{PropertyKey: key}
 }
 
 // namedPropValue returns the MDL value written for a mapping's property, matched
@@ -922,6 +1020,154 @@ func namedPropValue(mapping PropertyMapping, w *ast.WidgetV3) string {
 		}
 	}
 	return ""
+}
+
+// namedDataSourceValue returns the datasource a script authored under a
+// mapping's own schema key (or one of its aliases):
+//
+//	optionsSourceAssociationDataSource: database from Sales.Customer
+//
+// Deliberately separate from namedPropValue: that one goes through stringifyAny,
+// which would flatten the structured AST into text and lose the source kind, its
+// arguments and its constraint. Returns nil when the property is absent or holds
+// something that is not a datasource — a scalar there is MDL-WIDGET05's business,
+// not this function's.
+func namedDataSourceValue(mapping PropertyMapping, w *ast.WidgetV3) *ast.DataSourceV3 {
+	names := append([]string{mapping.PropertyKey}, mapping.MdlAliases...)
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		if v, ok := lookupProperty(w.Properties, name); ok {
+			if ds, ok := v.(*ast.DataSourceV3); ok {
+				return ds
+			}
+		}
+	}
+	return nil
+}
+
+// dataSourceTypedTemplateKeys returns the template's datasource-typed property
+// keys, sorted. Sorted rather than in template order because propertyTypeIDs is a
+// map and carries no order; the only caller refuses the ambiguous case anyway, so
+// the order decides nothing but the wording of its message.
+func dataSourceTypedTemplateKeys(propertyTypeIDs map[string]pages.PropertyTypeIDEntry) []string {
+	var keys []string
+	for propKey, entry := range propertyTypeIDs {
+		if entry.ValueType == "DataSource" {
+			keys = append(keys, propKey)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// dataSourceMappingKeys returns the property keys of a mode's datasource
+// mappings, in definition order.
+func dataSourceMappingKeys(mappings []PropertyMapping) []string {
+	var keys []string
+	for _, m := range mappings {
+		if m.Source == "DataSource" && m.PropertyKey != "" {
+			keys = append(keys, m.PropertyKey)
+		}
+	}
+	return keys
+}
+
+// refuseLinkedDataSourceMapping rejects a definition that maps a datasource the
+// PLATFORM owns.
+//
+// A widget.xml `isLinked="true"` datasource is filled from the containing
+// widget: a Data Grid 2 column filter's `linkedDs` ("Datasource to Filter")
+// comes from the grid it sits in. Measured on Mendix 11.6.6 — five Studio
+// Pro-authored drop-down filters store it EMPTY, a filter written without it
+// passes `mx check` at 0 errors, and a filter written WITH it still fails
+// CE0642 "Property 'Datasource to Filter' is required", because mxbuild resolves
+// the property from the parent rather than reading what is stored.
+//
+// So writing one is not merely useless, it is authoring what the model does not
+// own (ADR-0005, the same reasoning as a constant's shared/private choice).
+// Refused rather than skipped: a .def.json naming it is a mistake to report, and
+// a silently ignored mapping is how the author concludes mxcli wrote it.
+func refuseLinkedDataSourceMapping(def *WidgetDefinition, mappings []PropertyMapping, propertyTypeIDs map[string]pages.PropertyTypeIDEntry) error {
+	for _, m := range mappings {
+		if m.Operation != "datasource" || m.PropertyKey == "" {
+			continue
+		}
+		if propertyTypeIDs[m.PropertyKey].IsLinked {
+			return mdlerrors.NewValidationf(
+				"widget %s definition maps `%s`, which the widget declares as a LINKED datasource — "+
+					"it is filled from the containing widget (a Data Grid 2 supplies its column filter's), "+
+					"not from MDL, and a value written there does not satisfy it. Remove the mapping",
+				def.MDLName, m.PropertyKey)
+		}
+	}
+	return nil
+}
+
+// refuseAmbiguousGenericDataSource rejects the generic `datasource:` clause on a
+// widget that exposes more than one.
+//
+// The clause is the single-source convenience form: it says "the datasource"
+// where the widget has several, so there is no answer to give. Guessing one has
+// been tried both ways and neither is defensible — feeding it to every mapping
+// duplicates one binding across unrelated slots, and feeding it to the first
+// leaves the others unset, which mxbuild reports as CE0642 against a property the
+// author never mentioned. Name the schema key instead; the message lists them.
+func refuseAmbiguousGenericDataSource(def *WidgetDefinition, w *ast.WidgetV3, dsKeys []string) error {
+	if len(dsKeys) < 2 || w.GetDataSource() == nil {
+		return nil
+	}
+	return mdlerrors.NewValidationf(
+		"widget `%s` (%s) exposes %d datasources, so a generic `datasource:` clause is ambiguous — "+
+			"name the one you mean: %s",
+		w.Name, def.MDLName, len(dsKeys), strings.Join(dsKeys, ", "))
+}
+
+// entityContextFor returns the entity that propertyKey's value binds against.
+//
+// The template says so directly when the property declares a DataSourceProperty
+// (widget.xml `dataSource="…"`): a DatagridDropdownFilter's `refCaption` names
+// an attribute of `refOptions`' entity, never of `linkedDs`'. Everything else —
+// which is every single-datasource widget — falls back to the one shared
+// entityContext, so the fallback branch is today's behaviour unchanged.
+func (e *PluggableWidgetEngine) entityContextFor(propertyKey string) string {
+	if key := e.currentPropertyTypeIDs[propertyKey].DataSourceProperty; key != "" {
+		if entity := e.dataSourceEntities[key]; entity != "" {
+			return entity
+		}
+	}
+	return e.pageBuilder.entityContext
+}
+
+// itemEntityContextFor returns the entity an object-list item property binds
+// against: the one its own datasource resolved to when the widget declares that
+// link, and the item's shared context otherwise.
+//
+// The item twin of entityContextFor. Same fallback, so a series configuring one
+// datasource — which is every series in every mode, since `dataSet` selects
+// static or dynamic — resolves exactly as before.
+func (e *PluggableWidgetEngine) itemEntityContextFor(ip ItemPropertyMapping, prebuiltEntities map[string]string) string {
+	if ip.DataSource != "" {
+		if entity := prebuiltEntities[ip.DataSource]; entity != "" {
+			return entity
+		}
+	}
+	return e.pageBuilder.entityContext
+}
+
+// recordDataSourceEntity remembers the entity a datasource property resolved to,
+// so the properties declaring it as their DataSourceProperty can bind against it.
+// Lazily allocated: resolveMapping is also called directly by unit tests, which
+// never go through Build.
+func (e *PluggableWidgetEngine) recordDataSourceEntity(propertyKey, entityName string) {
+	if propertyKey == "" || entityName == "" {
+		return
+	}
+	if e.dataSourceEntities == nil {
+		e.dataSourceEntities = make(map[string]string)
+	}
+	e.dataSourceEntities[propertyKey] = entityName
 }
 
 // resolveMapping resolves a PropertyMapping's source into a BuildContext.
@@ -988,15 +1234,18 @@ func (e *PluggableWidgetEngine) resolveMapping(mapping PropertyMapping, w *ast.W
 			attr = w.GetAttribute()
 		}
 		if attr != "" {
+			// Against THIS property's datasource entity, which is the shared
+			// entityContext unless the template links it to a specific one.
+			entity := e.entityContextFor(mapping.PropertyKey)
 			// An association named where an attribute belongs cannot be stored;
 			// refuse it here rather than writing a dangling AttributeRef (#830).
 			if err := e.pageBuilder.rejectAssociationAsAttribute(
-				attr, e.pageBuilder.entityContext,
+				attr, entity,
 				fmt.Sprintf("widget `%s` property `%s`", w.Name, mapping.PropertyKey),
 			); err != nil {
 				return nil, err
 			}
-			ctx.AttributePath = e.pageBuilder.resolveAttributePath(attr)
+			ctx.AttributePath = e.pageBuilder.resolveAttributePathForEntity(attr, entity)
 		}
 
 	case "TextTemplate":
@@ -1012,20 +1261,34 @@ func (e *PluggableWidgetEngine) resolveMapping(mapping PropertyMapping, w *ast.W
 
 	case "Attributes":
 		if attrs := w.GetAttributes(); len(attrs) > 0 {
+			entity := e.entityContextFor(mapping.PropertyKey)
 			ctx.AttributePaths = make([]string, 0, len(attrs))
 			for _, attr := range attrs {
-				ctx.AttributePaths = append(ctx.AttributePaths, e.pageBuilder.resolveAttributePath(attr))
+				ctx.AttributePaths = append(ctx.AttributePaths,
+					e.pageBuilder.resolveAttributePathForEntity(attr, entity))
 			}
 		}
 
 	case "DataSource":
-		if ds := w.GetDataSource(); ds != nil {
+		// Prefer the datasource authored under THIS mapping's own key, so a
+		// widget with several can be given each of them. The generic clause
+		// remains the fallback for the single-datasource widgets it was built
+		// for; on a multi-datasource one it never reaches here, having been
+		// refused in Build with the keys to use instead.
+		ds := namedDataSourceValue(mapping, w)
+		if ds == nil && len(e.currentDataSourceKeys) <= 1 {
+			ds = w.GetDataSource()
+		}
+		if ds != nil {
 			dataSource, entityName, err := e.pageBuilder.buildDataSourceV3(ds)
 			if err != nil {
 				return nil, mdlerrors.NewBackend("build datasource", err)
 			}
 			ctx.DataSource = dataSource
 			ctx.EntityName = entityName
+			// Keyed by THIS datasource's property, for the dependents that name
+			// it, as well as into the shared context for everything else.
+			e.recordDataSourceEntity(mapping.PropertyKey, entityName)
 			if entityName != "" {
 				e.pageBuilder.entityContext = entityName
 				e.pageBuilder.contextVarName = contextVarFor(ds)
@@ -1045,8 +1308,8 @@ func (e *PluggableWidgetEngine) resolveMapping(mapping PropertyMapping, w *ast.W
 
 	case "CaptionAttribute":
 		if captionAttr := w.GetStringProp("CaptionAttribute"); captionAttr != "" {
-			if !strings.Contains(captionAttr, ".") && e.pageBuilder.entityContext != "" {
-				captionAttr = e.pageBuilder.entityContext + "." + captionAttr
+			if entity := e.entityContextFor(mapping.PropertyKey); !strings.Contains(captionAttr, ".") && entity != "" {
+				captionAttr = entity + "." + captionAttr
 			}
 			ctx.AttributePath = captionAttr
 		}
@@ -1075,7 +1338,7 @@ func (e *PluggableWidgetEngine) resolveMapping(mapping PropertyMapping, w *ast.W
 			}
 			ctx.AssocPath = e.pageBuilder.resolveAssociationPathIn(attr, outer)
 		}
-		ctx.EntityName = e.pageBuilder.entityContext
+		ctx.EntityName = e.entityContextFor(mapping.PropertyKey)
 		if ctx.AssocPath != "" && ctx.EntityName == "" {
 			return nil, mdlerrors.NewValidationf("association %q requires an entity context (add a DataSource mapping before Association)", ctx.AssocPath)
 		}
@@ -1292,6 +1555,15 @@ func (e *PluggableWidgetEngine) buildObjectListItem(mapping *ObjectListMapping, 
 	// regardless of schema property order. The built DataSource is emitted in
 	// the main loop's "datasource" case.
 	prebuiltDataSources := make(map[string]pages.DataSource)
+	// The entity each of those datasources resolved to, keyed by its property.
+	// pageBuilder.entityContext holds only the LAST one, which is wrong the
+	// moment an item configures two — a chart series given both a static and a
+	// dynamic datasource bound its STATIC x/y attributes against the dynamic
+	// one's entity and wrote CH.Forecast.Region, a reference to an attribute
+	// that entity does not have (CE1613). The widget states the link per
+	// property (widget.xml `dataSource="…"`, carried as ItemPropertyMapping's
+	// DataSource), so it is read rather than inferred from order.
+	prebuiltEntities := make(map[string]string)
 	for _, ip := range mapping.ItemProperties {
 		if ip.Operation != "datasource" {
 			continue
@@ -1324,6 +1596,7 @@ func (e *PluggableWidgetEngine) buildObjectListItem(mapping *ObjectListMapping, 
 		}
 		prebuiltDataSources[ip.PropertyKey] = dataSource
 		if entityName != "" {
+			prebuiltEntities[ip.PropertyKey] = entityName
 			e.pageBuilder.entityContext = entityName
 		}
 	}
@@ -1397,7 +1670,7 @@ func (e *PluggableWidgetEngine) buildObjectListItem(mapping *ObjectListMapping, 
 			prop.Expression = strVal
 		case "texttemplate":
 			prop.TextTemplate = strVal
-			prop.EntityContext = e.pageBuilder.entityContext
+			prop.EntityContext = e.itemEntityContextFor(ip, prebuiltEntities)
 			// Look up the matching params companion in the AST. Convention:
 			// when MDL writes `Caption: '{1}'` it pairs with `CaptionParams:
 			// [{1} = attr]`. The companion key is the matched name (alias or
@@ -1419,19 +1692,22 @@ func (e *PluggableWidgetEngine) buildObjectListItem(mapping *ObjectListMapping, 
 			// An attribute navigated over associations (e.g. Order_Customer/Name)
 			// resolves to a final attribute + association steps (AttributeRef.EntityRef);
 			// a flat path is left as-is. Mirrors the DynamicText contentparam path.
+			// Against THIS property's own datasource, which is the item's shared
+			// context unless the widget links it to a specific one.
+			entity := e.itemEntityContextFor(ip, prebuiltEntities)
 			if finalQN, steps, ok := e.pageBuilder.resolveAssociationAttributePath(strVal); ok {
 				prop.AttributePath = finalQN
 				prop.AttributeRefSteps = steps
-			} else if e.pageBuilder.entityContext != "" {
+			} else if entity != "" {
 				// A bare ASSOCIATION name here is not representable — it would be
 				// written as an AttributeRef and fail CE1613 (issue #830).
 				if err := e.pageBuilder.rejectAssociationAsAttribute(
-					strVal, e.pageBuilder.entityContext,
+					strVal, entity,
 					fmt.Sprintf("%s `%s` property `%s`", mapping.MDLContainer, child.Name, ip.PropertyKey),
 				); err != nil {
 					return spec, err
 				}
-				prop.AttributePath = e.pageBuilder.resolveAttributePath(strVal)
+				prop.AttributePath = e.pageBuilder.resolveAttributePathForEntity(strVal, entity)
 			} else {
 				prop.AttributePath = strVal
 			}

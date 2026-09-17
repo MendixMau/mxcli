@@ -1362,9 +1362,9 @@ func (e *Executor) extractCustomWidgetPropertyAssociation(w map[string]any, prop
 	return extractCustomWidgetPropertyAssociation(e.newExecContext(context.Background()), w, propertyKey)
 }
 
-// anyCustomWidgetDataSource returns the first datasource a pluggable widget's
-// properties hold that names something — skipping any that parse to an empty
-// reference.
+// namedCustomWidgetDataSources returns every datasource a pluggable widget's
+// properties hold that names something, each with the schema property key it
+// was stored under — skipping any that parse to an empty reference.
 //
 // firstObjectPropertyDataSource is NOT a substitute, and the difference is the
 // whole point: it returns as soon as a property's DataSource parses to a
@@ -1372,11 +1372,22 @@ func (e *Executor) extractCustomWidgetPropertyAssociation(w map[string]any, prop
 // property ahead of its real one, so the caller received an empty datasource,
 // discarded it, and described the widget as having none — which is exactly the
 // silent drop this exists to prevent (#956).
-func anyCustomWidgetDataSource(w map[string]any) *rawDataSource {
+//
+// The empty-reference filter also decides the single-vs-multi question for the
+// caller: an unset second datasource parses to no reference and drops out, so a
+// widget with one configured source is still described with the generic clause.
+//
+// A key that cannot be resolved from the widget's PropertyTypes is returned
+// EMPTY rather than skipped. Skipping it would lose the datasource entirely,
+// which is #956 again — the caller falls back to the unnamed spelling, which is
+// the same output as before there was a key to print.
+func namedCustomWidgetDataSources(w map[string]any) []rawNamedDataSource {
 	obj, ok := w["Object"].(map[string]any)
 	if !ok {
 		return nil
 	}
+	propTypeKeyMap := buildPropertyTypeKeyMap(w, true)
+	var out []rawNamedDataSource
 	for _, prop := range getBsonArrayElements(obj["Properties"]) {
 		propMap, ok := prop.(map[string]any)
 		if !ok {
@@ -1391,10 +1402,13 @@ func anyCustomWidgetDataSource(w map[string]any) *rawDataSource {
 			continue
 		}
 		if result := parseDataSource(ds); result != nil && result.Reference != "" {
-			return result
+			out = append(out, rawNamedDataSource{
+				Key:        propTypeKeyMap[extractBinaryID(propMap["TypePointer"])],
+				DataSource: result,
+			})
 		}
 	}
-	return nil
+	return out
 }
 
 // parseColumnSlotWidgets reads the widgets stored in one of a DataGrid2 column's

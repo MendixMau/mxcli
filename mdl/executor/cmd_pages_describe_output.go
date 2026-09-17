@@ -459,7 +459,7 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 	case "Forms$DataView", "Pages$DataView":
 		header := fmt.Sprintf("dataview %s", mdlIdent(w.Name))
 		props := []string{}
-		props = appendDataSourceProp(props, w.DataSource)
+		props = appendWidgetDataSources(props, w)
 		switch {
 		case w.LabelWidth == 0:
 			props = append(props, "FormOrientation: Vertical")
@@ -575,7 +575,7 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 		if widgetType == "datagrid2" && (w.DataSource != nil || len(w.DataGridColumns) > 0) {
 			header := fmt.Sprintf("datagrid %s", mdlIdent(w.Name))
 			props := []string{}
-			props = appendDataSourceProp(props, w.DataSource)
+			props = appendWidgetDataSources(props, w)
 			// Add selection mode if specified
 			if w.Selection != "" {
 				props = append(props, fmt.Sprintf("Selection: %s", w.Selection))
@@ -614,7 +614,7 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 			// Handle Gallery specially with datasource, selection, filter and content widgets
 			header := fmt.Sprintf("gallery %s", mdlIdent(w.Name))
 			props := []string{}
-			props = appendDataSourceProp(props, w.DataSource)
+			props = appendWidgetDataSources(props, w)
 			// Add column counts if non-default
 			if w.DesktopColumns != "" && w.DesktopColumns != "1" {
 				props = append(props, fmt.Sprintf("DesktopColumns: %s", w.DesktopColumns))
@@ -680,7 +680,7 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 			// two CE1571, because the action's parameter loses its default once
 			// the datasource is gone. The DESCRIBE text was byte-identical before
 			// and after, so only mx check separated them (#956).
-			props = appendDataSourceProp(props, w.DataSource)
+			props = appendWidgetDataSources(props, w)
 			for _, ep := range w.ExplicitProperties {
 				props = append(props, fmt.Sprintf("%s: %s", ep.Key, explicitPropValue(ep)))
 			}
@@ -758,8 +758,9 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 			// ComboBox's (reference + option list + caption), so it re-emits
 			// through the same branch — without it the filter described back as a
 			// bare `dropdownfilter name` and the mode was lost on re-exec (#830).
-			if w.DataSource != nil && (widgetType == "combobox" || widgetType == "dropdownfilter") {
-				props = appendDataSourceProp(props, w.DataSource)
+			if (w.DataSource != nil || len(w.NamedDataSources) > 0) &&
+				(widgetType == "combobox" || widgetType == "dropdownfilter") {
+				props = appendWidgetDataSources(props, w)
 				if w.CaptionAttribute != "" {
 					props = append(props, fmt.Sprintf("CaptionAttribute: %s", w.CaptionAttribute))
 				}
@@ -807,7 +808,7 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 	case "Forms$Gallery", "Pages$Gallery":
 		header := fmt.Sprintf("gallery %s", mdlIdent(w.Name))
 		props := []string{}
-		props = appendDataSourceProp(props, w.DataSource)
+		props = appendWidgetDataSources(props, w)
 		props = appendAppearanceProps(props, w)
 		if len(w.Children) > 0 {
 			formatWidgetProps(ctx.Output, prefix, header, props, " {\n")
@@ -850,7 +851,7 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 		// ListView (also used for Gallery serialization)
 		header := fmt.Sprintf("listview %s", mdlIdent(w.Name))
 		props := []string{}
-		props = appendDataSourceProp(props, w.DataSource)
+		props = appendWidgetDataSources(props, w)
 		// Emit a non-default PageSize so it round-trips (Studio Pro's default is 20).
 		if w.PageSize != "" && w.PageSize != "20" {
 			props = append(props, fmt.Sprintf("PageSize: %s", w.PageSize))

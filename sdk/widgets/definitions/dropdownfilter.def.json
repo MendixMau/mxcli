@@ -12,21 +12,49 @@
     {
       "name": "association",
       "condition": "hasDataSource",
-      "description": "Association mode — filter the grid by a reference (baseType 'ref'). The widget's `datasource:` is the OPTION list (the associated entity), not the grid's own datasource; `Association:` names the reference on the grid entity and `CaptionAttribute:` is what each option shows.",
+      "description": "Association mode — filter the grid by a reference (baseType 'ref'). The widget's `datasource:` is the OPTION list (the associated entity), not the grid's own datasource; `Association:` names the reference on the grid entity and `CaptionAttribute:` is what each option shows. `linkedDs` (the grid's own list) is deliberately NOT mapped: the widget declares it isLinked, so the containing Data Grid 2 fills it. Measured on 11.6.6 — five Studio Pro-authored filters store it empty, this shape passes mx check at 0 errors, and a filter written WITH it still fails CE0642 \"Property 'Datasource to Filter' is required\". A definition mapping it is refused at build time.",
       "propertyMappings": [
-        {"propertyKey": "baseType", "value": "ref", "operation": "primitive"},
-        {"propertyKey": "refOptions", "source": "DataSource", "operation": "datasource"},
-        {"propertyKey": "refEntity", "source": "Association", "operation": "association"},
-        {"propertyKey": "refCaption", "source": "CaptionAttribute", "operation": "attribute"}
+        {
+          "propertyKey": "baseType",
+          "value": "ref",
+          "operation": "primitive"
+        },
+        {
+          "propertyKey": "refOptions",
+          "source": "DataSource",
+          "operation": "datasource"
+        },
+        {
+          "propertyKey": "refEntity",
+          "source": "Association",
+          "operation": "association"
+        },
+        {
+          "propertyKey": "refCaption",
+          "source": "CaptionAttribute",
+          "operation": "attribute"
+        }
       ]
     },
     {
       "name": "default",
       "description": "Attribute mode — filter on the column's own attribute.",
       "propertyMappings": [
-        {"propertyKey": "attrChoice", "value": "auto", "operation": "primitive"},
-        {"propertyKey": "attributes", "source": "Attributes", "operation": "attributeObjects"},
-        {"propertyKey": "defaultFilter", "source": "FilterType", "operation": "primitive"}
+        {
+          "propertyKey": "attrChoice",
+          "value": "auto",
+          "operation": "primitive"
+        },
+        {
+          "propertyKey": "attributes",
+          "source": "Attributes",
+          "operation": "attributeObjects"
+        },
+        {
+          "propertyKey": "defaultFilter",
+          "source": "FilterType",
+          "operation": "primitive"
+        }
       ]
     }
   ]
