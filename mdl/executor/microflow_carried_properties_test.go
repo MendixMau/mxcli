@@ -38,7 +38,7 @@ func TestCreateOrModifyMicroflow_PreservesDeepLinkURL(t *testing.T) {
 		ContainerID:         moduleID,
 		Name:                "ACT_Item",
 		URL:                 "item/{Key}",
-		URLSearchParameters: []string{"MyModule.ACT_Item.Key"},
+		URLSearchParameters: []string{"MyModule.ACT_Item.Filter"},
 	}}
 	ctx, written := microflowWriteProbe(t, stored, moduleID)
 
@@ -55,8 +55,8 @@ func TestCreateOrModifyMicroflow_PreservesDeepLinkURL(t *testing.T) {
 	if got := (*written).URL; got != "item/{Key}" {
 		t.Errorf("rewrite dropped the deep-link URL: got %q, want %q", got, "item/{Key}")
 	}
-	if got := (*written).URLSearchParameters; len(got) != 1 || got[0] != "MyModule.ACT_Item.Key" {
-		t.Errorf("rewrite dropped UrlSearchParameters: got %v, want [MyModule.ACT_Item.Key]", got)
+	if got := (*written).URLSearchParameters; len(got) != 1 || got[0] != "MyModule.ACT_Item.Filter" {
+		t.Errorf("rewrite dropped UrlSearchParameters: got %v, want [MyModule.ACT_Item.Filter]", got)
 	}
 }
 

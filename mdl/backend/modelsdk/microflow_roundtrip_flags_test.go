@@ -103,10 +103,17 @@ func TestMicroflowRoundTrip_ApplyEntityAccess(t *testing.T) {
 // it reached a user as #1120. UrlSearchParameters is stored beside it and was
 // lost with it.
 func TestMicroflowRoundTrip_DeepLinkURL(t *testing.T) {
+	// The two parameters are deliberately DIFFERENT. A parameter used in the
+	// URL path may not also be a search parameter — mxbuild 11.6.6 rejects that
+	// with CE5612 ("cannot be used as a URL parameter if it is already a URL
+	// search parameter"). The first version of this fixture reused `Key` for
+	// both and described a document Mendix refuses to build; the unit tests
+	// could not tell, because nothing here validates the model. Measured by
+	// seeding a real project and running mx check.
 	mf := &microflows.Microflow{
 		Name:                "ACT_Item",
 		URL:                 "item/{Key}",
-		URLSearchParameters: []string{"Mod.ACT_Item.Key"},
+		URLSearchParameters: []string{"Mod.ACT_Item.Filter"},
 	}
 	mf.ID = model.ID("mf-4")
 
@@ -114,8 +121,8 @@ func TestMicroflowRoundTrip_DeepLinkURL(t *testing.T) {
 	if got.URL != "item/{Key}" {
 		t.Errorf("deep-link URL lost on round-trip: got %q, want %q", got.URL, "item/{Key}")
 	}
-	if len(got.URLSearchParameters) != 1 || got.URLSearchParameters[0] != "Mod.ACT_Item.Key" {
-		t.Errorf("UrlSearchParameters lost on round-trip: got %v, want [Mod.ACT_Item.Key]",
+	if len(got.URLSearchParameters) != 1 || got.URLSearchParameters[0] != "Mod.ACT_Item.Filter" {
+		t.Errorf("UrlSearchParameters lost on round-trip: got %v, want [Mod.ACT_Item.Filter]",
 			got.URLSearchParameters)
 	}
 

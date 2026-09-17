@@ -584,6 +584,13 @@ microflow *without* a URL is a valid microflow — `mxcli check`, `mx check` and
 mxbuild all reported success, and the deep link was simply gone the next time
 someone opened Studio Pro.
 
+**A parameter in the URL path may not also be a search parameter.** mxbuild
+rejects that combination with **CE5612** ("The Microflow parameter … cannot be
+used as a URL parameter if it is already a URL search parameter"). Path
+parameters and query parameters are disjoint sets. mxcli cannot author either,
+so this only matters when reading a describe comment or reasoning about a
+project — but it is the rule that decides whether a stored pair is valid.
+
 Two consequences for scripts:
 
 - **`describe microflow` emits it as a `-- URL:` comment**, not as executable
