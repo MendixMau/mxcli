@@ -731,6 +731,12 @@ func (c *Catalog) createTables() error {
 		// commit` handler that returns false blocks the commit, an `after
 		// delete` one cannot. The edge says the microflow is reachable; this
 		// table says what it does.
+		//
+		// Event holds the value Mendix stores: Create/Commit/Delete/RollBack.
+		// The capital B in RollBack is Mendix's, confirmed against
+		// generated/metamodel, and disagrees with every neighbouring enum
+		// there — a query spelling it `Rollback` returns zero rows, not an
+		// error.
 		`CREATE TABLE IF NOT EXISTS entity_event_handlers_data (
 			Id TEXT,
 			EntityId TEXT,

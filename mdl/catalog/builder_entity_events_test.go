@@ -91,6 +91,17 @@ func TestEntityEventHandlerRowsCarryMomentAndEvent(t *testing.T) {
 		}
 	}
 
+	// Mendix spells the rollback event with a capital B, which
+	// generated/metamodel confirms and which disagrees with every neighbouring
+	// enum in that file. The value is stored verbatim: normalising it here
+	// would make the table agree with itself and disagree with the model.
+	rb := &domainmodel.Entity{Name: "Order", EventHandlers: []*domainmodel.EventHandler{
+		{Moment: "Before", Event: domainmodel.EventTypeRollback, MicroflowName: "Sales.BRB_Order"},
+	}}
+	if got := entityEventHandlerRows(rb, "Sales"); len(got) != 1 || got[0].event != "RollBack" {
+		t.Errorf("rollback event stored as %q, want %q verbatim", got[0].event, "RollBack")
+	}
+
 	if rows := entityEventHandlerRows(nil, "Sales"); rows != nil {
 		t.Errorf("nil entity = %v, want nil", rows)
 	}

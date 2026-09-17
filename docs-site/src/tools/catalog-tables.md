@@ -259,6 +259,13 @@ shape `NavigationProfile.OfflineEntityCount` had. The distinction the flag loses
 is the one that matters: a `Before` handler with `RaiseErrorOnFalse` can **veto**
 the commit, an `After` handler cannot.
 
+`Moment` is `Before` or `After`. `Event` is the value Mendix stores, not the
+caption Studio Pro shows: `Create`, `Commit`, `Delete`, `RollBack` — note the
+**capital B**, which `generated/metamodel` confirms
+(`DomainModelsEventRollBack = "RollBack"`) and which disagrees with every
+neighbouring enum in that file, where the same word is `Rollback`. A query
+spelling it the expected way returns zero rows rather than an error.
+
 A handler also produces an `event` row in `CATALOG.REFS`, so a microflow that
 runs only as a handler has callers:
 
