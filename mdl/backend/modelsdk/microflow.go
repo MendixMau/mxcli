@@ -210,6 +210,10 @@ func microflowFromGen(mf *genMf.Microflow, containerID model.ID) *microflows.Mic
 		// CREATE OR MODIFY that touched only the body deleted it. Both checkers
 		// stay silent — a microflow with no URL is valid — so the loss only
 		// showed up in Studio Pro (#1120).
+		// Studio Pro's "Export level". The writer pinned it to "Hidden", so a
+		// microflow a protected module exposes as API was demoted to hidden by
+		// any rewrite — again with every checker silent.
+		ExportLevel:         mf.ExportLevel(),
 		URL:                 mf.Url(),
 		URLSearchParameters: mf.UrlSearchParametersQualifiedNames(),
 	}

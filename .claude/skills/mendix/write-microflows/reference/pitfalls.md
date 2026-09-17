@@ -539,6 +539,20 @@ It is a **security** setting and it only ever narrows, so the rules mirror
   the same rule that catches `@applyentityacces` and any other annotation the
   document does not read. The message names what that document does accept.
 
+## Export level is preserved, not authorable
+
+A microflow carries an **export level** — Studio Pro's `Hidden` or `API` — which
+decides whether it is part of the module's public surface when the module is
+exported as a package. Like the URL below, MDL cannot write it, and like the URL
+it now **survives a `create or modify microflow`**; before, every rewrite pinned
+it to `Hidden`, quietly removing the microflow from a protected module's API.
+
+`Hidden` is the normal value by a wide margin — measured across Business Events
+3.12.0 and External Database Connector 6.2.3/6.3.0, every document of every type
+stores it — so `describe microflow` mentions the export level **only when it is
+not `Hidden`**, as a `-- Export level:` comment. The copy caveat below applies to
+it identically.
+
 ## The deep-link URL is preserved, not authorable
 
 A microflow can carry a **URL** (Mendix 10.6+) — Studio Pro's "URL" field, e.g.
@@ -559,4 +573,5 @@ Two consequences for scripts:
   decoration: a **describe → rename → exec copy has nothing to preserve from**,
   so the new microflow has no URL. Set it in Studio Pro after copying.
 - **`drop microflow` followed by `create microflow` loses it** for the same
-  reason. Use `create or modify` to edit a microflow that has a deep link.
+  reason. Use `create or modify` to edit a microflow that has a deep link — or a
+  non-default export level, which the drop path loses the same way.

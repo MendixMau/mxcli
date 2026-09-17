@@ -30,6 +30,23 @@ type Microflow struct {
 	// MarkAsUsed (#723 §A).
 	ApplyEntityAccess bool `json:"applyEntityAccess"`
 
+	// ExportLevel is Studio Pro's "Export level" — `Hidden` or `API`, the two
+	// members MicroflowsExportLevel declares. It decides whether the microflow
+	// is part of the module's public surface when the module is exported as a
+	// package, so losing it makes a protected module's API silently smaller.
+	//
+	// Carried, not authored: MDL has no syntax for it. Empty means "the stored
+	// document said nothing", and the writer defaults that to `Hidden` — never
+	// to the empty string, which is not a member of the enum.
+	//
+	// Measured across three real marketplace modules (Business Events 3.12.0,
+	// External Database Connector 6.2.3 and 6.3.0): every document of every
+	// type stores `Hidden`, because all three export at module level `Source`.
+	// So `Hidden` is the overwhelmingly common value and the right default —
+	// but it is a default, not the only value, and hardcoding it is what made
+	// this a drop rather than a no-op (#1120 follow-up).
+	ExportLevel string `json:"exportLevel,omitempty"`
+
 	// URL is the microflow's deep link (Mendix 10.6+) — Studio Pro's "URL"
 	// field, e.g. `item/{Key}`. MDL has no syntax for it, so it is carried
 	// across a rewrite rather than authored.

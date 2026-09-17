@@ -622,6 +622,14 @@ func renderMicroflowMDL(
 	if mf.ApplyEntityAccess && flowType == "microflow" {
 		lines = append(lines, "@applyentityaccess")
 	}
+	// Studio Pro's "Export level". Only worth a line when it is NOT the default
+	// — every document in every module measured stores "Hidden", so emitting it
+	// unconditionally would add a comment to every describe to say nothing.
+	if mf.ExportLevel != "" && mf.ExportLevel != "Hidden" && flowType == "microflow" {
+		lines = append(lines, fmt.Sprintf(
+			"-- Export level: %s  (MDL cannot author one. Kept when this microflow "+
+				"is rewritten, NOT copied to a new one — set it in Studio Pro.)", mf.ExportLevel))
+	}
 	// The deep link (Mendix 10.6+) has no MDL spelling at all, so it cannot be
 	// emitted as re-executable text. A rewrite preserves it (#1120), but a
 	// describe -> rename -> exec COPY has nothing to preserve from — same gap

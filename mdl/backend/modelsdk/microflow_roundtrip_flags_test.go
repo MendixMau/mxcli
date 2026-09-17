@@ -127,3 +127,38 @@ func TestMicroflowRoundTrip_DeepLinkURL(t *testing.T) {
 		t.Errorf("deep link invented on round-trip: URL=%q params=%v", got.URL, got.URLSearchParameters)
 	}
 }
+
+// TestMicroflowRoundTrip_ExportLevel is the #1120 sibling found by the audit
+// the fix prompted: grepping microflowToGen for the constants it writes turned
+// up `SetExportLevel("Hidden")` next to `SetUrl("")`.
+//
+// Export level is Studio Pro's Hidden/API switch — whether the microflow is
+// part of the module's public surface when the module is exported as a package.
+// Pinning it to Hidden quietly shrinks a protected module's API, and like the
+// URL it has no checker behind it: a hidden microflow is a valid microflow.
+//
+// Measured across three real marketplace modules (Business Events 3.12.0,
+// External Database Connector 6.2.3 and 6.3.0): 3 of 3 microflows and 55 of 55
+// documents overall store "Hidden", all three modules exporting at module level
+// "Source". So Hidden is the right DEFAULT — the assertion below pins that it
+// stays one, rather than becoming the only reachable value again.
+func TestMicroflowRoundTrip_ExportLevel(t *testing.T) {
+	api := &microflows.Microflow{Name: "ACT_PublicApi", ExportLevel: "API"}
+	api.ID = model.ID("mf-6")
+	if got := roundTripMicroflow(t, api); got.ExportLevel != "API" {
+		t.Errorf("export level demoted on round-trip: got %q, want %q — the "+
+			"microflow has silently left the module's public API", got.ExportLevel, "API")
+	}
+
+	// The default has to hold in both of its forms. A microflow that says
+	// nothing must come back "Hidden" — never "", which is not a member of
+	// MicroflowsExportLevel and is exactly the kind of value that gives a
+	// document mxbuild accepts and Studio Pro cannot open.
+	for _, stored := range []string{"", "Hidden"} {
+		mf := &microflows.Microflow{Name: "ACT_Internal", ExportLevel: stored}
+		mf.ID = model.ID("mf-7")
+		if got := roundTripMicroflow(t, mf); got.ExportLevel != "Hidden" {
+			t.Errorf("stored %q came back %q, want %q", stored, got.ExportLevel, "Hidden")
+		}
+	}
+}

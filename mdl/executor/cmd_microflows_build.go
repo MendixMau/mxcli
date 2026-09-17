@@ -129,6 +129,10 @@ func buildMicroflowFromStmt(ctx *ExecContext, s *ast.CreateMicroflowStmt, opts b
 	// what deleted it on every CREATE OR MODIFY (#1120).
 	var existingURL string
 	var existingURLSearchParams []string
+	// Studio Pro's "Export level". Same rule: no MDL syntax, so a rewrite
+	// carries it. Empty means "no stored microflow", which the writer turns
+	// into the "Hidden" default.
+	var existingExportLevel string
 	var existingDocumentation string
 	preserveDocumentation := false
 	var existingActionInfo, existingWorkflowInfo *types.MicroflowActionInfo
@@ -154,6 +158,7 @@ func buildMicroflowFromStmt(ctx *ExecContext, s *ast.CreateMicroflowStmt, opts b
 		preserveAllowedRoles = true
 		existingExcluded = existing.Excluded
 		existingApplyEntityAccess = existing.ApplyEntityAccess
+		existingExportLevel = existing.ExportLevel
 		existingURL = existing.URL
 		existingURLSearchParams = append([]string(nil), existing.URLSearchParameters...)
 		// The toolbox entries hold four PNG bitmaps MDL cannot name, so a
@@ -217,6 +222,7 @@ func buildMicroflowFromStmt(ctx *ExecContext, s *ast.CreateMicroflowStmt, opts b
 		MarkAsUsed:               false,
 		Excluded:                 s.Excluded || existingExcluded,
 		ApplyEntityAccess:        carriedApplyEntityAccess(s.ApplyEntityAccess, existingApplyEntityAccess),
+		ExportLevel:              existingExportLevel,
 		URL:                      existingURL,
 		URLSearchParameters:      existingURLSearchParams,
 	}

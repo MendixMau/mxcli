@@ -203,7 +203,16 @@ func microflowToGen(mf *microflows.Microflow, major int) *genMf.Microflow {
 	out.SetName(mf.Name)
 	out.SetDocumentation(mf.Documentation)
 	out.SetExcluded(mf.Excluded)
-	out.SetExportLevel("Hidden")
+	// Carried, not hardcoded — but defaulted, because "" is not a member of
+	// MicroflowsExportLevel and an enum-valued property must never be written
+	// with a value the metamodel does not declare. A fresh microflow and a
+	// stored document that says nothing both get "Hidden", which is what this
+	// line always wrote, so the default case is unchanged.
+	exportLevel := mf.ExportLevel
+	if exportLevel == "" {
+		exportLevel = "Hidden"
+	}
+	out.SetExportLevel(exportLevel)
 	out.SetAllowConcurrentExecution(mf.AllowConcurrentExecution)
 	// Carried, not hardcoded. This was `false` unconditionally, which silently
 	// turned a microflow's "apply entity access" OFF on every rewrite.
