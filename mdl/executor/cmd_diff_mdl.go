@@ -204,6 +204,7 @@ func associationStmtToMDL(ctx *ExecContext, s *ast.CreateAssociationStmt) string
 // entityToMDL converts a project entity to MDL text
 func entityToMDL(ctx *ExecContext, moduleName string, entity *domainmodel.Entity, dm *domainmodel.DomainModel) string {
 	var lines []string
+	lang := describeDefaultLanguage(ctx)
 
 	// Documentation
 	if entity.Documentation != "" {
@@ -254,20 +255,14 @@ func entityToMDL(ctx *ExecContext, moduleName string, entity *domainmodel.Entity
 		for _, vr := range attrValidations {
 			if vr.Type == "Required" {
 				constraints.WriteString(" not null")
-				if vr.ErrorMessage != nil {
-					errMsg := vr.ErrorMessage.GetTranslation("en_US")
-					if errMsg != "" {
-						constraints.WriteString(fmt.Sprintf(" error '%s'", errMsg))
-					}
+				if errMsg := pickTextTranslation(vr.ErrorMessage, lang); errMsg != "" {
+					constraints.WriteString(fmt.Sprintf(" error '%s'", errMsg))
 				}
 			}
 			if vr.Type == "Unique" {
 				constraints.WriteString(" unique")
-				if vr.ErrorMessage != nil {
-					errMsg := vr.ErrorMessage.GetTranslation("en_US")
-					if errMsg != "" {
-						constraints.WriteString(fmt.Sprintf(" error '%s'", errMsg))
-					}
+				if errMsg := pickTextTranslation(vr.ErrorMessage, lang); errMsg != "" {
+					constraints.WriteString(fmt.Sprintf(" error '%s'", errMsg))
 				}
 			}
 		}

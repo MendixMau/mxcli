@@ -28,6 +28,7 @@ import (
 	"github.com/mendixlabs/mxcli/mdl/ast"
 	"github.com/mendixlabs/mxcli/mdl/backend/mock"
 	"github.com/mendixlabs/mxcli/model"
+	"github.com/mendixlabs/mxcli/sdk/domainmodel"
 )
 
 // enumWithCaptions builds a one-value enumeration whose caption carries the
@@ -140,5 +141,51 @@ func TestPickTextTranslation_FallbackIsDeterministic(t *testing.T) {
 	}
 	if first != "Neu" {
 		t.Errorf("fallback = %q, want the lowest language code's text %q", first, "Neu")
+	}
+}
+
+// The same hardcoded "en_US" read sat at every other DESCRIBE text site that
+// #702's widget sweep did not reach. They share one helper now, so this covers
+// the sites the reported bug did not name but would have reached next: an
+// entity's validation-rule feedback is dropped from `describe entity` exactly
+// the way an enumeration caption was.
+func TestDescribeEntity_ValidationMessageFollowsProjectLanguage_Issue1113(t *testing.T) {
+	mod := mkModule("Sales")
+	attr := &domainmodel.Attribute{
+		BaseElement: model.BaseElement{ID: nextID("attr")},
+		Name:        "Reference",
+		Type:        &domainmodel.StringAttributeType{Length: 50},
+	}
+	entity := &domainmodel.Entity{
+		BaseElement: model.BaseElement{ID: nextID("ent")},
+		Name:        "Order",
+		Persistable: true,
+		Attributes:  []*domainmodel.Attribute{attr},
+		ValidationRules: []*domainmodel.ValidationRule{{
+			BaseElement:  model.BaseElement{ID: nextID("vr")},
+			AttributeID:  attr.ID,
+			Type:         "Required",
+			ErrorMessage: &model.Text{Translations: map[string]string{"nl_NL": "Referentie is verplicht"}},
+		}},
+	}
+	dm := mkDomainModel(mod.ID, entity)
+
+	mb := &mock.MockBackend{
+		IsConnectedFunc:    func() bool { return true },
+		ListModulesFunc:    func() ([]*model.Module, error) { return []*model.Module{mod}, nil },
+		GetDomainModelFunc: func(id model.ID) (*domainmodel.DomainModel, error) { return dm, nil },
+		GetProjectSettingsFunc: func() (*model.ProjectSettings, error) {
+			return &model.ProjectSettings{
+				Language: &model.LanguageSettings{DefaultLanguageCode: "nl_NL"},
+			}, nil
+		},
+	}
+
+	ctx, buf := newMockCtx(t, withBackend(mb))
+	assertNoError(t, describeEntity(ctx, ast.QualifiedName{Module: "Sales", Name: "Order"}))
+
+	out := buf.String()
+	if !strings.Contains(out, "not null error 'Referentie is verplicht'") {
+		t.Errorf("validation feedback lost to the en_US lookup (issue #1113):\n%s", out)
 	}
 }
