@@ -1125,6 +1125,13 @@ func clientBundleServedWithin(appURL string, window time.Duration) bool {
 // path the non-watch boot uses) and re-probe. A no-op when the bundle is already
 // served (a pure model reload never touches web/dist).
 func ensureClientServed(deployDir, appURL, mxbuildPath string, out io.Writer) error {
+	// Nothing below applies to the classic (Dojo) client: it has no bundle, no
+	// chunks, and never serves /dist/index.js. Fixing only the boot path would
+	// have moved this failure to every applied change under --watch rather than
+	// removing it (#1123).
+	if planWebClient(deployDir) == webClientClassic {
+		return nil
+	}
 	// A dangling chunk is checked FIRST, because the index.js probe cannot see it:
 	// the entry point is served with a 200 while a chunk it imports is missing, so
 	// the apply is reported as successful and the page dies in the browser with

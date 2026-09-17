@@ -380,6 +380,16 @@ not just headless checks.
 no bundler to keep hot — `run --local` prints a line saying so and skips it. Both
 paths work; the bundle is mxbuild's rather than mxcli's.
 
+**Classic-client apps need no bundling at all.** With **Web UI Settings >
+OptimizedClient = No**, mxbuild puts Mendix's classic (Dojo) client in
+`deployment/web/` — loaded from `mxclientsystem` and served as-is — and parks the
+React client in `deployment/react-web/`. (With `Yes` it is the other way round:
+React in `web/`, Dojo in `dojo-web/`.) There is no rollup step and no `web/dist`,
+so `run --local` says so and skips it, under `--watch` too. mxcli reads this from
+the deployment's own `web/index.html` rather than from the model setting, since
+the deployment is what gets served and the two disagree right after the setting
+is changed.
+
 ### `--watch` on Mendix 11.14
 
 **`--watch` is not usable on 11.14 yet.** It starts and the app boots, but every
