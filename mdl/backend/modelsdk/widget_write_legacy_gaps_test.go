@@ -100,6 +100,61 @@ func TestStaticImageMatchesStudioProShape(t *testing.T) {
 	assertEmptyClientTemplate(t, doc, "AlternativeText")
 }
 
+// mendixlabs/mxcli#1057. The writer already emitted the Image key and always
+// emitted it EMPTY, because nothing upstream could name an image — which is
+// why the test above, asserting exactly that, passed while a Selection helper's
+// custom slots could not be re-authored. Writing the reference is one half of
+// the fix; the describer in mdl/executor is the other, and either alone leaves
+// the round trip lossy.
+func TestStaticImageWritesTheImageReference(t *testing.T) {
+	const image = "Atlas_UI_Resources.Atlas_Icons.checkbox_checked"
+	img := &pages.StaticImage{Responsive: true, ImageName: image}
+	img.Name = "imgAllSelected"
+
+	doc := encodeWidget(t, img)
+	if got := docGet(doc, "Image"); got != image {
+		t.Errorf("Image = %#v, want %q — the widget renders nothing without it", got, image)
+	}
+	// The reference must not change the document's SHAPE: an extra or renamed
+	// key is the class of defect Studio Pro refuses to open while mxbuild stays
+	// at 0 errors (CLAUDE.md, "Overlay Writes: Never Invent a Key").
+	assertKeys(t, doc, studioProStaticImageKeys)
+}
+
+// The units were hardcoded to "Auto" beside the empty Image, for the same
+// reason: nothing upstream could set them. Now that DESCRIBE emits a static
+// image as re-executable MDL, a unit the writer ignores is normalised away on
+// every replay — silently, which is worse than the note it replaced.
+func TestStaticImageWritesTheSizeUnits(t *testing.T) {
+	img := &pages.StaticImage{Width: 300, Height: 50, WidthUnit: "pixels", HeightUnit: "percentage"}
+	img.Name = "imgFixed"
+
+	doc := encodeWidget(t, img)
+	if got := docGet(doc, "WidthUnit"); got != "Pixels" {
+		t.Errorf("WidthUnit = %#v, want %q", got, "Pixels")
+	}
+	if got := docGet(doc, "HeightUnit"); got != "Percentage" {
+		t.Errorf("HeightUnit = %#v, want %q", got, "Percentage")
+	}
+}
+
+// The CONTROL for the test above, and the reason the writer validates rather
+// than passing the string through: Studio Pro's default is "Auto", and an
+// unrecognised member is the enum trap CLAUDE.md names — a value mxbuild
+// tolerates and Studio Pro refuses to open.
+func TestStaticImageSizeUnitsDefaultToAuto(t *testing.T) {
+	for _, unit := range []pages.WidthUnit{"", "nonsense"} {
+		img := &pages.StaticImage{WidthUnit: unit, HeightUnit: unit}
+		img.Name = "imgAuto"
+		doc := encodeWidget(t, img)
+		for _, key := range []string{"WidthUnit", "HeightUnit"} {
+			if got := docGet(doc, key); got != "Auto" {
+				t.Errorf("%s = %#v for input %q, want %q", key, got, unit, "Auto")
+			}
+		}
+	}
+}
+
 func TestDynamicImageMatchesMetamodelShape(t *testing.T) {
 	img := &pages.DynamicImage{Responsive: true}
 	img.Name = "i2"
