@@ -1393,6 +1393,8 @@ MDL uses explicit property declarations for pages:
 | Clickable container | `onclick: action` (alias of `action:`) | `container card (onclick: microflow Mod.ACT_Open) { ... }` — takes an argument list like a button: `action: nanoflow Mod.ACT_Ship($Order = $dgOrders)` |
 | Action arguments | every parameter needs one | A flow action with an unfilled parameter is **CE1571**. An enclosing data container of its type supplies it; a data grid's **control bar** does not (not row-scoped) — pass the grid's selection, `$dgOrders` |
 | Database source | `datasource: database entity` | `datagrid dg (datasource: database Module.Entity)` |
+| Database source, constrained and sorted | `datasource: database entity where [...] sort by Attr asc` | `listview lv (datasource: database from Mod.Vehicle where [Brand != ''] sort by Brand asc)` |
+| List view search bar | `... search by Attr, Attr2` | `listview lv (datasource: database from Mod.Vehicle search by Brand, Model)` — **list view only**; mirrors `sort by` and takes no direction |
 | Selection binding | `datasource: selection widget` | `dataview dv (datasource: selection galleryList)` |
 | Association source ("data from context") | `datasource: $currentObject/Module.Assoc` | nested `dataview dvCust (datasource: $currentObject/Order_Customer)` shows the to-one referenced object; a list widget shows the to-many collection |
 | CSS class | `class: 'classes'` | `container c (class: 'card mx-spacing-top-large')` |
@@ -1503,7 +1505,11 @@ create page MyModule.Customer_Edit
 ### List View specialization templates
 
 A List View over a generalization can render a different body per specialization.
-The template is identified by the **entity** it renders — it has no name:
+The template is identified by the **entity** it renders — it has no name.
+
+The entity must be a **strict specialization** of the list view's own entity: a
+template for the list view's entity itself is **CE0543**, because the list view's
+own body already renders objects no template matches.
 
 ```sql
 listview vehicleListView (DataSource: database from Pages.Vehicle) {
