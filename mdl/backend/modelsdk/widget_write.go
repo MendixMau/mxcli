@@ -1362,6 +1362,16 @@ func listViewSourceToGen(ds pages.DataSource) (element.Element, error) {
 		src.SetSortBar(bar)
 		search := genPg.NewListViewSearch()
 		assignID(search)
+		// The search bar's attributes. Each is a DomainModels$AttributeRef —
+		// the same element a Forms$GridSortItem carries, pinned against a
+		// Studio Pro-authored sort bar in a blank 11.12.2 app. An empty Search
+		// element is written either way: every reference ListViewXPathSource
+		// carries one (ako/mxcli#512).
+		for _, attr := range d.SearchAttributes {
+			if ref := attributeRefToGen(attr); ref != nil {
+				search.AddSearchRefs(ref)
+			}
+		}
 		src.SetSearch(search)
 		return src, nil
 	case *pages.MicroflowSource:
