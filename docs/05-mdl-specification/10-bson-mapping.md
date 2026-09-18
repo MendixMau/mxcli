@@ -1259,7 +1259,8 @@ When Studio Pro doesn't display data correctly (e.g., missing attributes, incorr
 Use this pattern to compare your generated BSON with Mendix-generated BSON:
 
 ```go
-// in sdk/mpr/reader_units.go there's GetRawMicroflowByName for debugging
+// modelsdk/mpr exposes GetRawUnit / GetRawUnitByName for debugging;
+// `mxcli bson dump` is the same thing from the command line
 raw1, _ := reader.GetRawMicroflowByName("Module.BrokenMicroflow")
 raw2, _ := reader.GetRawMicroflowByName("Module.WorkingMicroflow")
 
