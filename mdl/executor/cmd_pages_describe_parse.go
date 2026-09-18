@@ -523,6 +523,45 @@ func parseRawWidget(ctx *ExecContext, w map[string]any, parentEntityContext ...s
 		}
 		return []rawWidget{widget}
 
+	case "Forms$StaticImageViewer", "Pages$StaticImageViewer":
+		// Mendix stores WHICH image on a by-name reference to Images$Image: the
+		// three-part Module.Collection.Image name of an entry in an image
+		// collection, as a plain string (unset is "", never null). This is the
+		// same reference the pluggable `image` widget carries on its
+		// WidgetValue, so it re-uses ImageObject and emits the same clause.
+		//
+		// The widget had no case here at all, so DESCRIBE fell through to the
+		// unknown-type note and a Selection helper's three mandatory custom
+		// slots came back empty — CE0642 on rebuild (mendixlabs/mxcli#1057).
+		if image, ok := w["Image"].(string); ok && image != "" {
+			widget.ImageObject = image
+		}
+		if width := extractInt(w["Width"]); width > 0 {
+			widget.ImageWidth = strconv.Itoa(width)
+		}
+		if height := extractInt(w["Height"]); height > 0 {
+			widget.ImageHeight = strconv.Itoa(height)
+		}
+		// The units and Responsive round-trip too, because the writer honours
+		// them as of this change. Emitting the widget WITHOUT them would trade
+		// the old visible note for a silent normalisation to Auto/responsive.
+		if u, ok := w["WidthUnit"].(string); ok {
+			widget.WidthUnit = strings.ToLower(u)
+		}
+		if u, ok := w["HeightUnit"].(string); ok {
+			widget.HeightUnit = strings.ToLower(u)
+		}
+		if responsive, ok := w["Responsive"].(bool); ok && !responsive {
+			widget.Responsive = "false"
+		}
+		// Forms$StaticImageViewer.ClickAction. The builder started filling it in
+		// ako/mxcli#512 and the writer already serialised it; nothing read it
+		// back, because nothing read this widget back at all.
+		if onClick := asActionMap(w["ClickAction"]); onClick != nil {
+			widget.Action = extractButtonAction(ctx, map[string]any{"Action": onClick})
+		}
+		return []rawWidget{widget}
+
 	case "Forms$Label", "Pages$Label":
 		widget.Content = extractTextCaption(ctx, w)
 		return []rawWidget{widget}

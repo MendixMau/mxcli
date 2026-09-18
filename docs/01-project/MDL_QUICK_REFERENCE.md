@@ -1496,6 +1496,7 @@ create page MyModule.Customer_Edit
 | PhoneWidth | `column col (phonewidth: 12)` | 1-12 or AutoFill (default: auto) |
 | Visible | `textbox txt (visible: [IsActive])` | Conditional visibility (XPath expression) |
 | Editable | `textbox txt (editable: [status != 'Closed'])` | Conditional editability (XPath expression) |
+| Image | `staticimage img (Image: 'Mod.Images.logo')` | Image-collection entry, `Module.Collection.Image`. Omitted → CE0436 "No image selected." |
 
 **Supported Widgets:**
 - Layout: `layoutgrid`, `row`, `column`, `container`, `customcontainer`
