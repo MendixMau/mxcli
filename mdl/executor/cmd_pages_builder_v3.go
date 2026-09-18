@@ -317,6 +317,19 @@ func (pb *pageBuilder) buildSnippetV3(s *ast.CreateSnippetStmtV3) (*pages.Snippe
 // as item slots. The dispatch table is consumed by inspection commands and
 // DESCRIBE-side keyword resolution rather than overriding write-side routing here.
 func (pb *pageBuilder) buildWidgetV3(w *ast.WidgetV3) (pages.Widget, error) {
+	// What a SHOW_PAGE argument inside this widget may bind to. The data widgets
+	// below overwrite it with the context they actually create; this only stops
+	// "no context object at all" surviving past a widget whose data source this
+	// pass cannot read. See argContextForSubtreeOf.
+	if next := argContextForSubtreeOf(w, pb.argCtx); next != pb.argCtx {
+		old := pb.argCtx
+		pb.argCtx = next
+		defer func() { pb.argCtx = old }()
+	}
+	oldWidget := pb.currentWidget
+	pb.currentWidget = w.Name
+	defer func() { pb.currentWidget = oldWidget }()
+
 	var widget pages.Widget
 	var err error
 
@@ -1476,12 +1489,13 @@ func (pb *pageBuilder) buildClientActionV3(action *ast.ActionV3) (pages.ClientAc
 			// (#296). An argument naming anything else therefore cannot be honoured,
 			// and was previously dropped in silence: the button opened the page with
 			// the context object, `mx check` reported 0 errors, and DESCRIBE printed
-			// the inferred mapping. Refuse instead of re-pointing the argument.
-			if strVal, ok := arg.Value.(string); ok && !pageArgumentBindsContextObject(strVal, pb.contextVarName, pb.contextKnown) {
-				return nil, mdlerrors.NewValidationf(
-					"show_page %s: argument %s: %s cannot be stored — a widget's page argument is always the enclosing context object, which mxcli records by leaving the mapping empty (an explicit one is rejected as CE0115). Writing %s here would silently open the page with %s instead. Use $currentObject%s, or call a microflow that shows the page with the object you want [MDL-PAGEARG01]",
-					action.Target, arg.Name, strVal, strVal, pb.describeContextObject(),
-					pb.contextVarAlternative())
+			// the inferred mapping. Outside any data widget there is no context
+			// object to infer at all, so every argument is dropped and the build
+			// fails CE1571 (#1029). Refuse instead of re-pointing the argument.
+			if strVal, ok := arg.Value.(string); ok && !pb.argCtx.binds(strVal) {
+				return nil, mdlerrors.NewValidation(
+					refuseShowPageArgument(pb.currentWidget, action.Target, arg.Name, strVal, pb.argCtx) +
+						" [MDL-PAGEARG01]")
 			}
 
 			mapping := &pages.PageClientParameterMapping{

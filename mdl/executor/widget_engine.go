@@ -299,12 +299,10 @@ func NewPluggableWidgetEngine(b backend.WidgetBuilderBackend, pb *pageBuilder) *
 func (e *PluggableWidgetEngine) Build(def *WidgetDefinition, w *ast.WidgetV3) (*pages.CustomWidget, error) {
 	// Save and restore entity context (DataSource mappings may change it)
 	oldEntityContext := e.pageBuilder.entityContext
-	oldContextVar := e.pageBuilder.contextVarName
-	oldContextKnown := e.pageBuilder.contextKnown
+	oldArgCtx := e.pageBuilder.argCtx
 	defer func() {
 		e.pageBuilder.entityContext = oldEntityContext
-		e.pageBuilder.contextVarName = oldContextVar
-		e.pageBuilder.contextKnown = oldContextKnown
+		e.pageBuilder.argCtx = oldArgCtx
 	}()
 
 	// Remember the containing context for properties that name members of it
@@ -450,8 +448,7 @@ func (e *PluggableWidgetEngine) Build(def *WidgetDefinition, w *ast.WidgetV3) (*
 				e.recordDataSourceEntity(propKey, entityName)
 				if entityName != "" {
 					e.pageBuilder.entityContext = entityName
-					e.pageBuilder.contextVarName = contextVarFor(ds)
-					e.pageBuilder.contextKnown = true
+					e.pageBuilder.argCtx = enteringDataWidget(ds, entityName)
 				}
 			}
 		}
@@ -1291,8 +1288,7 @@ func (e *PluggableWidgetEngine) resolveMapping(mapping PropertyMapping, w *ast.W
 			e.recordDataSourceEntity(mapping.PropertyKey, entityName)
 			if entityName != "" {
 				e.pageBuilder.entityContext = entityName
-				e.pageBuilder.contextVarName = contextVarFor(ds)
-				e.pageBuilder.contextKnown = true
+				e.pageBuilder.argCtx = enteringDataWidget(ds, entityName)
 				if w.Name != "" {
 					e.pageBuilder.paramEntityNames[w.Name] = entityName
 				}
