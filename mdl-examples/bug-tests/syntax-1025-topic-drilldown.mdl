@@ -1,0 +1,37 @@
+-- ============================================================================
+-- mendixlabs/mxcli#1025 — a syntax topic must resolve however it is spelled
+-- ============================================================================
+--
+-- `mxcli syntax` advertises, in its own help:
+--
+--     mxcli syntax workflow user-task targeting     # Drill down to targeting
+--
+-- Handed over as ONE string — a quoted copy-paste, a tool wrapper, `sh -c` —
+-- that returned `Unknown topic: workflow user-task targeting`, spaces and all,
+-- on the reported v0.20.0 and on main. The CLI joined its arguments on "." and
+-- never split them, while the REPL's HELP had resolved multi-word topics since
+-- it was written: one question, two answers.
+--
+-- Both surfaces now share syntax.Lookup. This file is the MDL-visible half —
+-- the CLI half is not MDL and is pinned by cmd/mxcli/cmd_syntax_test.go and
+-- cmd/mxcli/syntax/topic_test.go, including a guard that every registered path
+-- is reachable by all three spellings.
+--
+-- Only the WORD spelling appears below, because that is all the grammar takes:
+-- `helpStatement: IDENTIFIER (identifierOrKeyword)*` accepts neither a hyphen
+-- nor a dot, so `help workflow.user-task` is a parse error in a script and in
+-- the REPL. `mxcli syntax` takes all three. Left as-is rather than widened
+-- here: the grammar is a separate change, and the words reach the same page.
+--
+-- No project needed: HELP reads the embedded syntax registry.
+-- ============================================================================
+
+-- Three levels deep — the topic the report could not reach.
+help workflow user task targeting;
+
+-- The two levels above it, and the other activity the report names.
+help workflow user task;
+help workflow parallel split;
+
+-- The second advertised example.
+help security entity access;
