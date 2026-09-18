@@ -1472,13 +1472,9 @@ func extractPageParameters(ctx *ExecContext, settings map[string]any) string {
 			}
 		}
 
-		// Check for Variable reference (older format - Variable as a map with Name)
+		// Check for a Forms$PageVariable binding.
 		if value == "" {
-			if varRef, ok := mappingMap["Variable"].(map[string]any); ok && varRef != nil {
-				if varName := extractString(varRef["Name"]); varName != "" {
-					value = "$" + varName
-				}
-			}
+			value = pageVariableArgValue(mappingMap["Variable"])
 		}
 
 		if value != "" {
@@ -1533,13 +1529,9 @@ func extractMicroflowParameters(ctx *ExecContext, settings map[string]any) strin
 			}
 		}
 
-		// Check for Variable reference (older format - Variable as a map with Name)
+		// Check for a Forms$PageVariable binding.
 		if value == "" {
-			if varRef, ok := mappingMap["Variable"].(map[string]any); ok && varRef != nil {
-				if varName := extractString(varRef["Name"]); varName != "" {
-					value = "$" + varName
-				}
-			}
+			value = pageVariableArgValue(mappingMap["Variable"])
 		}
 
 		if value != "" {
@@ -1596,13 +1588,9 @@ func extractNanoflowParameters(ctx *ExecContext, action map[string]any) string {
 			}
 		}
 
-		// Check for Variable reference (older format - Variable as a map with Name)
+		// Check for a Forms$PageVariable binding.
 		if value == "" {
-			if varRef, ok := mappingMap["Variable"].(map[string]any); ok && varRef != nil {
-				if varName := extractString(varRef["Name"]); varName != "" {
-					value = "$" + varName
-				}
-			}
+			value = pageVariableArgValue(mappingMap["Variable"])
 		}
 
 		if value != "" {
