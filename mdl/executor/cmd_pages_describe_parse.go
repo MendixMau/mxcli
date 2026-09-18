@@ -569,6 +569,13 @@ func parseRawWidget(ctx *ExecContext, w map[string]any, parentEntityContext ...s
 		if editable, ok := w["Editable"].(bool); ok && editable {
 			widget.Editable = "true"
 		}
+		// "On click" — Pages$ListView.ClickAction. The write half landed without
+		// this and the action vanished on the next describe → exec, which is the
+		// half-shell trap this repo keeps recording: a construct written, valid,
+		// and silently dropped on read-back (ako/mxcli#512).
+		if onClick := asActionMap(w["ClickAction"]); onClick != nil {
+			widget.Action = extractButtonAction(ctx, map[string]any{"Action": onClick})
+		}
 		widget.Children = parseListViewContent(ctx, w, widget.EntityContext)
 		return []rawWidget{widget}
 

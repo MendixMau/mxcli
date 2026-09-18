@@ -79,6 +79,12 @@ sortColumn
     : (qualifiedName | IDENTIFIER) (ASC | DESC)?
     ;
 
+// One attribute of a List View's search bar. No direction — unlike a sort
+// column, a search attribute is only a name.
+searchAttribute
+    : (qualifiedName | IDENTIFIER)
+    ;
+
 xpathConstraint
     : LBRACKET xpathExpr RBRACKET
     ;
@@ -585,6 +591,7 @@ dataSourceExprV3
     | DATABASE FROM? qualifiedName                    // DATABASE [FROM] Entity [WHERE ...] [SORT BY ...]
       (WHERE (xpathConstraint (andOrXpath? xpathConstraint)* | expression))?
       (SORT_BY sortColumn (COMMA sortColumn)*)?
+      (SEARCH_BY searchAttribute (COMMA searchAttribute)*)?
     | MICROFLOW qualifiedName microflowArgsV3?        // MICROFLOW Module.Flow
     | NANOFLOW qualifiedName microflowArgsV3?         // NANOFLOW Module.Flow
     | ASSOCIATION associationPathV3                   // ASSOCIATION Module.Assoc (explicit form)

@@ -320,6 +320,10 @@ func (pb *pageBuilder) buildWidgetV3(w *ast.WidgetV3) (pages.Widget, error) {
 	var widget pages.Widget
 	var err error
 
+	if err := checkSearchByIsOnAListView(w); err != nil {
+		return nil, err
+	}
+
 	switch strings.ToLower(w.Type) {
 	case "dataview":
 		widget, err = pb.buildDataViewV3(w)
@@ -587,7 +591,15 @@ func applyWidgetAppearance(widget pages.Widget, w *ast.WidgetV3, theme *ThemeReg
 		}
 		var dpValues []pages.DesignPropertyValue
 		for _, p := range astProps {
-			if dp, ok := astDesignPropToValue(p, themeProps); ok {
+			// Refuse rather than write, when the theme proves the shape wrong —
+			// a flat value on a multi-select property (ako/mxcli#511). Silently
+			// writing it produced a document mxbuild rejects with CE6084, whose
+			// wording names a type mismatch and not the spelling that fixes it.
+			dp, ok, err := astDesignPropToValueChecked(p, themeProps)
+			if err != nil {
+				return fmt.Errorf("widget %q: %w", w.Name, err)
+			}
+			if ok {
 				dpValues = append(dpValues, dp)
 			}
 		}
@@ -614,11 +626,57 @@ func applyWidgetAppearance(widget pages.Widget, w *ast.WidgetV3, theme *ThemeReg
 // ToggleButtonGroup materializes as Forms$CustomDesignPropertyValue rather than
 // the option default (findings: typed design properties). Without metadata the
 // prior syntactic behaviour (on→toggle, else→option) is preserved.
-func astDesignPropToValue(p ast.DesignPropertyEntryV3, themeProps []ThemeProperty) (pages.DesignPropertyValue, bool) {
+// astDesignPropToValueChecked is astDesignPropToValue plus the one shape the
+// theme can prove wrong: a FLAT value on a property declared `"multiSelect": true`.
+//
+// Such a property is a SET of the declared options, and Mendix stores it as a
+// Forms$CompoundDesignPropertyValue holding one entry per selected option, each
+// valued with a bare Forms$ToggleDesignPropertyValue — measured by decoding a
+// Studio Pro-authored Atlas page in a blank 11.12.2 project. Structurally that is
+// `Spacing`, which MDL already writes, so the capability is not missing: the
+// compound spelling works, round-trips through DESCRIBE, and builds at 0 errors.
+//
+// The flat spelling is the trap. `'Hide on': 'Phone'` names a declared option, so
+// resolveDesignPropertyValueType returned "option" and the write produced a
+// document mxbuild refuses:
+//
+//	[CE6084] "Expected design property Hide on to be of type Toggle button group,
+//	         but found Option."
+//
+// Refusing it and naming the spelling that works is the fix; the author cannot
+// derive `['Phone': on]` from CE6084's wording (ako/mxcli#511).
+func astDesignPropToValueChecked(p ast.DesignPropertyEntryV3, themeProps []ThemeProperty) (pages.DesignPropertyValue, bool, error) {
+	if len(p.Nested) == 0 && p.Value != "" && isMultiSelectDesignProperty(p.Key, themeProps) {
+		return pages.DesignPropertyValue{}, false, mdlerrors.NewValidation(fmt.Sprintf(
+			"design property %q takes a SET of options, not one value — write it as "+
+				"`'%s': ['%s': on]` (add one `'<option>': on` per selection). "+
+				"A single value is stored as an Option and mxbuild refuses it with CE6084.",
+			p.Key, p.Key, p.Value))
+	}
+	dp, ok := astDesignPropToValueInner(p, themeProps)
+	return dp, ok, nil
+}
+
+// isMultiSelectDesignProperty reports whether the theme declares this key as
+// multi-select. Unknown keys answer false: with no metadata there is nothing to
+// refuse on the strength of, and a theme newer than the snapshot must not be
+// blocked.
+func isMultiSelectDesignProperty(key string, themeProps []ThemeProperty) bool {
+	for i := range themeProps {
+		if strings.EqualFold(themeProps[i].Name, key) {
+			return themeProps[i].MultiSelect
+		}
+	}
+	return false
+}
+
+func astDesignPropToValueInner(p ast.DesignPropertyEntryV3, themeProps []ThemeProperty) (pages.DesignPropertyValue, bool) {
 	if len(p.Nested) > 0 {
 		dp := pages.DesignPropertyValue{Key: p.Key, ValueType: "compound"}
 		for _, sub := range p.Nested {
-			if sv, ok := astDesignPropToValue(sub, themeProps); ok {
+			// The inner function: a sub-entry is `'Phone': on`, which is a toggle
+			// by construction and never itself multi-select.
+			if sv, ok := astDesignPropToValueInner(sub, themeProps); ok {
 				dp.Compound = append(dp.Compound, sv)
 			}
 		}
@@ -672,6 +730,32 @@ func resolveDesignPropertyValueType(key, value string, themeProps []ThemePropert
 // =============================================================================
 // V3 DataSource and Action Builders
 // =============================================================================
+
+// checkSearchByIsOnAListView refuses `search by` on a widget that cannot store it.
+//
+// The clause hangs off the shared database-source rule, so the grammar accepts it
+// on a gallery or a data grid too — and only Forms$ListViewXPathSource declares
+// Search, so listViewSourceToGen is the only writer that emits it. Everything
+// else accepted the clause and dropped it: check passed, exec reported success,
+// and DESCRIBE did not echo it back. That is the silent-drop this whole area
+// keeps producing, and the reason MDL-WIDGET07 exists (ako/mxcli#512).
+//
+// An error rather than a warning: unlike an unrecognised PROPERTY key, which a
+// newer widget package might legitimately define, this one is decided by Mendix's
+// metamodel and cannot become valid later.
+func checkSearchByIsOnAListView(w *ast.WidgetV3) error {
+	if w == nil || strings.EqualFold(w.Type, "listview") {
+		return nil
+	}
+	ds := w.GetDataSource()
+	if ds == nil || len(ds.SearchAttributes) == 0 {
+		return nil
+	}
+	return mdlerrors.NewValidation(fmt.Sprintf(
+		"widget %q (%s): `search by` is a LIST VIEW search bar and %s cannot store one — "+
+			"only Forms$ListViewXPathSource declares Search. Drop the clause, or use a `listview`.",
+		w.Name, strings.ToLower(w.Type), strings.ToLower(w.Type)))
+}
 
 // buildDataSourceV3 converts a V3 DataSource AST to a pages.DataSource.
 // Returns the datasource, the entity name for context, and any error.
@@ -761,6 +845,15 @@ func (pb *pageBuilder) buildDataSourceV3(ds *ast.DataSourceV3) (pages.DataSource
 				Direction:     direction,
 			}
 			dbSource.Sorting = append(dbSource.Sorting, sortItem)
+		}
+
+		// Handle SEARCH BY — the List View search bar's attributes. Resolved to
+		// the same fully-qualified Module.Entity.Attribute form a sort column
+		// uses, because both are stored as a DomainModels$AttributeRef and a
+		// bare name in one would be a bare name in the other (ako/mxcli#512).
+		for _, attr := range ds.SearchAttributes {
+			dbSource.SearchAttributes = append(dbSource.SearchAttributes,
+				pb.resolveAttributePathForEntity(attr, ds.Reference))
 		}
 
 		return dbSource, ds.Reference, nil
@@ -1931,6 +2024,48 @@ func (pb *pageBuilder) associationDestination(assocQN, currentEntityQN string) (
 		// refuse rather than emit a wrong ref.
 		return "", false
 	}
+}
+
+// checkListViewTemplateSpecialization reports why a `template for X` cannot
+// belong to a list view over listEntity, or nil when it can.
+//
+// One function for both call sites — CREATE PAGE (buildListViewTemplateV3) and
+// ALTER PAGE INSERT/REPLACE (cmd_alter_page.go) — because two copies of a guard
+// is how the two drift, and this one was already wrong in both.
+//
+// The rule is a STRICT specialization, and that strictness is ako/mxcli#514.
+// Both copies gated on entityIsOrDescendsFrom, which returns true for the entity
+// itself, so `template for <the list view's own entity>` was accepted, written,
+// and refused by mxbuild:
+//
+//	[CE0543] "The entity of the list view template is 'MyFirstModule.Vehicle' and
+//	         this is not a specialization of the entity of the list view."
+//
+// Measured on 11.12.2; a template for a real specialization is 0 errors. The
+// list view's own body already renders an object no template matches, so a
+// template for the base entity would be a second, unreachable default.
+//
+// An empty listEntity means the datasource did not resolve to an entity, which
+// is reported elsewhere — do not report it a second time as a bogus
+// specialization error.
+func (pb *pageBuilder) checkListViewTemplateSpecialization(spec, listEntity, listViewName string) error {
+	if listEntity == "" || spec == "" {
+		return nil
+	}
+	if spec == listEntity {
+		return mdlerrors.NewValidation(fmt.Sprintf(
+			"template for %s in list view %s: %s is the list view's own entity, and a template "+
+				"must be for a specialization of it — the list view's own body already renders "+
+				"objects no template matches",
+			spec, listViewName, spec))
+	}
+	if !pb.entityIsOrDescendsFrom(spec, listEntity) {
+		return mdlerrors.NewValidation(fmt.Sprintf(
+			"template for %s in list view %s: %s is not a specialization of %s, "+
+				"so the template can never match an object the list view shows",
+			spec, listViewName, spec, listEntity))
+	}
+	return nil
 }
 
 // entityIsOrDescendsFrom reports whether entityQN equals baseQN or is a

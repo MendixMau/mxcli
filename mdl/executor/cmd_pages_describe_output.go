@@ -856,6 +856,12 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 		if w.PageSize != "" && w.PageSize != "20" {
 			props = append(props, fmt.Sprintf("PageSize: %s", w.PageSize))
 		}
+		// Pages$ListView.ClickAction. Written since ako/mxcli#512; without this
+		// the action is dropped on the next describe -> exec, which is the
+		// half-shell trap: valid BSON, clean build, construct silently gone.
+		if w.Action != "" {
+			props = append(props, fmt.Sprintf("Action: %s", w.Action))
+		}
 		props = appendAppearanceProps(props, w)
 		if len(w.Children) > 0 {
 			formatWidgetProps(ctx.Output, prefix, header, props, " {\n")

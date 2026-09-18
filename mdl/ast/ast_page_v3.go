@@ -191,6 +191,10 @@ type DataSourceV3 struct {
 	Args            []FlowArgV3     // Arguments for microflow/nanoflow calls
 	Where           string          // XPath constraint (for database source)
 	OrderBy         []OrderByItemV3 // Sort order (for database source)
+	// SearchAttributes are the attributes a List View's search bar filters on
+	// (Forms$ListViewSearch.SearchRefs). Names only — a search attribute has no
+	// direction, which is why this is []string and not []OrderByItemV3.
+	SearchAttributes []string
 }
 
 // FlowArgV3 represents an argument for microflow/nanoflow/page calls.

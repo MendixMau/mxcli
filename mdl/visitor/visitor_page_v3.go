@@ -984,6 +984,16 @@ func buildDataSourceV3(ctx parser.IDataSourceExprV3Context) *ast.DataSourceV3 {
 				ds.OrderBy = append(ds.OrderBy, buildSortColumnAsOrderBy(sc))
 			}
 		}
+
+		// Inline SEARCH BY clause — a List View's search bar
+		// (Forms$ListViewSearch.SearchRefs). Names only, no direction.
+		if dsCtx.SEARCH_BY() != nil {
+			for _, sa := range dsCtx.AllSearchAttribute() {
+				if name := strings.TrimSpace(sa.GetText()); name != "" {
+					ds.SearchAttributes = append(ds.SearchAttributes, name)
+				}
+			}
+		}
 	} else if dsCtx.MICROFLOW() != nil {
 		// MICROFLOW Module.Flow
 		ds.Type = "microflow"

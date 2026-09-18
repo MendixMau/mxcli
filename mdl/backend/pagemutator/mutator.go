@@ -2786,7 +2786,7 @@ func setWidgetAttributeRefMut(widget bson.D, value any) error {
 func setPluggableWidgetPropertyMut(widget bson.D, propName string, value any) error {
 	obj := bsonnav.DGetDoc(widget, "Object")
 	if obj == nil {
-		return fmt.Errorf("property %q not found (widget has no pluggable Object)", propName)
+		return noPluggableObjectError(widget, propName)
 	}
 
 	// The same derivation buildPropKeyMap does, and it used to be spelled out a
@@ -2828,6 +2828,33 @@ func setPluggableWidgetPropertyMut(widget bson.D, propName string, value any) er
 		return fmt.Errorf("property %q has no Value map", propName)
 	}
 	return fmt.Errorf("pluggable property %q not found", propName)
+}
+
+// noPluggableObjectError explains a SET that reached the pluggable fallback on a
+// widget that has no pluggable Object — i.e. a built-in one, whose vocabulary is
+// setRawWidgetPropertyMut's switch and nothing else.
+//
+// The message used to be "property %q not found (widget has no pluggable
+// Object)". That is true and unusable: "pluggable Object" is not something the
+// author wrote, and it is not the whole truth either. An Atlas design property
+// on a built-in widget — "Remove empty text" on a List View, the case reported
+// as mendixlabs/mxcli#1135 — IS writable, through ALTER STYLING, which the old
+// message never mentioned. A dead end that names its exit is a one-line fix for
+// the reader; one that does not is a bug report.
+//
+// A Forms$Appearance and no Object is exactly a built-in widget, which is when
+// the advice applies. A pluggable widget keeps the error that names its own
+// declared keys — sending a mistyped pluggable key to ALTER STYLING would point
+// at a command that cannot write it either.
+func noPluggableObjectError(widget bson.D, propName string) error {
+	if bsonnav.DGetDoc(widget, "Appearance") == nil {
+		return fmt.Errorf("property %q not found on this widget", propName)
+	}
+	return fmt.Errorf("property %q is not a property of this built-in widget — "+
+		"`set` writes its own properties (Caption, Class, Style, DynamicClasses, "+
+		"Visible, Editable, …); for an Atlas design property use "+
+		"`alter styling on page|snippet <Module.Name> widget %s set '%s' = <value>` instead",
+		propName, bsonnav.DGetString(widget, "Name"), propName)
 }
 
 // setTranslatableText sets a translatable text value in BSON.
