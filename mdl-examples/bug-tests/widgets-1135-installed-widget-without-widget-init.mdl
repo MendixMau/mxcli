@@ -59,10 +59,22 @@ create or replace page MyFirstModule.HtmlDemo (
 --
 -- The three names in the report — 'Remove empty text', 'Remove loadmore button',
 -- 'Reset list style' — are NOT List View design properties in the Atlas that
--- ships with Mendix 11. Measured on 11.12.2, themesource/atlas_core/web/
--- design-properties.json declares exactly three for ListView: Style, Hover style
--- and Row size. Writing one of the reported names through ALTER STYLING
--- succeeds, and mxbuild then refuses the project:
+-- ships with Mendix 11. Measured on 11.12.2, a List View has SIX, and none of
+-- them is one of those three:
+--
+--     mxcli -p App.mpr -c "show design properties for listview"
+--     From: Widget (inherited)   Spacing, Align self, Hide on
+--     From: ListView             Style, Hover style, Row size
+--
+-- Count them from the registry, not from the design-properties.json key: three
+-- come from the `Widget` group, which applies to every widget, and reading only
+-- the `ListView` key says three. ThemeRegistry.GetPropertiesForWidget already
+-- prepends the inherited group, so a validator built on it gets all six for
+-- free; a validator built on the raw JSON key would reject Spacing, Align self
+-- and Hide on as unknown.
+--
+-- Writing one of the reported names through ALTER STYLING succeeds, and mxbuild
+-- then refuses the project:
 --
 --     alter styling … set 'Remove empty text' = on;   -> mx check: 1 error,
 --       [CE6083] "Design property Remove empty text is not supported by your
