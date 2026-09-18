@@ -368,16 +368,10 @@ func (pb *pageBuilder) buildListViewTemplateV3(w *ast.WidgetV3, listViewName, li
 	}
 	seen[spec] = true
 
-	// The specialization must actually be one: Mendix matches a template against
-	// the object's type, so a template for an unrelated entity can never render.
-	// listEntity is empty when the datasource could not be resolved to an entity,
-	// and an unresolvable datasource is already reported elsewhere — do not
-	// report it a second time as a bogus specialization error.
-	if listEntity != "" && !pb.entityIsOrDescendsFrom(spec, listEntity) {
-		return nil, mdlerrors.NewValidation(fmt.Sprintf(
-			"template for %s in list view %s: %s is not %s or a specialization of it, "+
-				"so the template can never match an object the list view shows",
-			spec, listViewName, spec, listEntity))
+	// The specialization must actually be one, and strictly so — see
+	// checkListViewTemplateSpecialization, which the ALTER PAGE path shares.
+	if err := pb.checkListViewTemplateSpecialization(spec, listEntity, listViewName); err != nil {
+		return nil, err
 	}
 
 	tpl := &pages.ListViewTemplate{

@@ -1933,6 +1933,48 @@ func (pb *pageBuilder) associationDestination(assocQN, currentEntityQN string) (
 	}
 }
 
+// checkListViewTemplateSpecialization reports why a `template for X` cannot
+// belong to a list view over listEntity, or nil when it can.
+//
+// One function for both call sites — CREATE PAGE (buildListViewTemplateV3) and
+// ALTER PAGE INSERT/REPLACE (cmd_alter_page.go) — because two copies of a guard
+// is how the two drift, and this one was already wrong in both.
+//
+// The rule is a STRICT specialization, and that strictness is ako/mxcli#514.
+// Both copies gated on entityIsOrDescendsFrom, which returns true for the entity
+// itself, so `template for <the list view's own entity>` was accepted, written,
+// and refused by mxbuild:
+//
+//	[CE0543] "The entity of the list view template is 'MyFirstModule.Vehicle' and
+//	         this is not a specialization of the entity of the list view."
+//
+// Measured on 11.12.2; a template for a real specialization is 0 errors. The
+// list view's own body already renders an object no template matches, so a
+// template for the base entity would be a second, unreachable default.
+//
+// An empty listEntity means the datasource did not resolve to an entity, which
+// is reported elsewhere — do not report it a second time as a bogus
+// specialization error.
+func (pb *pageBuilder) checkListViewTemplateSpecialization(spec, listEntity, listViewName string) error {
+	if listEntity == "" || spec == "" {
+		return nil
+	}
+	if spec == listEntity {
+		return mdlerrors.NewValidation(fmt.Sprintf(
+			"template for %s in list view %s: %s is the list view's own entity, and a template "+
+				"must be for a specialization of it — the list view's own body already renders "+
+				"objects no template matches",
+			spec, listViewName, spec))
+	}
+	if !pb.entityIsOrDescendsFrom(spec, listEntity) {
+		return mdlerrors.NewValidation(fmt.Sprintf(
+			"template for %s in list view %s: %s is not a specialization of %s, "+
+				"so the template can never match an object the list view shows",
+			spec, listViewName, spec, listEntity))
+	}
+	return nil
+}
+
 // entityIsOrDescendsFrom reports whether entityQN equals baseQN or is a
 // specialization of it (following the generalization chain transitively). Used
 // so an association declared on a base entity resolves from a subclass context.

@@ -188,7 +188,9 @@ CREATE PAGE Sales.Detail (Title: 'Detail', Layout: Atlas_Core.Atlas_Default) {
 			"TEMPLATE FOR Module.Entity and not TEMPLATE name. (A Gallery's TEMPLATE name is a\n" +
 			"different thing: a named content slot.)\n\n" +
 			"Rules:\n" +
-			"  - the entity must be the list view's entity or a specialization of it\n" +
+			"  - the entity must be a SPECIALIZATION of the list view's entity; the list\n" +
+			"    view's own entity is CE0543, since its body already renders objects\n" +
+			"    no template matches\n" +
 			"  - at most one template per entity\n" +
 			"  - templates keep their source order, which is the order Mendix stores and matches in\n" +
 			"  - inside a template the context object is the specialization, so its own attributes resolve\n\n" +

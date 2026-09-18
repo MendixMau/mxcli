@@ -434,14 +434,10 @@ func buildListViewTemplatesFromAST(ctx *ExecContext, nodes []*ast.WidgetV3, modu
 		}
 		seen[spec] = true
 
-		// Mendix matches a template against the object's type, so a template for
-		// an entity outside the list view's hierarchy can never render. Refuse it
-		// here rather than writing a template nothing will ever reach.
-		if listEntity != "" && !checker.entityIsOrDescendsFrom(spec, listEntity) {
-			return nil, mdlerrors.NewValidation(fmt.Sprintf(
-				"template for %s in list view %s: %s is not %s or a specialization of it, "+
-					"so the template can never match an object the list view shows",
-				spec, listViewRef, spec, listEntity))
+		// Refuse a template nothing will ever reach, by the same rule CREATE PAGE
+		// applies — one function, so the two cannot drift apart.
+		if err := checker.checkListViewTemplateSpecialization(spec, listEntity, listViewRef); err != nil {
+			return nil, err
 		}
 
 		widgets, err := buildWidgetsFromAST(ctx, node.Children, moduleName, moduleID, spec, mutator)
