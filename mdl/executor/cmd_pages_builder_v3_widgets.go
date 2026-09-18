@@ -294,6 +294,19 @@ func (pb *pageBuilder) buildListViewV3(w *ast.WidgetV3) (*pages.ListView, error)
 	// (ako/CapTrackV3 FINDINGS §6).
 	lv.Editable = w.GetBoolProp("Editable")
 
+	// "On click" — Pages$ListView.ClickAction. The model and the writer have
+	// always carried it (widget_write.go calls clientActionToGen(x.ClickAction));
+	// only this builder never read it off the AST, so the field was always nil
+	// and MDL-WIDGET23 told authors to wrap the row in a `container` instead
+	// (ako/mxcli#512).
+	if action := w.GetAction(); action != nil {
+		clientAction, err := pb.buildClientActionV3(action)
+		if err != nil {
+			return nil, err
+		}
+		lv.ClickAction = clientAction
+	}
+
 	// Handle DataSource
 	var listEntity string
 	if ds := w.GetDataSource(); ds != nil {
@@ -1246,6 +1259,17 @@ func (pb *pageBuilder) buildStaticImageV3(w *ast.WidgetV3) (*pages.StaticImage, 
 		img.Height = height
 	}
 
+	// Pages$StaticImageViewer.ClickAction / Pages$DynamicImageViewer.ClickAction.
+	// Same story as the list view: the writer already serialises OnClickAction,
+	// only this builder never filled it (ako/mxcli#512).
+	if action := w.GetAction(); action != nil {
+		clientAction, err := pb.buildClientActionV3(action)
+		if err != nil {
+			return nil, err
+		}
+		img.OnClickAction = clientAction
+	}
+
 	if err := pb.registerWidgetName(w.Name, img.ID); err != nil {
 		return nil, err
 	}
@@ -1270,6 +1294,17 @@ func (pb *pageBuilder) buildDynamicImageV3(w *ast.WidgetV3) (*pages.DynamicImage
 	}
 	if height := w.GetIntProp("Height"); height > 0 {
 		img.Height = height
+	}
+
+	// Pages$StaticImageViewer.ClickAction / Pages$DynamicImageViewer.ClickAction.
+	// Same story as the list view: the writer already serialises OnClickAction,
+	// only this builder never filled it (ako/mxcli#512).
+	if action := w.GetAction(); action != nil {
+		clientAction, err := pb.buildClientActionV3(action)
+		if err != nil {
+			return nil, err
+		}
+		img.OnClickAction = clientAction
 	}
 
 	if err := pb.registerWidgetName(w.Name, img.ID); err != nil {
