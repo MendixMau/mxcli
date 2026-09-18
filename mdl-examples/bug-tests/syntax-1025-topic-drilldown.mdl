@@ -12,26 +12,33 @@
 -- never split them, while the REPL's HELP had resolved multi-word topics since
 -- it was written: one question, two answers.
 --
--- Both surfaces now share syntax.Lookup. This file is the MDL-visible half —
--- the CLI half is not MDL and is pinned by cmd/mxcli/cmd_syntax_test.go and
+-- Both surfaces now share syntax.Lookup, and the grammar takes the spellings
+-- the registry PRINTS: `mxcli syntax workflow` lists `workflow.user-task`, and
+-- copying that into HELP used to be a parse error — a hyphen is its own token
+-- (HYPHENATED_ID) and a dot is DOT, and `helpStatement` named neither.
+--
+-- The CLI half is not MDL; it is pinned by cmd/mxcli/cmd_syntax_test.go and
 -- cmd/mxcli/syntax/topic_test.go, including a guard that every registered path
 -- is reachable by all three spellings.
---
--- Only the WORD spelling appears below, because that is all the grammar takes:
--- `helpStatement: IDENTIFIER (identifierOrKeyword)*` accepts neither a hyphen
--- nor a dot, so `help workflow.user-task` is a parse error in a script and in
--- the REPL. `mxcli syntax` takes all three. Left as-is rather than widened
--- here: the grammar is a separate change, and the words reach the same page.
 --
 -- No project needed: HELP reads the embedded syntax registry.
 -- ============================================================================
 
--- Three levels deep — the topic the report could not reach.
+-- Plain words — the spelling HELP has always taken.
 help workflow user task targeting;
 
--- The two levels above it, and the other activity the report names.
-help workflow user task;
-help workflow parallel split;
+-- Hyphenated, as the listing prints each segment.
+help workflow user-task targeting;
+
+-- The dotted path, exactly as `mxcli syntax workflow` prints it.
+help workflow.user-task.targeting;
+
+-- A hyphen in the FIRST segment, and a dot after it.
+help domain-model.entity;
+
+-- The other two topics the report names.
+help workflow user-task;
+help workflow parallel-split;
 
 -- The second advertised example.
-help security entity access;
+help security entity-access;

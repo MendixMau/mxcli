@@ -349,6 +349,9 @@ Other:
   commit [message 'message'];
   set key = value;
   HELP or ?
+  HELP <topic>;                 Syntax reference — the topics mxcli syntax lists.
+                                Words, hyphens or the dotted path all work:
+                                HELP workflow user task | HELP workflow.user-task
   EXIT or QUIT
 
 Statement Terminator:
