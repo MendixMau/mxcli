@@ -569,6 +569,7 @@ it is for pages.
 | Import mapping | `[$Var =] import from mapping Module.IMM($SourceVar) [all\|first\|limit <e> [offset <e>]];` | Apply import mapping to string variable. Trailing clause is Studio Pro's Range; omitted = infer from the mapping's root. `first` binds one OBJECT (`limit 1` is a one-element LIST). Mendix rejects `offset` on a non-list mapping (CE6100) |
 | Export mapping | `$Var = export to mapping Module.EMM($EntityVar);` | Apply export mapping to entity, returns string |
 | Error handling | `... on error continue\|rollback\|{ handler }\|without rollback { handler };` | Goes on the activity that may fail — including `declare`, `set`, `change`, `log`, `show page`, `close page`, `show message` and `validation feedback`, which gained it in mendixlabs/mxcli#1078 so a Studio Pro handler survives DESCRIBE. `on error continue` is refused (MDL076) where Mendix raises CE6035: create, change, commit, log, show page, close page, show message, validation feedback — a custom `{ handler }` is accepted on all of them. The list-operation and aggregate forms of `set` have no error handling at all (MDL077). Not supported on EXECUTE DATABASE QUERY. **In a nanoflow** only `declare` and `set` take a clause at all — `change`, `log`, `show page`, `close page`, `show message` and `validation feedback` are CE6035 there in every form, and are refused. A handler that does not end in `return`/`throw` merges back into the main flow, so a later variable is out of scope on the error path (CE0108) |
+| Re-raise the error | `raise error;` | **Inside an `on error { … }` handler only.** The error event re-raises the error being handled, so Mendix needs one in scope; Studio Pro will not draw the shape and mxbuild rejects it with **CE0710** "The main flow cannot join an error flow or end in an error event". On the main flow — at any nesting depth, and in a rule too — it is **MDL084**. Mendix has no main-flow "throw": call a Java action that throws |
 | Named join point | `merge <label>;` / `join <label>;` | Declares an ExclusiveMerge and sends a path to it. The label is MDL-only — a Mendix merge stores no name, so it is resolved at build and at describe time and never written to the model. Forward and backward references both resolve, so `merge attempt; … on error { join attempt; }` is a retry loop. This is how an **error path that rejoins the normal one** is written: without it the only spellings are "terminate" and "fall through to the enclosing branch's continuation", and DESCRIBE emitted an empty `{ }` for anything else — MDL that re-executes to a different graph with nothing reporting it. Also covers **crossed branches**, where an inner split's branch lands where an outer split's branch lands. Refused inside a `loop`/`while` body (MDL-FLOW04): a LoopedActivity owns its own object collection and a sequence flow cannot leave it. An unresolved or unjoined label is MDL-FLOW02; a duplicate declaration MDL-FLOW03. A path that already ended does not fall through into a following `merge` |
 
 **Activity defaults.** An omitted modifier always means Mendix's own default, so a
@@ -1392,6 +1393,8 @@ MDL uses explicit property declarations for pages:
 | Clickable container | `onclick: action` (alias of `action:`) | `container card (onclick: microflow Mod.ACT_Open) { ... }` — takes an argument list like a button: `action: nanoflow Mod.ACT_Ship($Order = $dgOrders)` |
 | Action arguments | every parameter needs one | A flow action with an unfilled parameter is **CE1571**. An enclosing data container of its type supplies it; a data grid's **control bar** does not (not row-scoped) — pass the grid's selection, `$dgOrders` |
 | Database source | `datasource: database entity` | `datagrid dg (datasource: database Module.Entity)` |
+| Database source, constrained and sorted | `datasource: database entity where [...] sort by Attr asc` | `listview lv (datasource: database from Mod.Vehicle where [Brand != ''] sort by Brand asc)` |
+| List view search bar | `... search by Attr, Attr2` | `listview lv (datasource: database from Mod.Vehicle search by Brand, Model)` — **list view only**; mirrors `sort by` and takes no direction |
 | Selection binding | `datasource: selection widget` | `dataview dv (datasource: selection galleryList)` |
 | Association source ("data from context") | `datasource: $currentObject/Module.Assoc` | nested `dataview dvCust (datasource: $currentObject/Order_Customer)` shows the to-one referenced object; a list widget shows the to-many collection |
 | CSS class | `class: 'classes'` | `container c (class: 'card mx-spacing-top-large')` |
@@ -1493,6 +1496,7 @@ create page MyModule.Customer_Edit
 | PhoneWidth | `column col (phonewidth: 12)` | 1-12 or AutoFill (default: auto) |
 | Visible | `textbox txt (visible: [IsActive])` | Conditional visibility (XPath expression) |
 | Editable | `textbox txt (editable: [status != 'Closed'])` | Conditional editability (XPath expression) |
+| Image | `staticimage img (Image: 'Mod.Images.logo')` | Image-collection entry, `Module.Collection.Image`. Omitted → CE0436 "No image selected." |
 
 **Supported Widgets:**
 - Layout: `layoutgrid`, `row`, `column`, `container`, `customcontainer`
@@ -1502,7 +1506,11 @@ create page MyModule.Customer_Edit
 ### List View specialization templates
 
 A List View over a generalization can render a different body per specialization.
-The template is identified by the **entity** it renders — it has no name:
+The template is identified by the **entity** it renders — it has no name.
+
+The entity must be a **strict specialization** of the list view's own entity: a
+template for the list view's entity itself is **CE0543**, because the list view's
+own body already renders objects no template matches.
 
 ```sql
 listview vehicleListView (DataSource: database from Pages.Vehicle) {

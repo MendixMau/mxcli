@@ -238,8 +238,34 @@ linkMapping
     | identifierOrKeyword TO identifierOrKeyword                          # linkDirect
     ;
 
+/**
+ * HELP [topic], EXIT, QUIT
+ *
+ * The topic reaches the same registry `mxcli syntax` reads, so it takes the
+ * same spellings: plain words (`help workflow user task`), the hyphenated
+ * segments the listing prints (`help workflow user-task`), and the dotted
+ * path it prints them AS (`help workflow.user-task.targeting`). A hyphen is
+ * its own token (HYPHENATED_ID) and a dot is DOT, so both have to be named
+ * here — copying a printed path into HELP was a parse error until they were
+ * (mendixlabs/mxcli#1025).
+ *
+ * The DOT must follow a topic word, and that shape is load-bearing rather
+ * than tidy. This rule is the grammar's catch-all — a statement that is just
+ * an IDENTIFIER and some words — so anything it can swallow, it swallows from
+ * the statement that should have had it. With a leading `DOT?` in the loop,
+ * `Sec.ApiUser` became a complete statement of its own, and
+ * `create module role Sec.ApiUser` therefore parsed as CREATE MODULE (named
+ * "role") followed by a help topic: two statements, no module role, no parse
+ * error. Requiring a word first leaves `.ApiUser` unconsumable, so the
+ * CREATE MODULE ROLE alternative wins as it did before.
+ */
 helpStatement
-    : IDENTIFIER (identifierOrKeyword)*  // HELP [topic words...]
+    : IDENTIFIER (helpTopicWord (DOT? helpTopicWord)*)?  // HELP [topic]
+    ;
+
+helpTopicWord
+    : identifierOrKeyword
+    | HYPHENATED_ID
     ;
 
 /**
@@ -591,7 +617,7 @@ keyword
 
     // Query / SQL
     | SELECT | FROM | WHERE | JOIN | LEFT | RIGHT | INNER | OUTER | FULL | CROSS
-    | ORDER_BY | GROUP_BY | SORT_BY | HAVING | LIMIT | OFFSET | FIRST | AS | ON
+    | ORDER_BY | GROUP_BY | SORT_BY | SEARCH_BY | HAVING | LIMIT | OFFSET | FIRST | AS | ON
     | AND | OR | NOT | NULL | IN | LIKE | BETWEEN | TRUE | FALSE
     | COUNT | SUM | AVG | MIN | MAX | DISTINCT | ALL
     | ASC | DESC | UNION | INTERSECT | SUBTRACT | EXISTS

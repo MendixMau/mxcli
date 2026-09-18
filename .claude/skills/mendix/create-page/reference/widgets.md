@@ -658,7 +658,7 @@ Display images on pages:
 ```sql
 -- Image with dimensions (responsive by default)
 image imgLogo (width: 200, height: 100)
-staticimage imgBanner (width: 400, height: 120)
+staticimage imgBanner (Image: 'MyModule.Images.banner', width: 400, height: 120)
 
 -- Dynamic image (from entity data source, e.g. inside a DataView)
 dynamicimage imgProduct (width: 300, height: 200)
@@ -668,6 +668,32 @@ image imgIcon
 ```
 
 **Properties:** `width: integer`, `height: integer`, `AlternativeText: 'text'`, `WidthUnit: pixels | percentage | auto`, `HeightUnit: pixels | percentage | auto`, `Responsive: true | false`, `DisplayAs: fullImage | thumbnail | icon`, `class: 'css'`, `style: 'css'`
+
+#### `Image:` — which image a STATICIMAGE shows
+
+`Image:` names an entry in an image collection, as the three-part qualified name
+`Module.Collection.Image` — the same shape `Icon:` and the pluggable `image`
+widget use, because all three are by-name references to the same `Images$Image`
+element. `describe image collection Module.Images` lists the names.
+
+Without it the widget is written with no reference and mxbuild reports
+**CE0436 "No image selected."** Until mendixlabs/mxcli#1057 there was no way to
+say it at all, so `describe page` marked every stored static image
+`-- NOT re-executable` and the round trip dropped it.
+
+```sql
+staticimage imgAllSelected (Image: 'MyFirstModule.Images.gallery')
+```
+
+`WidthUnit:`, `HeightUnit:` (`pixels` | `percentage` | `auto`) and
+`Responsive: false` are written too. Leave them out for Studio Pro's defaults —
+auto units and a responsive image — which `describe page` also omits, so a
+round trip neither loses them nor invents them.
+
+Mendix 11's React client reports **CE0582** for `staticimage` wherever it
+appears — it is deprecated in favour of the pluggable `image` widget, which
+takes the same `Image:`. mxcli still writes it, because round-tripping a model
+that already contains one is the point; prefer `image` on a new page.
 
 #### Setting Image Source (PLUGGABLEWIDGET syntax)
 
@@ -754,9 +780,10 @@ Two shapes, two remedies:
   the input widgets, `groupbox`, `tabcontainer`, `layoutgrid`, `snippetcall`) —
   put the action on a `container` inside the widget. A container renders with
   `tabindex="0" role="button"`, so it is the correct modelling, not a workaround.
-- **Mendix models one but mxcli cannot write it yet** (`listview`,
-  `staticimage`, `dynamicimage`) — the container is a workaround here; the model
-  could hold the action.
+- **Mendix models one but mxcli cannot write it yet** — nobody is in this group
+  today. `listview`, `staticimage` and `dynamicimage` were, and their actions
+  have been written since ako/mxcli#512; MDL-WIDGET23's second message survives
+  so the next such gap has a sentence, not because one is open.
 
 ```sql
 -- WRONG: silently does nothing

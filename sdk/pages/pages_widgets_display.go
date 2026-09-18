@@ -94,10 +94,19 @@ type DynamicImage struct {
 // StaticImage represents a static image widget.
 type StaticImage struct {
 	BaseWidget
-	ImageID       model.ID     `json:"imageId,omitempty"`
-	Width         int          `json:"width,omitempty"`
-	WidthUnit     WidthUnit    `json:"widthUnit,omitempty"`
-	Height        int          `json:"height,omitempty"`
+	// ImageName is the image this widget shows, as the three-part qualified
+	// name of an entry in an image collection (Module.Collection.Image).
+	// Forms$StaticImageViewer.Image is a by-name reference to Images$Image, so
+	// a NAME is what Mendix stores — the ImageID (model.ID) field that used to
+	// stand here was never filled by anything and named the wrong thing
+	// (mendixlabs/mxcli#1057).
+	ImageName string    `json:"imageName,omitempty"`
+	Width     int       `json:"width,omitempty"`
+	WidthUnit WidthUnit `json:"widthUnit,omitempty"`
+	Height    int       `json:"height,omitempty"`
+	// HeightUnit is the sibling of WidthUnit, which had no field while the
+	// writer hardcoded both to "Auto". Empty means Auto (Studio Pro's default).
+	HeightUnit    WidthUnit    `json:"heightUnit,omitempty"`
 	Responsive    bool         `json:"responsive"`
 	OnClickAction ClientAction `json:"onClickAction,omitempty"`
 }

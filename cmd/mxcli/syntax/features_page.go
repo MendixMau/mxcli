@@ -155,6 +155,10 @@ CREATE PAGE Sales.Detail (Title: 'Detail', Layout: Atlas_Core.Atlas_Default) {
 			"--   `check --references` rather than failing the build with CE1613.\n" +
 			"--   The alternatives are the URL form above, or `ImageType: icon`.\n\n" +
 			"-- Any pluggable widget by its id (id FIRST, then the name)\nPLUGGABLEWIDGET 'com.mendix.widget.web.badge.Badge' name (value: 'x')\nCUSTOMWIDGET 'com.mendix.widget.custom.x.X' name (prop: 'x')      -- legacy spelling\n\n" +
+			"-- STATICIMAGE takes the same three-part image-collection reference as IMAGE,\n" +
+			"-- so a stored one round-trips through DESCRIBE (mendixlabs/mxcli#1057). Without\n" +
+			"-- it the widget is written with no image and mxbuild reports CE0436:\n" +
+			"STATICIMAGE imgLogo (Image: 'MyModule.Images.logo', Width: 64, Height: 64)\n\n" +
 			"-- Deprecated in the Mendix 11 React client. These are written correctly by\n" +
 			"-- both engines, but mxbuild reports CE0582 (\"not supported in React client\")\n" +
 			"-- on each, so prefer the alternative:\n" +
@@ -188,7 +192,9 @@ CREATE PAGE Sales.Detail (Title: 'Detail', Layout: Atlas_Core.Atlas_Default) {
 			"TEMPLATE FOR Module.Entity and not TEMPLATE name. (A Gallery's TEMPLATE name is a\n" +
 			"different thing: a named content slot.)\n\n" +
 			"Rules:\n" +
-			"  - the entity must be the list view's entity or a specialization of it\n" +
+			"  - the entity must be a SPECIALIZATION of the list view's entity; the list\n" +
+			"    view's own entity is CE0543, since its body already renders objects\n" +
+			"    no template matches\n" +
 			"  - at most one template per entity\n" +
 			"  - templates keep their source order, which is the order Mendix stores and matches in\n" +
 			"  - inside a template the context object is the specialization, so its own attributes resolve\n\n" +
@@ -222,7 +228,7 @@ CREATE PAGE Sales.Detail (Title: 'Detail', Layout: Atlas_Core.Atlas_Default) {
 			"datasource", "data source", "database", "microflow",
 			"selection", "variable", "binding", "binds", "association", "data from context",
 		},
-		Syntax:  "DataSource: $Variable                    -- Parameter/variable binding\nDataSource: DATABASE Module.Entity        -- Database query\nDataSource: MICROFLOW Module.MF           -- Microflow datasource, no parameters\nDataSource: MICROFLOW Module.MF($P)       -- ...one argument per PARAMETER, required:\n                                          --   Mendix does NOT auto-map an object in\n                                          --   scope, not even one of the exact type,\n                                          --   so a missing argument is CE1571\nDataSource: SELECTION widgetName          -- Selection from another widget\nDataSource: $currentObject/Module.Assoc   -- Over an association (\"data from context\")\n                                          --   list widget → to-many collection\n                                          --   nested DATAVIEW → the to-one referenced object\nAttribute: AttributeName                  -- Attribute binding (inputs)",
+		Syntax:  "DataSource: $Variable                    -- Parameter/variable binding\nDataSource: DATABASE Module.Entity        -- Database query\nDataSource: DATABASE Module.Entity WHERE [Attr != ''] SORT BY Attr ASC\n                                          --   ...optionally constrained and sorted\nDataSource: DATABASE Module.Entity SEARCH BY Attr, Attr2\n                                          --   LIST VIEW only: the attributes its\n                                          --   search bar filters on. Mirrors SORT BY,\n                                          --   but takes no direction.\nDataSource: MICROFLOW Module.MF           -- Microflow datasource, no parameters\nDataSource: MICROFLOW Module.MF($P)       -- ...one argument per PARAMETER, required:\n                                          --   Mendix does NOT auto-map an object in\n                                          --   scope, not even one of the exact type,\n                                          --   so a missing argument is CE1571\nDataSource: SELECTION widgetName          -- Selection from another widget\nDataSource: $currentObject/Module.Assoc   -- Over an association (\"data from context\")\n                                          --   list widget → to-many collection\n                                          --   nested DATAVIEW → the to-one referenced object\nAttribute: AttributeName                  -- Attribute binding (inputs)",
 		Example: "-- Database datasource with grid\nDATAGRID grid (DataSource: DATABASE Module.Customer) {\n  COLUMN colName (Attribute: Name, Caption: 'Name')\n}\n\n-- Microflow datasource\nDATAVIEW dv (DataSource: MICROFLOW Module.GetData) {\n  TEXTBOX txtName (Label: 'Name', Attribute: Name)\n}\n\n-- Over an association: a nested DataView shows the referenced (to-one) object\nDATAVIEW dvOrder (DataSource: $Order) {\n  DATAVIEW dvCustomer (DataSource: $currentObject/Order_Customer) {\n    TEXTBOX txtCustName (Label: 'Name', Attribute: Name)\n  }\n}\n\n-- Over an association: a list widget shows the (to-many) collection\nLISTVIEW lvLines (DataSource: $currentObject/Order_OrderLine) {\n  DYNAMICTEXT dtLine (Content: 'Line')\n}",
 		SeeAlso: []string{"page.widgets", "page.create"},
 	})

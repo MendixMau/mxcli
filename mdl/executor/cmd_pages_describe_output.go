@@ -662,11 +662,19 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 			props = appendAppearanceProps(props, w)
 			formatWidgetProps(ctx.Output, prefix, header, props, "\n")
 		} else if (len(w.ExplicitProperties) > 0 || len(w.ObjectLists) > 0 || w.OnClick != "" ||
-			w.OnChange != "" || len(w.NamedActions) > 0) && w.WidgetID != "" {
+			w.OnChange != "" || len(w.NamedActions) > 0 || len(w.ChildSlots) > 0 ||
+			len(w.OmittedContainers) > 0) && w.WidgetID != "" {
 			// Generic pluggable widget with explicit properties, object-list child
 			// blocks (chart series/lines/scaleColors), and/or an onClick action.
 			// The widget's own MDL name where that round-trips, else the
 			// explicit id form. See pluggableWidgetHeader.
+			//
+			// Child slots and omitted containers count towards "has content"
+			// too: a widget whose only non-default content is a populated slot
+			// took the bare branch below, which emits a head and no body — so
+			// the slot's widgets, and even the note naming what could not be
+			// reconstructed, were dropped from the description
+			// (mendixlabs/mxcli#1057).
 			header := pluggableWidgetHeader(ctx.GetWidgetRegistry(), w.WidgetID, w.Name)
 			props := []string{}
 			if w.Caption != "" {
@@ -821,6 +829,42 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 			formatWidgetProps(ctx.Output, prefix, header, props, "\n")
 		}
 
+	case "Forms$StaticImageViewer", "Pages$StaticImageViewer":
+		// The `staticimage` keyword the executor has always dispatched, now with
+		// the one thing MDL had no spelling for: WHICH image it shows. Both
+		// halves are load-bearing — emitting the keyword without the reference
+		// turns a visible "NOT re-executable" note into a silent drop, which is
+		// what #512 and mxcli-formula1 FINDINGS §142 each cost a round to learn
+		// (mendixlabs/mxcli#1057).
+		header := fmt.Sprintf("staticimage %s", mdlIdent(w.Name))
+		props := []string{}
+		if w.ImageObject != "" {
+			props = append(props, fmt.Sprintf("Image: %s", mdlQuote(w.ImageObject)))
+		}
+		if w.ImageWidth != "" {
+			props = append(props, fmt.Sprintf("Width: %s", w.ImageWidth))
+		}
+		if w.WidthUnit != "" && w.WidthUnit != "auto" {
+			props = append(props, fmt.Sprintf("WidthUnit: %s", w.WidthUnit))
+		}
+		if w.ImageHeight != "" {
+			props = append(props, fmt.Sprintf("Height: %s", w.ImageHeight))
+		}
+		if w.HeightUnit != "" && w.HeightUnit != "auto" {
+			props = append(props, fmt.Sprintf("HeightUnit: %s", w.HeightUnit))
+		}
+		// Only the non-default is emitted: Responsive is true unless it was
+		// switched off, and printing a value the writer re-derives is the
+		// "invents" half of the describe failure class.
+		if w.Responsive == "false" {
+			props = append(props, "Responsive: false")
+		}
+		if w.Action != "" {
+			props = append(props, fmt.Sprintf("Action: %s", w.Action))
+		}
+		props = appendAppearanceProps(props, w)
+		formatWidgetProps(ctx.Output, prefix, header, props, "\n")
+
 	case "Forms$SnippetCallWidget", "Pages$SnippetCallWidget":
 		header := fmt.Sprintf("snippetcall %s", mdlIdent(w.Name))
 		props := []string{}
@@ -855,6 +899,12 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 		// Emit a non-default PageSize so it round-trips (Studio Pro's default is 20).
 		if w.PageSize != "" && w.PageSize != "20" {
 			props = append(props, fmt.Sprintf("PageSize: %s", w.PageSize))
+		}
+		// Pages$ListView.ClickAction. Written since ako/mxcli#512; without this
+		// the action is dropped on the next describe -> exec, which is the
+		// half-shell trap: valid BSON, clean build, construct silently gone.
+		if w.Action != "" {
+			props = append(props, fmt.Sprintf("Action: %s", w.Action))
 		}
 		props = appendAppearanceProps(props, w)
 		if len(w.Children) > 0 {

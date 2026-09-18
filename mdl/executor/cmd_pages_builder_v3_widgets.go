@@ -294,6 +294,19 @@ func (pb *pageBuilder) buildListViewV3(w *ast.WidgetV3) (*pages.ListView, error)
 	// (ako/CapTrackV3 FINDINGS §6).
 	lv.Editable = w.GetBoolProp("Editable")
 
+	// "On click" — Pages$ListView.ClickAction. The model and the writer have
+	// always carried it (widget_write.go calls clientActionToGen(x.ClickAction));
+	// only this builder never read it off the AST, so the field was always nil
+	// and MDL-WIDGET23 told authors to wrap the row in a `container` instead
+	// (ako/mxcli#512).
+	if action := w.GetAction(); action != nil {
+		clientAction, err := pb.buildClientActionV3(action)
+		if err != nil {
+			return nil, err
+		}
+		lv.ClickAction = clientAction
+	}
+
 	// Handle DataSource
 	var listEntity string
 	if ds := w.GetDataSource(); ds != nil {
@@ -368,16 +381,10 @@ func (pb *pageBuilder) buildListViewTemplateV3(w *ast.WidgetV3, listViewName, li
 	}
 	seen[spec] = true
 
-	// The specialization must actually be one: Mendix matches a template against
-	// the object's type, so a template for an unrelated entity can never render.
-	// listEntity is empty when the datasource could not be resolved to an entity,
-	// and an unresolvable datasource is already reported elsewhere — do not
-	// report it a second time as a bogus specialization error.
-	if listEntity != "" && !pb.entityIsOrDescendsFrom(spec, listEntity) {
-		return nil, mdlerrors.NewValidation(fmt.Sprintf(
-			"template for %s in list view %s: %s is not %s or a specialization of it, "+
-				"so the template can never match an object the list view shows",
-			spec, listViewName, spec, listEntity))
+	// The specialization must actually be one, and strictly so — see
+	// checkListViewTemplateSpecialization, which the ALTER PAGE path shares.
+	if err := pb.checkListViewTemplateSpecialization(spec, listEntity, listViewName); err != nil {
+		return nil, err
 	}
 
 	tpl := &pages.ListViewTemplate{
@@ -1245,11 +1252,42 @@ func (pb *pageBuilder) buildStaticImageV3(w *ast.WidgetV3) (*pages.StaticImage, 
 		Responsive: true,
 	}
 
+	// Which image the widget shows: Module.Collection.Image, the qualified name
+	// of an entry in an image collection. Forms$StaticImageViewer.Image is a
+	// by-name reference to Images$Image, so the NAME is what is stored — and
+	// until mendixlabs/mxcli#1057 MDL had no way to say it, which is why a
+	// Selection helper's Studio Pro-authored custom slots could not be
+	// re-authored after a DESCRIBE.
+	img.ImageName = w.GetStringProp("Image")
+
 	if width := w.GetIntProp("Width"); width > 0 {
 		img.Width = width
 	}
 	if height := w.GetIntProp("Height"); height > 0 {
 		img.Height = height
+	}
+	img.WidthUnit = pages.WidthUnit(w.GetStringProp("WidthUnit"))
+	img.HeightUnit = pages.WidthUnit(w.GetStringProp("HeightUnit"))
+	// Responsive defaults to TRUE (Studio Pro's default, set above), so only an
+	// explicit `Responsive: false` turns it off — an ABSENT property must not
+	// read as false, which is exactly what GetBoolProp would do.
+	if raw, ok := lookupPropCI(w, "Responsive"); ok {
+		v, err := propBool(raw)
+		if err != nil {
+			return nil, mdlerrors.NewBackend("staticimage Responsive", err)
+		}
+		img.Responsive = v
+	}
+
+	// Pages$StaticImageViewer.ClickAction / Pages$DynamicImageViewer.ClickAction.
+	// Same story as the list view: the writer already serialises OnClickAction,
+	// only this builder never filled it (ako/mxcli#512).
+	if action := w.GetAction(); action != nil {
+		clientAction, err := pb.buildClientActionV3(action)
+		if err != nil {
+			return nil, err
+		}
+		img.OnClickAction = clientAction
 	}
 
 	if err := pb.registerWidgetName(w.Name, img.ID); err != nil {
@@ -1276,6 +1314,17 @@ func (pb *pageBuilder) buildDynamicImageV3(w *ast.WidgetV3) (*pages.DynamicImage
 	}
 	if height := w.GetIntProp("Height"); height > 0 {
 		img.Height = height
+	}
+
+	// Pages$StaticImageViewer.ClickAction / Pages$DynamicImageViewer.ClickAction.
+	// Same story as the list view: the writer already serialises OnClickAction,
+	// only this builder never filled it (ako/mxcli#512).
+	if action := w.GetAction(); action != nil {
+		clientAction, err := pb.buildClientActionV3(action)
+		if err != nil {
+			return nil, err
+		}
+		img.OnClickAction = clientAction
 	}
 
 	if err := pb.registerWidgetName(w.Name, img.ID); err != nil {
