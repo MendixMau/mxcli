@@ -13,6 +13,7 @@ package executor
 
 import (
 	"fmt"
+	"log"
 	"regexp"
 	"sort"
 	"strconv"
@@ -60,6 +61,27 @@ func LoadWidgetRegistry(projectPath string) *WidgetRegistry {
 		return nil
 	}
 	if projectPath != "" {
+		// Generate the project's .def.json files from its installed .mpk when
+		// they are missing or behind this build, exactly as the page builder
+		// does before it reads them (cmd_pages_builder.go). Without this the
+		// validator and the builder read DIFFERENT registries, and the
+		// difference pointed the wrong way: on a project that had never run
+		// `mxcli widget init`, `check -p --references` reported every installed
+		// widget as "not a widget in this project" while `exec --no-check`
+		// wrote the page and generated the definitions on its way past
+		// (mendixlabs/mxcli#1135). check is meant to be the strict gate and
+		// exec the thing that runs; here it was inverted, and the script it
+		// blocked was one describe had just emitted.
+		//
+		// The self-healing is what made it read as flaky: the first exec writes
+		// the definitions and every check after it passes.
+		//
+		// Best-effort. A project whose definitions cannot be written — read-only
+		// checkout, no widgets/ at all — gets the registry it got before, which
+		// is strictly better than failing the check over a cache.
+		if _, err := RefreshStaleWidgetDefinitions(projectPath); err != nil {
+			log.Printf("warning: updating widget definitions: %v", err)
+		}
 		_ = registry.LoadUserDefinitions(projectPath)
 		registry.projectPath = projectPath
 		// The validator and DESCRIBE WIDGET must agree about which properties a
