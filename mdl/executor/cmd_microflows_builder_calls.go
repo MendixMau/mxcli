@@ -901,11 +901,20 @@ func edmReturnTypeToKind(edmType string) string {
 		return "Long"
 	case "Edm.Decimal", "Edm.Double", "Edm.Single":
 		return "Decimal"
-	case "Edm.DateTime", "Edm.DateTimeOffset", "Edm.Date":
+	case "Edm.DateTime", "Edm.DateTimeOffset", "Edm.Date", "Edm.TimeOfDay":
+		// Edm.TimeOfDay is the one primitive Mendix accepts on an external
+		// action that mxcli did not map, so the call was written with no type
+		// at all and no MDL reached the field: CE7252 on a parameter, CE7269 on
+		// a return (mendixlabs/mxcli#1089). Measured on mxbuild 11.12.0 —
+		// typing it as DateTime clears both.
 		return "DateTime"
-	case "Edm.Binary":
-		return "Binary"
 	default:
+		// Edm.Binary is deliberately absent, though it maps cleanly to
+		// DataTypes$BinaryType: Mendix rejects an external action carrying one
+		// as CE7255 "Action '<x>' ... is not supported", whatever mxcli writes.
+		// Returning a kind here would route it past the refusal in
+		// checkExternalActionTypes and back to the unfixable CE7252 of #1089.
+		//
 		// Not a primitive. Entity-typed and collection returns are resolved by
 		// resolveExternalActionReturnEntity, which needs the project to map the
 		// contract's type onto the entity imported for it. Complex types
@@ -914,9 +923,66 @@ func edmReturnTypeToKind(edmType string) string {
 	}
 }
 
+// externalActionContract returns the called service's cached contract and the
+// action within it, or nils when either cannot be resolved. An unresolvable
+// service or action is reported by the reference validation, not here.
+func (fb *flowBuilder) externalActionContract(serviceRef ast.QualifiedName, actionName string) (*types.EdmxDocument, *types.EdmAction) {
+	if fb.backend == nil {
+		return nil, nil
+	}
+	services, err := fb.backend.ListConsumedODataServices()
+	if err != nil {
+		return nil, nil
+	}
+	for _, svc := range services {
+		modName := fb.hierarchy.GetModuleName(fb.hierarchy.FindModuleID(svc.ContainerID))
+		if !strings.EqualFold(modName, serviceRef.Module) || !strings.EqualFold(svc.Name, serviceRef.Name) {
+			continue
+		}
+		if svc.Metadata == "" {
+			return nil, nil
+		}
+		doc, err := types.ParseEdmx(svc.Metadata)
+		if err != nil {
+			return nil, nil
+		}
+		for _, act := range doc.Actions {
+			if strings.EqualFold(act.Name, actionName) {
+				return doc, act
+			}
+		}
+		return doc, nil
+	}
+	return nil, nil
+}
+
+// refuseUntypableExternalAction applies the type rule at the WRITE choke point,
+// from the same function `mxcli check --references` calls.
+//
+// Both tiers are needed and neither substitutes for the other: `exec` does not
+// run the project-resolved reference pass, so without this the statement still
+// executed silently and left a project whose build fails with CE7252 and no MDL
+// to clear it — which is the whole of mendixlabs/mxcli#1089. This is the shape
+// CheckLayoutPlaceholderNames already has: one rule, applied by the checker and
+// by the writer.
+func (fb *flowBuilder) refuseUntypableExternalAction(s *ast.CallExternalActionStmt) {
+	doc, action := fb.externalActionContract(s.ServiceName, s.ActionName)
+	if doc == nil || action == nil {
+		return
+	}
+	svcQN := s.ServiceName.String()
+	err := checkExternalActionTypes(externalCall{stmt: s}, action, doc, svcQN, func(remoteName string) string {
+		return fb.findExternalEntityFor(svcQN, remoteName)
+	})
+	if err != nil {
+		fb.addError("%s", err.Error())
+	}
+}
+
 // addCallExternalActionAction creates a CALL EXTERNAL ACTION statement.
 func (fb *flowBuilder) addCallExternalActionAction(s *ast.CallExternalActionStmt) model.ID {
 	serviceQN := s.ServiceName.Module + "." + s.ServiceName.Name
+	fb.refuseUntypableExternalAction(s)
 	returnKind, returnEntity := fb.resolveExternalActionReturnKind(s.ServiceName, s.ActionName)
 
 	// Build parameter mappings. Each carries the parameter's TYPE as well as its

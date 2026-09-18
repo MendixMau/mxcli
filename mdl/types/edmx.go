@@ -190,6 +190,27 @@ func (d *EdmxDocument) FindEntityType(name string) *EdmEntityType {
 	return nil
 }
 
+// FindEnumType looks up an enum type by name (with or without namespace prefix).
+//
+// It exists to tell an ENUM apart from a complex type or a type definition when
+// classifying an external action's parameter: Mendix builds an enum-typed
+// parameter at 0 errors and refuses the other two (CE7255), so a lookup that
+// cannot distinguish them refuses something that works.
+func (d *EdmxDocument) FindEnumType(name string) *EdmEnumType {
+	shortName := name
+	if idx := strings.LastIndex(name, "."); idx >= 0 {
+		shortName = name[idx+1:]
+	}
+	for _, s := range d.Schemas {
+		for _, et := range s.EnumTypes {
+			if et.Name == shortName {
+				return et
+			}
+		}
+	}
+	return nil
+}
+
 // ParseEdmx parses an OData $metadata XML string into an EdmxDocument.
 func ParseEdmx(metadataXML string) (*EdmxDocument, error) {
 	if metadataXML == "" {
