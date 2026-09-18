@@ -139,6 +139,7 @@ createStatement
 
 alterStatement
     : ALTER ENTITY qualifiedName alterEntityAction (COMMA? alterEntityAction)*
+    | alterEntitiesStatement
     | ALTER ASSOCIATION qualifiedName alterAssociationAction+
     | ALTER ENUMERATION qualifiedName alterEnumerationAction+
     | ALTER ODATA CLIENT qualifiedName SET odataAlterAssignment (COMMA odataAlterAssignment)*

@@ -162,6 +162,7 @@ func allKnownStatements() []ast.Statement {
 		&ast.AlterAssociationStmt{},
 		&ast.AlterConsumedMCPServiceStmt{},
 		&ast.AlterEntityStmt{},
+		&ast.AlterEntitiesStmt{},
 		&ast.AlterMessageDefinitionCollectionStmt{},
 		&ast.AlterMessageDefinitionStmt{},
 		&ast.AlterEnumerationStmt{},

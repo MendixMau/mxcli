@@ -102,6 +102,7 @@ Modifies an existing entity without full replacement.
 | Set position | `alter entity Module.Name set position (100, 200);` | Canvas position |
 | Add system attribute | `alter entity Module.Name add attribute owner: autoowner;` | Same syntax as regular attributes |
 | Drop system attribute | `alter entity Module.Name drop attribute owner;` | Drop by system attribute name |
+| Add attribute to every entity | `alter entities [in Module] add attribute [if not exists] attr: type [, ...] [where persistent\|non-persistent];` | The bulk form — one statement instead of one per entity. **ADD ATTRIBUTE only**: drop/rename aimed at a set are destructive by a typo. A **view** entity matches neither persistence filter. **Without `in`**, the sweep skips System and every Marketplace module (and says which) — an upgrade replaces those and would take the attribute with it |
 
 > **Re-running domain scripts.** `IF NOT EXISTS` / `IF EXISTS` make an individual
 > create/add/drop a no-op when already applied — accepted on `create entity`,
