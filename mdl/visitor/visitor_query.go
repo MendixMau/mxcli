@@ -1350,14 +1350,18 @@ func (b *Builder) ExitSessionSetStatement(ctx *parser.SessionSetStatementContext
 }
 
 // ExitHelpStatement handles help/exit/quit commands
-// Grammar: helpStatement: IDENTIFIER (identifierOrKeyword)*
+// Grammar: helpStatement: IDENTIFIER (DOT? helpTopicWord)*
 func (b *Builder) ExitHelpStatement(ctx *parser.HelpStatementContext) {
 	if id := ctx.IDENTIFIER(); id != nil {
 		cmd := strings.ToLower(id.GetText())
 		switch cmd {
 		case "help", "?":
 			stmt := &ast.HelpStmt{}
-			for _, tok := range ctx.AllIdentifierOrKeyword() {
+			// One word per segment, however it was spelled. The DOT is a
+			// separator, not part of a word, and a word may itself be dotted
+			// when a whole path arrives as one token — syntax.Lookup splits on
+			// both, so the topic is passed on as the reader typed it.
+			for _, tok := range ctx.AllHelpTopicWord() {
 				stmt.Topic = append(stmt.Topic, strings.ToLower(tok.GetText()))
 			}
 			b.statements = append(b.statements, stmt)

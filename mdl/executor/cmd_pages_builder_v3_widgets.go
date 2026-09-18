@@ -1246,11 +1246,31 @@ func (pb *pageBuilder) buildStaticImageV3(w *ast.WidgetV3) (*pages.StaticImage, 
 		Responsive: true,
 	}
 
+	// Which image the widget shows: Module.Collection.Image, the qualified name
+	// of an entry in an image collection. Forms$StaticImageViewer.Image is a
+	// by-name reference to Images$Image, so the NAME is what is stored — and
+	// until mendixlabs/mxcli#1057 MDL had no way to say it, which is why a
+	// Selection helper's Studio Pro-authored custom slots could not be
+	// re-authored after a DESCRIBE.
+	img.ImageName = w.GetStringProp("Image")
+
 	if width := w.GetIntProp("Width"); width > 0 {
 		img.Width = width
 	}
 	if height := w.GetIntProp("Height"); height > 0 {
 		img.Height = height
+	}
+	img.WidthUnit = pages.WidthUnit(w.GetStringProp("WidthUnit"))
+	img.HeightUnit = pages.WidthUnit(w.GetStringProp("HeightUnit"))
+	// Responsive defaults to TRUE (Studio Pro's default, set above), so only an
+	// explicit `Responsive: false` turns it off — an ABSENT property must not
+	// read as false, which is exactly what GetBoolProp would do.
+	if raw, ok := lookupPropCI(w, "Responsive"); ok {
+		v, err := propBool(raw)
+		if err != nil {
+			return nil, mdlerrors.NewBackend("staticimage Responsive", err)
+		}
+		img.Responsive = v
 	}
 
 	// Pages$StaticImageViewer.ClickAction / Pages$DynamicImageViewer.ClickAction.

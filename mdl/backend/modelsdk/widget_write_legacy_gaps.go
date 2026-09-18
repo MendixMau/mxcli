@@ -3,6 +3,8 @@
 package modelsdkbackend
 
 import (
+	"strings"
+
 	"github.com/mendixlabs/mxcli/modelsdk/codec"
 	"github.com/mendixlabs/mxcli/modelsdk/element"
 	genPg "github.com/mendixlabs/mxcli/modelsdk/gen/pages"
@@ -107,15 +109,35 @@ func staticImageToGen(img *pages.StaticImage) (element.Element, error) {
 		return nil, err
 	}
 	g.SetClickAction(click)
-	// MDL cannot name an image (the builder never fills ImageID), so this is
-	// always the unset value — and unset is "", not null; see the header.
-	g.SetImageQualifiedName("")
+	// Which image is shown, as the qualified name of an image-collection entry
+	// (Module.Collection.Image). Unset is "", not null; see the header. MDL had
+	// no spelling for this at all until mendixlabs/mxcli#1057, so a
+	// describe -> exec of a page carrying one silently emptied the widget.
+	g.SetImageQualifiedName(img.ImageName)
 	g.SetHeight(int32(img.Height))
-	g.SetHeightUnit("Auto")
+	// The units were hardcoded to "Auto", so a pixel-sized image came back
+	// auto-sized on any rewrite. Auto is Studio Pro's default and stays the
+	// value for an unset field, so nothing an existing script writes changes.
+	g.SetHeightUnit(imageSizeUnit(img.HeightUnit))
 	g.SetResponsive(img.Responsive)
 	g.SetWidth(int32(img.Width))
-	g.SetWidthUnit("Auto")
+	g.SetWidthUnit(imageSizeUnit(img.WidthUnit))
 	return g, nil
+}
+
+// imageSizeUnit maps a semantic width/height unit onto the Pages$WidthUnit /
+// Pages$HeightUnit member Mendix stores, defaulting to Studio Pro's "Auto".
+// Validating rather than passing the string through: an unknown member is the
+// enum trap CLAUDE.md names ("SettingsDatabaseType is Hsqldb, never HSQLDB").
+func imageSizeUnit(u pages.WidthUnit) string {
+	switch strings.ToLower(string(u)) {
+	case "pixels":
+		return "Pixels"
+	case "percentage":
+		return "Percentage"
+	default:
+		return "Auto"
+	}
 }
 
 // dynamicImageToGen builds a Forms$ImageViewer — gen calls the type

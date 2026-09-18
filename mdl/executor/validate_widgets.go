@@ -669,6 +669,10 @@ var staticWidgetKnownProps = func() map[string]bool {
 		"Size", "Sortable", "TabletColumns", "WidthUnit", "WrapText", "Name",
 		// button icon-collection reference (issue #602)
 		"Icon",
+		// staticimage's image-collection reference, Module.Collection.Image
+		// (mendixlabs/mxcli#1057). Describe emits it, so leaving it out here
+		// makes the describe -> create round trip warn about its own output.
+		"Image",
 		// fragment / building-block sentinel-internal keys (USE_FRAGMENT /
 		// USE_BUILDING_BLOCK), consumed by the expander, never serialized
 		"Args", "DataSourceOverride", "ActionOverride",
@@ -698,7 +702,8 @@ var staticWidgetKnownPropList = func() []string {
 		"DesktopWidth", "TabletWidth", "PhoneWidth", "Selection", "Snippet", "Params",
 		"Attributes", "FilterType", "DesignProperties", "Width", "Height", "Visible",
 		"Editable", "Tooltip", "DynamicClasses", "WidthUnit", "HeightUnit",
-		"DesktopColumns", "TabletColumns", "PhoneColumns", "PageSize", "Pagination")
+		"DesktopColumns", "TabletColumns", "PhoneColumns", "PageSize", "Pagination",
+		"Image")
 	return list
 }()
 
