@@ -160,8 +160,15 @@ func init() {
 			"-- path (CE0108). End the handler, or expect that.\n" +
 			"--\n" +
 			"-- An EMPTY handler `{ }` is not a no-op: it means \"on error, do whatever\n" +
-			"-- the enclosing branch does next\". Say where the path goes with JOIN.",
-		Example: "COMMIT $Order ON ERROR {\n  LOG ERROR 'Failed to save order';\n  RETURN empty;\n};\n\n" +
+			"-- the enclosing branch does next\". Say where the path goes with JOIN.\n" +
+			"--\n" +
+			"-- RAISE ERROR re-raises the error being handled, so it belongs INSIDE an\n" +
+			"-- ON ERROR handler and nowhere else. On the main flow it is MDL084:\n" +
+			"-- Mendix needs an error in scope to re-raise, Studio Pro will not draw\n" +
+			"-- the shape, and mxbuild rejects it with CE0710 \"The main flow cannot\n" +
+			"-- join an error flow or end in an error event.\". To fail deliberately\n" +
+			"-- from the main flow, call a Java action that throws.",
+		Example: "COMMIT $Order ON ERROR {\n  LOG ERROR 'Failed to save order';\n  RAISE ERROR;\n};\n\n" +
 			"COMMIT $Batch ON ERROR WITHOUT ROLLBACK {\n  LOG WARNING 'Batch save failed, continuing';\n};\n\n" +
 			"DECLARE $Name String = 'default' ON ERROR {\n  RETURN 'could not initialise';\n};",
 		SeeAlso: []string{"microflow.control-flow"},

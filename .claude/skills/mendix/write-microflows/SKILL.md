@@ -66,7 +66,7 @@ If you're not sure whether the logic belongs in a microflow or a nanoflow, read 
 | **JavaScript actions** | Not supported | Supported |
 | **SYNCHRONIZE** | Not available | Available (offline sync) |
 | **File downloads** | Supported | Not supported |
-| **Error handling** | Full `ON ERROR` blocks + `RAISE ERROR` | Per-action `ON ERROR` supported; `RAISE ERROR` / `ErrorEvent` forbidden |
+| **Error handling** | Full `ON ERROR` blocks; `RAISE ERROR` **inside a handler only** (main flow = MDL084 / CE0710) | Per-action `ON ERROR` supported; `RAISE ERROR` / `ErrorEvent` forbidden |
 | **Offline** | Not available | Available |
 | **Binary return type** | Supported | Not supported |
 
