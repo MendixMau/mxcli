@@ -13,6 +13,7 @@ var mdlGeneratedKeywords = []protocol.CompletionItem{
 	{Label: "GROUP BY", Kind: protocol.CompletionItemKindKeyword, Detail: "Multi-word keyword"},
 	{Label: "ORDER BY", Kind: protocol.CompletionItemKindKeyword, Detail: "Multi-word keyword"},
 	{Label: "SORT BY", Kind: protocol.CompletionItemKindKeyword, Detail: "Multi-word keyword"},
+	{Label: "SEARCH BY", Kind: protocol.CompletionItemKindKeyword, Detail: "Multi-word keyword"},
 	{Label: "NON-PERSISTENT", Kind: protocol.CompletionItemKindKeyword, Detail: "Multi-word keyword"},
 	{Label: "REFERENCE_SET", Kind: protocol.CompletionItemKindKeyword, Detail: "Multi-word keyword"},
 	{Label: "LIST OF", Kind: protocol.CompletionItemKindKeyword, Detail: "Multi-word keyword"},

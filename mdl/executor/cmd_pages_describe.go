@@ -515,7 +515,11 @@ type rawDataSource struct {
 	Reference       string          // Qualified name, parameter name, selection-source widget name, or association path
 	XPathConstraint string          // XPath constraint (WHERE clause)
 	SortColumns     []rawSortColumn // Multiple sort columns
-	ContextVariable string          // association source: context variable name (empty → $currentObject)
+	// SearchAttributes are a List View search bar's attributes
+	// (Forms$ListViewSearch.SearchRefs). Short names, matching how sort columns
+	// are rendered, since both re-parse against the source's own entity.
+	SearchAttributes []string
+	ContextVariable  string // association source: context variable name (empty → $currentObject)
 	// Args carries a flow datasource's argument bindings, in stored order. A
 	// microflow used as a datasource needs an argument for every parameter,
 	// exactly as a call action does (#835) — describing it without them yields

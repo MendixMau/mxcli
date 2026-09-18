@@ -29,6 +29,10 @@ NOT_NULL: N O T WS+ N U L L;
 GROUP_BY: G R O U P WS+ B Y;
 ORDER_BY: O R D E R WS+ B Y;
 SORT_BY: S O R T WS+ B Y;
+// `search by Attr, Attr2` on a List View database source — the attributes its
+// search bar filters on (Forms$ListViewSearch.SearchRefs). Shaped on SORT_BY
+// deliberately: same position, same comma list, so one example teaches both.
+SEARCH_BY: S E A R C H WS+ B Y;
 NON_PERSISTENT: N O N '-' P E R S I S T E N T;
 REFERENCE_SET: R E F E R E N C E '_'? S E T;
 LIST_OF: L I S T WS+ O F;

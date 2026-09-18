@@ -140,10 +140,11 @@ func parseEntitySource(ds map[string]any) *rawDataSource {
 		return nil
 	}
 	result := &rawDataSource{
-		Type:            "database",
-		Reference:       entity,
-		XPathConstraint: extractString(ds["XPathConstraint"]),
-		SortColumns:     parseSortColumns(ds),
+		Type:             "database",
+		Reference:        entity,
+		XPathConstraint:  extractString(ds["XPathConstraint"]),
+		SortColumns:      parseSortColumns(ds),
+		SearchAttributes: parseSearchAttributes(ds),
 	}
 	return result
 }
@@ -163,6 +164,32 @@ func parseContextSource(ds map[string]any) *rawDataSource {
 		return &rawDataSource{Type: "parameter", Reference: entityPath}
 	}
 	return nil
+}
+
+// parseSearchAttributes reads a List View search bar's attributes
+// (Forms$ListViewSearch.SearchRefs). Each entry is a DomainModels$AttributeRef,
+// the same element a sort item carries — so this reads the same field a sort
+// column does, one level less deep.
+//
+// Its absence is not an error: every ListViewXPathSource carries a Search
+// element and all 18 in a blank 11.12.2 project are empty, so "no search
+// attributes" is the overwhelmingly common case (ako/mxcli#512).
+func parseSearchAttributes(ds map[string]any) []string {
+	search, ok := ds["Search"].(map[string]any)
+	if !ok || search == nil {
+		return nil
+	}
+	var out []string
+	for _, item := range getBsonArrayElements(search["SearchRefs"]) {
+		ref, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if name := shortAttributeName(extractString(ref["Attribute"])); name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // parseSortColumns reads a datasource's sort, accepting both stored shapes:
@@ -227,6 +254,11 @@ func dataSourceExpr(ds *rawDataSource) string {
 				parts = append(parts, col.Attribute+" "+col.Order)
 			}
 			expr += " sort by " + strings.Join(parts, ", ")
+		}
+		// After `sort by`, matching the grammar's clause order so the emitted
+		// text re-parses (ako/mxcli#512).
+		if len(ds.SearchAttributes) > 0 {
+			expr += " search by " + strings.Join(ds.SearchAttributes, ", ")
 		}
 		return expr
 	case "microflow", "nanoflow":

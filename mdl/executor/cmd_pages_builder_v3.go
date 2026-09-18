@@ -822,6 +822,15 @@ func (pb *pageBuilder) buildDataSourceV3(ds *ast.DataSourceV3) (pages.DataSource
 			dbSource.Sorting = append(dbSource.Sorting, sortItem)
 		}
 
+		// Handle SEARCH BY — the List View search bar's attributes. Resolved to
+		// the same fully-qualified Module.Entity.Attribute form a sort column
+		// uses, because both are stored as a DomainModels$AttributeRef and a
+		// bare name in one would be a bare name in the other (ako/mxcli#512).
+		for _, attr := range ds.SearchAttributes {
+			dbSource.SearchAttributes = append(dbSource.SearchAttributes,
+				pb.resolveAttributePathForEntity(attr, ds.Reference))
+		}
+
 		return dbSource, ds.Reference, nil
 
 	case "microflow":
