@@ -70,6 +70,9 @@ func registerEntityHandlers(r *Registry) {
 	r.Register(&ast.AlterEntityStmt{}, func(ctx *ExecContext, stmt ast.Statement) error {
 		return execAlterEntity(ctx, stmt.(*ast.AlterEntityStmt))
 	})
+	r.Register(&ast.AlterEntitiesStmt{}, func(ctx *ExecContext, stmt ast.Statement) error {
+		return execAlterEntities(ctx, stmt.(*ast.AlterEntitiesStmt))
+	})
 	r.Register(&ast.DropEntityStmt{}, func(ctx *ExecContext, stmt ast.Statement) error {
 		return execDropEntity(ctx, stmt.(*ast.DropEntityStmt))
 	})
