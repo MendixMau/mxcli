@@ -41,6 +41,72 @@ const (
 	RefKindEvent      = "event"      // An entity event handler runs a microflow
 )
 
+// Object types recorded in refs.SourceType and refs.TargetType — the catalog's
+// name for "what kind of document is at this end of the edge". They are the SDK
+// names, upper-cased, never Mendix's BSON storage names.
+//
+// Named here because they are a public vocabulary: Starlark lint rules filter on
+// them through `reference.source_type` / `target_type`, and the write-lint-rules
+// skill documents them. While they were only string literals at the emit sites
+// there was nothing for the documentation to be checked against, and it drifted
+// into lower-case examples that match nothing (mendixlabs/mxcli#1027).
+const (
+	RefObjectEntity                 = "ENTITY"
+	RefObjectAssociation            = "ASSOCIATION"
+	RefObjectMicroflow              = "MICROFLOW"
+	RefObjectNanoflow               = "NANOFLOW"
+	RefObjectRule                   = "RULE"
+	RefObjectPage                   = "PAGE"
+	RefObjectSnippet                = "SNIPPET"
+	RefObjectLayout                 = "LAYOUT"
+	RefObjectWorkflow               = "WORKFLOW"
+	RefObjectNavigation             = "NAVIGATION"
+	RefObjectWidget                 = "WIDGET"
+	RefObjectJavaAction             = "JAVA_ACTION"
+	RefObjectRestOperation          = "REST_OPERATION"
+	RefObjectPublishedRestOperation = "PUBLISHED_REST_OPERATION"
+	RefObjectRegularExpression      = "REGULAR_EXPRESSION"
+	RefObjectScheduledEvent         = "SCHEDULED_EVENT"
+	RefObjectProjectSettings        = "PROJECT_SETTINGS"
+)
+
+// RefSourceObjectTypes is every value that reaches refs.SourceType, and
+// RefTargetObjectTypes every value that reaches refs.TargetType. The two differ:
+// a LAYOUT or a WIDGET is only ever pointed AT, and a SCHEDULED_EVENT or a
+// PROJECT_SETTINGS only ever points. Documenting one list for both would put
+// values in front of rule authors that their filter can never match.
+var (
+	RefSourceObjectTypes = []string{
+		RefObjectEntity,
+		RefObjectAssociation,
+		RefObjectMicroflow,
+		RefObjectNanoflow,
+		RefObjectRule,
+		RefObjectPage,
+		RefObjectSnippet,
+		RefObjectWorkflow,
+		RefObjectNavigation,
+		RefObjectScheduledEvent,
+		RefObjectPublishedRestOperation,
+		RefObjectProjectSettings,
+	}
+
+	RefTargetObjectTypes = []string{
+		RefObjectEntity,
+		RefObjectAssociation,
+		RefObjectMicroflow,
+		RefObjectNanoflow,
+		RefObjectRule,
+		RefObjectPage,
+		RefObjectLayout,
+		RefObjectWorkflow,
+		RefObjectWidget,
+		RefObjectJavaAction,
+		RefObjectRestOperation,
+		RefObjectRegularExpression,
+	}
+)
+
 // collectActionActivities returns all ActionActivity objects from an ObjectCollection,
 // recursing into LoopedActivity bodies to find nested actions.
 func collectActionActivities(oc *microflows.MicroflowObjectCollection) []*microflows.ActionActivity {
@@ -101,29 +167,29 @@ func microflowActionRef(action microflows.MicroflowAction) (targetType, targetNa
 	switch a := action.(type) {
 	case *microflows.MicroflowCallAction:
 		if a.MicroflowCall != nil && a.MicroflowCall.Microflow != "" {
-			return "MICROFLOW", a.MicroflowCall.Microflow, RefKindCall, true
+			return RefObjectMicroflow, a.MicroflowCall.Microflow, RefKindCall, true
 		}
 	case *microflows.NanoflowCallAction:
 		if a.NanoflowCall != nil && a.NanoflowCall.Nanoflow != "" {
-			return "NANOFLOW", a.NanoflowCall.Nanoflow, RefKindCall, true
+			return RefObjectNanoflow, a.NanoflowCall.Nanoflow, RefKindCall, true
 		}
 	case *microflows.JavaActionCallAction:
 		if a.JavaAction != "" {
-			return "JAVA_ACTION", a.JavaAction, RefKindCall, true
+			return RefObjectJavaAction, a.JavaAction, RefKindCall, true
 		}
 	case *microflows.RestOperationCallAction:
 		// Operation is a "Module.Service.Operation" name referencing a consumed
 		// REST service operation.
 		if a.Operation != "" {
-			return "REST_OPERATION", a.Operation, RefKindCall, true
+			return RefObjectRestOperation, a.Operation, RefKindCall, true
 		}
 	case *microflows.CreateObjectAction:
 		if a.EntityQualifiedName != "" {
-			return "ENTITY", a.EntityQualifiedName, RefKindCreate, true
+			return RefObjectEntity, a.EntityQualifiedName, RefKindCreate, true
 		}
 	case *microflows.ShowPageAction:
 		if a.PageName != "" {
-			return "PAGE", a.PageName, RefKindShowPage, true
+			return RefObjectPage, a.PageName, RefKindShowPage, true
 		}
 	case *microflows.RetrieveAction:
 		if a.Source == nil {
@@ -132,11 +198,11 @@ func microflowActionRef(action microflows.MicroflowAction) (targetType, targetNa
 		switch src := a.Source.(type) {
 		case *microflows.DatabaseRetrieveSource:
 			if src.EntityQualifiedName != "" {
-				return "ENTITY", src.EntityQualifiedName, RefKindRetrieve, true
+				return RefObjectEntity, src.EntityQualifiedName, RefKindRetrieve, true
 			}
 		case *microflows.AssociationRetrieveSource:
 			if src.AssociationQualifiedName != "" {
-				return "ASSOCIATION", src.AssociationQualifiedName, RefKindRetrieve, true
+				return RefObjectAssociation, src.AssociationQualifiedName, RefKindRetrieve, true
 			}
 		}
 	}
@@ -169,11 +235,11 @@ func microflowVarActionRef(action microflows.MicroflowAction, varEntity map[stri
 	switch a := action.(type) {
 	case *microflows.ChangeObjectAction:
 		if qn, found := resolve(a.ChangeVariable); found {
-			return "ENTITY", qn, RefKindChange, true
+			return RefObjectEntity, qn, RefKindChange, true
 		}
 	case *microflows.DeleteObjectAction:
 		if qn, found := resolve(a.DeleteVariable); found {
-			return "ENTITY", qn, RefKindDelete, true
+			return RefObjectEntity, qn, RefKindDelete, true
 		}
 	}
 	return "", "", "", false
@@ -246,11 +312,11 @@ func (b *Builder) buildReferences() error {
 		// and return type even when it never create/retrieves them.
 		for _, p := range params {
 			if qn := entityOfDataType(p.Type); qn != "" {
-				emit("ENTITY", qn, RefKindParameter)
+				emit(RefObjectEntity, qn, RefKindParameter)
 			}
 		}
 		if qn := entityOfDataType(returnType); qn != "" {
-			emit("ENTITY", qn, RefKindReturn)
+			emit(RefObjectEntity, qn, RefKindReturn)
 		}
 
 		if oc == nil {
@@ -261,7 +327,7 @@ func (b *Builder) buildReferences() error {
 		// variable, not a named entity) can resolve their target.
 		varEntity := buildVarEntityMap(params, acts)
 		for _, rule := range collectRuleCalls(oc) {
-			emit("RULE", rule, RefKindCall)
+			emit(RefObjectRule, rule, RefKindCall)
 		}
 		for _, act := range acts {
 			if tt, tn, rk, ok := microflowActionRef(act.Action); ok {
@@ -279,7 +345,7 @@ func (b *Builder) buildReferences() error {
 		return err
 	}
 	for _, mf := range mfs {
-		emitActionRefs("MICROFLOW", string(mf.ID), mf.ContainerID, mf.Name, mf.Parameters, mf.ReturnType, mf.ObjectCollection)
+		emitActionRefs(RefObjectMicroflow, string(mf.ID), mf.ContainerID, mf.Name, mf.Parameters, mf.ReturnType, mf.ObjectCollection)
 	}
 
 	// Extract nanoflow references — nanoflows also call microflows/nanoflows,
@@ -287,7 +353,7 @@ func (b *Builder) buildReferences() error {
 	nfs, err := b.cachedNanoflows()
 	if err == nil {
 		for _, nf := range nfs {
-			emitActionRefs("NANOFLOW", string(nf.ID), nf.ContainerID, nf.Name, nf.Parameters, nf.ReturnType, nf.ObjectCollection)
+			emitActionRefs(RefObjectNanoflow, string(nf.ID), nf.ContainerID, nf.Name, nf.Parameters, nf.ReturnType, nf.ObjectCollection)
 		}
 	}
 
@@ -299,7 +365,7 @@ func (b *Builder) buildReferences() error {
 	rules, err := b.cachedRules()
 	if err == nil {
 		for _, rule := range rules {
-			emitActionRefs("RULE", string(rule.ID), rule.ContainerID, rule.Name, rule.Parameters, rule.ReturnType, rule.ObjectCollection)
+			emitActionRefs(RefObjectRule, string(rule.ID), rule.ContainerID, rule.Name, rule.Parameters, rule.ReturnType, rule.ObjectCollection)
 		}
 	}
 
@@ -314,8 +380,8 @@ func (b *Builder) buildReferences() error {
 				sourceQN := moduleName + "." + ent.Name
 				// Check generalization
 				if ent.GeneralizationRef != "" {
-					_, err = stmt.Exec("ENTITY", string(ent.ID), sourceQN,
-						"ENTITY", "", ent.GeneralizationRef,
+					_, err = stmt.Exec(RefObjectEntity, string(ent.ID), sourceQN,
+						RefObjectEntity, "", ent.GeneralizationRef,
 						RefKindGeneralize, moduleName, projectID, snapshotID)
 					if err == nil {
 						refCount++
@@ -324,8 +390,8 @@ func (b *Builder) buildReferences() error {
 				// Calculated-by: an attribute whose value is computed by a microflow.
 				for _, attr := range ent.Attributes {
 					if attr.Value != nil && attr.Value.MicroflowName != "" {
-						_, err = stmt.Exec("ENTITY", string(ent.ID), sourceQN,
-							"MICROFLOW", "", attr.Value.MicroflowName,
+						_, err = stmt.Exec(RefObjectEntity, string(ent.ID), sourceQN,
+							RefObjectMicroflow, "", attr.Value.MicroflowName,
 							RefKindCalculate, moduleName, projectID, snapshotID)
 						if err == nil {
 							refCount++
@@ -344,8 +410,8 @@ func (b *Builder) buildReferences() error {
 					if target == "" {
 						continue
 					}
-					if _, err := stmt.Exec("ASSOCIATION", string(assoc.ID), assocQN,
-						"ENTITY", "", target,
+					if _, err := stmt.Exec(RefObjectAssociation, string(assoc.ID), assocQN,
+						RefObjectEntity, "", target,
 						RefKindAssociate, moduleName, projectID, snapshotID); err == nil {
 						refCount++
 					}
@@ -359,8 +425,8 @@ func (b *Builder) buildReferences() error {
 					if target == "" {
 						continue
 					}
-					if _, err := stmt.Exec("ASSOCIATION", string(ca.ID), assocQN,
-						"ENTITY", "", target,
+					if _, err := stmt.Exec(RefObjectAssociation, string(ca.ID), assocQN,
+						RefObjectEntity, "", target,
 						RefKindAssociate, moduleName, projectID, snapshotID); err == nil {
 						refCount++
 					}
@@ -384,8 +450,8 @@ func (b *Builder) buildReferences() error {
 			// parsed widget tree, which no reader currently exposes — tracked as the
 			// remaining part of #663 gap 3.
 			if layoutRef := b.resolvePageLayoutRef(pg.ID); layoutRef != "" {
-				_, err = stmt.Exec("PAGE", string(pg.ID), sourceQN,
-					"LAYOUT", "", layoutRef,
+				_, err = stmt.Exec(RefObjectPage, string(pg.ID), sourceQN,
+					RefObjectLayout, "", layoutRef,
 					RefKindLayout, moduleName, projectID, snapshotID)
 				if err == nil {
 					refCount++
@@ -395,8 +461,8 @@ func (b *Builder) buildReferences() error {
 			// Page parameter entity types
 			for _, param := range pg.Parameters {
 				if param.EntityName != "" {
-					_, err = stmt.Exec("PAGE", string(pg.ID), sourceQN,
-						"ENTITY", "", param.EntityName,
+					_, err = stmt.Exec(RefObjectPage, string(pg.ID), sourceQN,
+						RefObjectEntity, "", param.EntityName,
 						RefKindParameter, moduleName, projectID, snapshotID)
 					if err == nil {
 						refCount++
@@ -411,13 +477,13 @@ func (b *Builder) buildReferences() error {
 		// DISTINCT collapses the many widgets on a page that target the same
 		// document into a single edge.
 		widgetProjections := []struct{ col, targetType, refKind string }{
-			{"EntityRef", "ENTITY", RefKindDatasource},
-			{"MicroflowRef", "MICROFLOW", RefKindAction},
-			{"NanoflowRef", "NANOFLOW", RefKindAction},
+			{"EntityRef", RefObjectEntity, RefKindDatasource},
+			{"MicroflowRef", RefObjectMicroflow, RefKindAction},
+			{"NanoflowRef", RefObjectNanoflow, RefKindAction},
 			// A widget action that opens a page. Without this row, a page reachable
 			// only from a button had no inbound reference and `show callers` /
 			// `show references` reported it as unused (issue #773).
-			{"PageRef", "PAGE", RefKindShowPage},
+			{"PageRef", RefObjectPage, RefKindShowPage},
 		}
 		for _, p := range widgetProjections {
 			res, perr := b.tx.Exec(
@@ -448,16 +514,16 @@ func (b *Builder) buildReferences() error {
 			// Default home page
 			if profile.HomePage != nil {
 				if profile.HomePage.Page != "" {
-					_, err = stmt.Exec("NAVIGATION", "", sourceName,
-						"PAGE", "", profile.HomePage.Page,
+					_, err = stmt.Exec(RefObjectNavigation, "", sourceName,
+						RefObjectPage, "", profile.HomePage.Page,
 						RefKindHomePage, "", projectID, snapshotID)
 					if err == nil {
 						refCount++
 					}
 				}
 				if profile.HomePage.Microflow != "" {
-					_, err = stmt.Exec("NAVIGATION", "", sourceName,
-						"MICROFLOW", "", profile.HomePage.Microflow,
+					_, err = stmt.Exec(RefObjectNavigation, "", sourceName,
+						RefObjectMicroflow, "", profile.HomePage.Microflow,
 						RefKindHomePage, "", projectID, snapshotID)
 					if err == nil {
 						refCount++
@@ -468,16 +534,16 @@ func (b *Builder) buildReferences() error {
 			// Role-based home pages
 			for _, rh := range profile.RoleBasedHomePages {
 				if rh.Page != "" {
-					_, err = stmt.Exec("NAVIGATION", "", sourceName,
-						"PAGE", "", rh.Page,
+					_, err = stmt.Exec(RefObjectNavigation, "", sourceName,
+						RefObjectPage, "", rh.Page,
 						RefKindHomePage, "", projectID, snapshotID)
 					if err == nil {
 						refCount++
 					}
 				}
 				if rh.Microflow != "" {
-					_, err = stmt.Exec("NAVIGATION", "", sourceName,
-						"MICROFLOW", "", rh.Microflow,
+					_, err = stmt.Exec(RefObjectNavigation, "", sourceName,
+						RefObjectMicroflow, "", rh.Microflow,
 						RefKindHomePage, "", projectID, snapshotID)
 					if err == nil {
 						refCount++
@@ -487,8 +553,8 @@ func (b *Builder) buildReferences() error {
 
 			// Login page
 			if profile.LoginPage != "" {
-				_, err = stmt.Exec("NAVIGATION", "", sourceName,
-					"PAGE", "", profile.LoginPage,
+				_, err = stmt.Exec(RefObjectNavigation, "", sourceName,
+					RefObjectPage, "", profile.LoginPage,
 					RefKindLoginPage, "", projectID, snapshotID)
 				if err == nil {
 					refCount++
@@ -514,8 +580,8 @@ func (b *Builder) buildReferences() error {
 				if oe.Entity == "" {
 					continue
 				}
-				_, err = stmt.Exec("NAVIGATION", "", sourceName,
-					"ENTITY", "", oe.Entity,
+				_, err = stmt.Exec(RefObjectNavigation, "", sourceName,
+					RefObjectEntity, "", oe.Entity,
 					RefKindSync, "", projectID, snapshotID)
 				if err == nil {
 					refCount++
@@ -534,8 +600,8 @@ func (b *Builder) buildReferences() error {
 
 			// Parameter entity reference
 			if wf.Parameter != nil && wf.Parameter.EntityRef != "" {
-				_, err = stmt.Exec("WORKFLOW", string(wf.ID), sourceQN,
-					"ENTITY", "", wf.Parameter.EntityRef,
+				_, err = stmt.Exec(RefObjectWorkflow, string(wf.ID), sourceQN,
+					RefObjectEntity, "", wf.Parameter.EntityRef,
 					RefKindParameter, moduleName, projectID, snapshotID)
 				if err == nil {
 					refCount++
@@ -544,8 +610,8 @@ func (b *Builder) buildReferences() error {
 
 			// Overview page reference
 			if wf.OverviewPage != "" {
-				_, err = stmt.Exec("WORKFLOW", string(wf.ID), sourceQN,
-					"PAGE", "", wf.OverviewPage,
+				_, err = stmt.Exec(RefObjectWorkflow, string(wf.ID), sourceQN,
+					RefObjectPage, "", wf.OverviewPage,
 					RefKindShowPage, moduleName, projectID, snapshotID)
 				if err == nil {
 					refCount++
@@ -606,8 +672,8 @@ func (b *Builder) extractRegexRuleRefs(stmt *sql.Stmt, projectID, snapshotID str
 	count := 0
 	for _, r := range b.regexRuleRefs {
 		if _, err := stmt.Exec(
-			"ENTITY", "", r.entityQualifiedName,
-			"REGULAR_EXPRESSION", "", r.regexQualifiedName,
+			RefObjectEntity, "", r.entityQualifiedName,
+			RefObjectRegularExpression, "", r.regexQualifiedName,
 			RefKindValidate, r.moduleName, projectID, snapshotID,
 		); err == nil {
 			count++
@@ -620,8 +686,8 @@ func (b *Builder) extractScheduledEventRefs(stmt *sql.Stmt, projectID, snapshotI
 	count := 0
 	for _, r := range b.scheduledEventRefs {
 		if _, err := stmt.Exec(
-			"SCHEDULED_EVENT", "", r.qualifiedName,
-			"MICROFLOW", "", r.microflow,
+			RefObjectScheduledEvent, "", r.qualifiedName,
+			RefObjectMicroflow, "", r.microflow,
 			RefKindSchedule, r.moduleName, projectID, snapshotID,
 		); err == nil {
 			count++
@@ -645,8 +711,8 @@ func (b *Builder) extractPublishedRestRefs(stmt *sql.Stmt, projectID, snapshotID
 	count := 0
 	for _, r := range b.publishedRestRefs {
 		if _, err := stmt.Exec(
-			"PUBLISHED_REST_OPERATION", r.sourceID, r.qualifiedName,
-			"MICROFLOW", "", r.microflow,
+			RefObjectPublishedRestOperation, r.sourceID, r.qualifiedName,
+			RefObjectMicroflow, "", r.microflow,
 			RefKindPublish, r.moduleName, projectID, snapshotID,
 		); err == nil {
 			count++
@@ -671,8 +737,8 @@ func (b *Builder) extractEventHandlerRefs(stmt *sql.Stmt, projectID, snapshotID 
 	count := 0
 	for _, r := range b.eventHandlerRefs {
 		if _, err := stmt.Exec(
-			"ENTITY", "", r.entityQualifiedName,
-			"MICROFLOW", "", r.microflow,
+			RefObjectEntity, "", r.entityQualifiedName,
+			RefObjectMicroflow, "", r.microflow,
 			RefKindEvent, r.moduleName, projectID, snapshotID,
 		); err == nil {
 			count++
@@ -686,16 +752,16 @@ func (b *Builder) extractMenuItemRefs(stmt *sql.Stmt, items []*types.NavMenuItem
 	refCount := 0
 	for _, item := range items {
 		if item.Page != "" {
-			_, err := stmt.Exec("NAVIGATION", "", sourceName,
-				"PAGE", "", item.Page,
+			_, err := stmt.Exec(RefObjectNavigation, "", sourceName,
+				RefObjectPage, "", item.Page,
 				RefKindMenuItem, "", projectID, snapshotID)
 			if err == nil {
 				refCount++
 			}
 		}
 		if item.Microflow != "" {
-			_, err := stmt.Exec("NAVIGATION", "", sourceName,
-				"MICROFLOW", "", item.Microflow,
+			_, err := stmt.Exec(RefObjectNavigation, "", sourceName,
+				RefObjectMicroflow, "", item.Microflow,
 				RefKindMenuItem, "", projectID, snapshotID)
 			if err == nil {
 				refCount++
@@ -804,7 +870,7 @@ func (b *Builder) extractWidgetObjectRefs(stmt *sql.Stmt, obj *pages.WidgetObjec
 		// Extract entity ref
 		if val.EntityRef != "" {
 			stmt.Exec(sourceType, sourceID, sourceQN,
-				"ENTITY", "", val.EntityRef,
+				RefObjectEntity, "", val.EntityRef,
 				RefKindDatasource, moduleName, projectID, snapshotID)
 			refCount++
 		}
@@ -812,7 +878,7 @@ func (b *Builder) extractWidgetObjectRefs(stmt *sql.Stmt, obj *pages.WidgetObjec
 		// Extract microflow ref
 		if val.Microflow != "" {
 			stmt.Exec(sourceType, sourceID, sourceQN,
-				"MICROFLOW", "", val.Microflow,
+				RefObjectMicroflow, "", val.Microflow,
 				RefKindAction, moduleName, projectID, snapshotID)
 			refCount++
 		}
@@ -820,7 +886,7 @@ func (b *Builder) extractWidgetObjectRefs(stmt *sql.Stmt, obj *pages.WidgetObjec
 		// Extract nanoflow ref
 		if val.Nanoflow != "" {
 			stmt.Exec(sourceType, sourceID, sourceQN,
-				"NANOFLOW", "", val.Nanoflow,
+				RefObjectNanoflow, "", val.Nanoflow,
 				RefKindAction, moduleName, projectID, snapshotID)
 			refCount++
 		}
@@ -828,7 +894,7 @@ func (b *Builder) extractWidgetObjectRefs(stmt *sql.Stmt, obj *pages.WidgetObjec
 		// Extract form (page) ref
 		if val.Form != "" {
 			stmt.Exec(sourceType, sourceID, sourceQN,
-				"PAGE", "", val.Form,
+				RefObjectPage, "", val.Form,
 				RefKindShowPage, moduleName, projectID, snapshotID)
 			refCount++
 		}
@@ -862,7 +928,7 @@ func (b *Builder) extractDataSourceRefs(stmt *sql.Stmt, ds pages.DataSource, sou
 			entityQN := b.resolveEntityID(src.EntityID)
 			if entityQN != "" {
 				stmt.Exec(sourceType, sourceID, sourceQN,
-					"ENTITY", string(src.EntityID), entityQN,
+					RefObjectEntity, string(src.EntityID), entityQN,
 					RefKindDatasource, moduleName, projectID, snapshotID)
 				refCount++
 			}
@@ -878,7 +944,7 @@ func (b *Builder) extractDataSourceRefs(stmt *sql.Stmt, ds pages.DataSource, sou
 		}
 		if entityQN != "" {
 			stmt.Exec(sourceType, sourceID, sourceQN,
-				"ENTITY", "", entityQN,
+				RefObjectEntity, "", entityQN,
 				RefKindDatasource, moduleName, projectID, snapshotID)
 			refCount++
 		}
@@ -893,7 +959,7 @@ func (b *Builder) extractDataSourceRefs(stmt *sql.Stmt, ds pages.DataSource, sou
 				// This might be a qualified name or just entity name
 				// We store it as-is for now
 				stmt.Exec(sourceType, sourceID, sourceQN,
-					"ENTITY", "", src.EntityPath,
+					RefObjectEntity, "", src.EntityPath,
 					RefKindDatasource, moduleName, projectID, snapshotID)
 				refCount++
 			}
@@ -903,7 +969,7 @@ func (b *Builder) extractDataSourceRefs(stmt *sql.Stmt, ds pages.DataSource, sou
 		// Similar to EntityPathSource
 		if src.EntityPath != "" {
 			stmt.Exec(sourceType, sourceID, sourceQN,
-				"ENTITY", "", src.EntityPath,
+				RefObjectEntity, "", src.EntityPath,
 				RefKindDatasource, moduleName, projectID, snapshotID)
 			refCount++
 		}
@@ -914,7 +980,7 @@ func (b *Builder) extractDataSourceRefs(stmt *sql.Stmt, ds pages.DataSource, sou
 			mfQN := b.resolveMicroflowID(src.MicroflowID)
 			if mfQN != "" {
 				stmt.Exec(sourceType, sourceID, sourceQN,
-					"MICROFLOW", string(src.MicroflowID), mfQN,
+					RefObjectMicroflow, string(src.MicroflowID), mfQN,
 					RefKindDatasource, moduleName, projectID, snapshotID)
 				refCount++
 			}
@@ -926,7 +992,7 @@ func (b *Builder) extractDataSourceRefs(stmt *sql.Stmt, ds pages.DataSource, sou
 			nfQN := b.resolveMicroflowID(src.NanoflowID) // Uses same table
 			if nfQN != "" {
 				stmt.Exec(sourceType, sourceID, sourceQN,
-					"NANOFLOW", string(src.NanoflowID), nfQN,
+					RefObjectNanoflow, string(src.NanoflowID), nfQN,
 					RefKindDatasource, moduleName, projectID, snapshotID)
 				refCount++
 			}
@@ -987,16 +1053,16 @@ func (b *Builder) extractWorkflowFlowRefs(stmt *sql.Stmt, flow *workflows.Flow, 
 		switch a := act.(type) {
 		case *workflows.UserTask:
 			if a.Page != "" {
-				_, err := stmt.Exec("WORKFLOW", sourceID, sourceQN,
-					"PAGE", "", a.Page,
+				_, err := stmt.Exec(RefObjectWorkflow, sourceID, sourceQN,
+					RefObjectPage, "", a.Page,
 					RefKindShowPage, moduleName, projectID, snapshotID)
 				if err == nil {
 					refCount++
 				}
 			}
 			if a.UserTaskEntity != "" {
-				_, err := stmt.Exec("WORKFLOW", sourceID, sourceQN,
-					"ENTITY", "", a.UserTaskEntity,
+				_, err := stmt.Exec(RefObjectWorkflow, sourceID, sourceQN,
+					RefObjectEntity, "", a.UserTaskEntity,
 					RefKindDatasource, moduleName, projectID, snapshotID)
 				if err == nil {
 					refCount++
@@ -1004,8 +1070,8 @@ func (b *Builder) extractWorkflowFlowRefs(stmt *sql.Stmt, flow *workflows.Flow, 
 			}
 			if a.UserSource != nil {
 				if us, ok := a.UserSource.(*workflows.MicroflowBasedUserSource); ok && us.Microflow != "" {
-					_, err := stmt.Exec("WORKFLOW", sourceID, sourceQN,
-						"MICROFLOW", "", us.Microflow,
+					_, err := stmt.Exec(RefObjectWorkflow, sourceID, sourceQN,
+						RefObjectMicroflow, "", us.Microflow,
 						RefKindCall, moduleName, projectID, snapshotID)
 					if err == nil {
 						refCount++
@@ -1018,8 +1084,8 @@ func (b *Builder) extractWorkflowFlowRefs(stmt *sql.Stmt, flow *workflows.Flow, 
 
 		case *workflows.CallMicroflowTask:
 			if a.Microflow != "" {
-				_, err := stmt.Exec("WORKFLOW", sourceID, sourceQN,
-					"MICROFLOW", "", a.Microflow,
+				_, err := stmt.Exec(RefObjectWorkflow, sourceID, sourceQN,
+					RefObjectMicroflow, "", a.Microflow,
 					RefKindCall, moduleName, projectID, snapshotID)
 				if err == nil {
 					refCount++
@@ -1031,8 +1097,8 @@ func (b *Builder) extractWorkflowFlowRefs(stmt *sql.Stmt, flow *workflows.Flow, 
 
 		case *workflows.SystemTask:
 			if a.Microflow != "" {
-				_, err := stmt.Exec("WORKFLOW", sourceID, sourceQN,
-					"MICROFLOW", "", a.Microflow,
+				_, err := stmt.Exec(RefObjectWorkflow, sourceID, sourceQN,
+					RefObjectMicroflow, "", a.Microflow,
 					RefKindCall, moduleName, projectID, snapshotID)
 				if err == nil {
 					refCount++
@@ -1044,8 +1110,8 @@ func (b *Builder) extractWorkflowFlowRefs(stmt *sql.Stmt, flow *workflows.Flow, 
 
 		case *workflows.CallWorkflowActivity:
 			if a.Workflow != "" {
-				_, err := stmt.Exec("WORKFLOW", sourceID, sourceQN,
-					"WORKFLOW", "", a.Workflow,
+				_, err := stmt.Exec(RefObjectWorkflow, sourceID, sourceQN,
+					RefObjectWorkflow, "", a.Workflow,
 					RefKindCall, moduleName, projectID, snapshotID)
 				if err == nil {
 					refCount++
@@ -1116,8 +1182,8 @@ func (b *Builder) extractProjectSettingsRefs(stmt *sql.Stmt, projectID, snapshot
 			moduleName = target[:i]
 		}
 		if _, err := stmt.Exec(
-			"PROJECT_SETTINGS", "", s.setting,
-			"MICROFLOW", "", target,
+			RefObjectProjectSettings, "", s.setting,
+			RefObjectMicroflow, "", target,
 			RefKindSettings, moduleName, projectID, snapshotID,
 		); err == nil {
 			count++
