@@ -24,7 +24,18 @@ func init() {
 			"--   OR REPLACE  discard the existing document and write a fresh one\n" +
 			"--   OR MODIFY   update the existing document in place\n" +
 			"-- Both reuse the existing element's ID, so references from other\n" +
-			"-- documents survive.",
+			"-- documents survive.\n" +
+			"--\n" +
+			"-- A rewrite rebuilds the document from the statement, so properties MDL\n" +
+			"-- cannot express are CARRIED OVER rather than reset — a microflow's URL\n" +
+			"-- and export level, a queued call's binding, translated captions, an\n" +
+			"-- entity's identity. Nothing would report the loss if they were not: the\n" +
+			"-- result is a valid document either way, so mxcli check, mx check and\n" +
+			"-- mxbuild all pass and only Studio Pro shows what went missing.\n" +
+			"--\n" +
+			"-- DROP followed by CREATE is a NEW document and keeps none of it, and so\n" +
+			"-- is a DESCRIBE -> rename -> exec copy. DESCRIBE flags what it cannot\n" +
+			"-- re-emit as a comment, so the gap is visible in its output.",
 		Example: "CREATE OR REPLACE MICROFLOW MyModule.ACT_Recalculate ()\nBEGIN\n  RETURN;\nEND;\n\nCREATE OR MODIFY PERSISTENT ENTITY MyModule.Customer (\n  Name: String(200)\n);",
 		SeeAlso: []string{"microflow", "domain-model.entity", "page", "document-folder"},
 	})

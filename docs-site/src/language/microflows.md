@@ -80,6 +80,42 @@ BEGIN
 END;
 ```
 
+### What a rewrite keeps
+
+A rewrite rebuilds the document from your statement, so a fair question is what
+happens to everything the statement does not mention. Properties MDL cannot
+express are **carried over**, not reset:
+
+| Property | Studio Pro calls it |
+|---|---|
+| `Url`, `UrlSearchParameters` | **URL** — the deep link (Mendix 10.6+), e.g. `item/{Key}` |
+| `ExportLevel` | **Export level** — `Hidden` or `API` |
+| `AllowConcurrentExecution` + its error message / microflow | **Disallow concurrent execution** |
+| `MarkAsUsed` | **Mark as used** |
+
+Annotations you *can* write follow the same rule in a stricter form: an absent
+`@excluded` or `@applyentityaccess` means "the script does not say", so it
+preserves what is stored. Turning one off is explicit — `@applyentityaccess(false)`.
+
+This matters because nothing would tell you otherwise. A microflow with no deep
+link, a hidden microflow and a microflow allowing concurrency are all perfectly
+valid documents, so `mxcli check`, `mx check` and mxbuild all report success
+either way — the loss would only be visible in Studio Pro.
+
+Two ways to lose them anyway, both by design:
+
+- **`DROP` then `CREATE`** is a new document. There is nothing to preserve from.
+- **`DESCRIBE` → rename → `exec`** copies the body into a *different* microflow,
+  which likewise starts with none of these. `DESCRIBE` flags the ones it cannot
+  re-emit as comments, so the gap is visible in its output:
+
+  ```
+  -- URL: item/{Key}  (deep link; MDL cannot author one. Kept when this
+     microflow is rewritten, NOT copied to a new one — set it in Studio Pro.)
+  ```
+
+Use `CREATE OR MODIFY` to edit a microflow that carries any of them.
+
 ## Folder Organization
 
 Place microflows and nanoflows into folders for project organization:
