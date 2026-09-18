@@ -888,7 +888,7 @@ func (pb *pageBuilder) buildDataSourceV3(ds *ast.DataSourceV3) (pages.DataSource
 			},
 			MicroflowID:       mfID,
 			Microflow:         ds.Reference,
-			ParameterMappings: flowArgsToParameterMappings(ds.Args),
+			ParameterMappings: pb.flowArgsToParameterMappings(ds.Args),
 		}, entityName, nil
 
 	case "nanoflow":
@@ -908,7 +908,7 @@ func (pb *pageBuilder) buildDataSourceV3(ds *ast.DataSourceV3) (pages.DataSource
 			},
 			NanoflowID:        nfID,
 			Nanoflow:          ds.Reference,
-			ParameterMappings: flowArgsToParameterMappings(ds.Args),
+			ParameterMappings: pb.flowArgsToParameterMappings(ds.Args),
 		}, entityName, nil
 
 	case "association":
@@ -1546,10 +1546,14 @@ func (pb *pageBuilder) buildClientActionV3(action *ast.ActionV3) (pages.ClientAc
 				ParameterName: arg.Name,
 			}
 
-			// Determine if value is a variable reference or expression
+			// A page/snippet parameter or page variable binds through
+			// Variable (a Forms$PageVariable); anything else is an
+			// Expression. See classifyFlowArgValue — writing a $-reference
+			// as an Expression leaves the parameter unbound (CE1571, #1140).
 			if strVal, ok := arg.Value.(string); ok {
-				if strings.HasPrefix(strVal, "$") {
-					// Variable reference (including $currentObject)
+				if v, kind := pb.classifyFlowArgValue(strVal); kind != "" {
+					mapping.Variable, mapping.VariableKind = v, kind
+				} else if strings.HasPrefix(strVal, "$") {
 					mapping.Variable = strVal
 				} else {
 					mapping.Expression = strVal
@@ -1586,10 +1590,14 @@ func (pb *pageBuilder) buildClientActionV3(action *ast.ActionV3) (pages.ClientAc
 				ParameterName: arg.Name,
 			}
 
-			// Determine if value is a variable reference or expression
+			// A page/snippet parameter or page variable binds through
+			// Variable (a Forms$PageVariable); anything else is an
+			// Expression. See classifyFlowArgValue — writing a $-reference
+			// as an Expression leaves the parameter unbound (CE1571, #1140).
 			if strVal, ok := arg.Value.(string); ok {
-				if strings.HasPrefix(strVal, "$") {
-					// Variable reference (including $currentObject)
+				if v, kind := pb.classifyFlowArgValue(strVal); kind != "" {
+					mapping.Variable, mapping.VariableKind = v, kind
+				} else if strings.HasPrefix(strVal, "$") {
 					mapping.Variable = strVal
 				} else {
 					mapping.Expression = strVal
@@ -2609,7 +2617,7 @@ func prefixWidgetNames(widgets []*ast.WidgetV3, prefix string) {
 // needs an argument for every parameter exactly as a call action does — Mendix
 // reports CE1571 "No argument has been selected for parameter 'X'" otherwise
 // (#835). The datasource path previously parsed the arguments and dropped them.
-func flowArgsToParameterMappings(args []ast.FlowArgV3) []*pages.MicroflowParameterMapping {
+func (pb *pageBuilder) flowArgsToParameterMappings(args []ast.FlowArgV3) []*pages.MicroflowParameterMapping {
 	var out []*pages.MicroflowParameterMapping
 	for _, arg := range args {
 		mapping := &pages.MicroflowParameterMapping{
@@ -2619,10 +2627,13 @@ func flowArgsToParameterMappings(args []ast.FlowArgV3) []*pages.MicroflowParamet
 			},
 			ParameterName: arg.Name,
 		}
-		// A leading $ marks a variable reference ($currentObject, a page
-		// parameter); anything else is an expression.
+		// A page/snippet parameter or page variable binds through Variable (a
+		// Forms$PageVariable); $currentObject and anything else stays an
+		// expression. See classifyFlowArgValue (#1140).
 		if strVal, ok := arg.Value.(string); ok {
-			if strings.HasPrefix(strVal, "$") {
+			if v, kind := pb.classifyFlowArgValue(strVal); kind != "" {
+				mapping.Variable, mapping.VariableKind = v, kind
+			} else if strings.HasPrefix(strVal, "$") {
 				mapping.Variable = strVal
 			} else {
 				mapping.Expression = strVal

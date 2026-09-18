@@ -427,8 +427,10 @@ func xpathConstraintClause(constraint string) string {
 // document that stores the name bare is left alone instead of losing its first
 // segment.
 //
-// The bound value lives in Expression for both a variable reference ($Term) and
-// a literal (10); Variable is the older spelling and is honoured when present.
+// The bound value lives in Expression for a literal or an expression, and in
+// Variable — a Forms$PageVariable naming a page parameter, snippet parameter or
+// page variable — for a $-reference. Reading only Expression, or reading Variable
+// as a flat string, drops every argument Studio Pro wrote (#1140).
 // A parameterless flow yields nil, which the renderer emits without parentheses
 // — the grammar makes the list optional, and adding empty parens would churn
 // every existing description.
@@ -449,6 +451,11 @@ func flowSourceArgs(ds map[string]any, settingsKey, flowName string) []rawDataSo
 		}
 		value := extractString(mapping["Expression"])
 		if value == "" {
+			value = pageVariableArgValue(mapping["Variable"])
+		}
+		if value == "" {
+			// A pre-#1140 document, or another writer, may have put the bare
+			// reference text in Variable.
 			value = extractString(mapping["Variable"])
 		}
 		if value == "" {
