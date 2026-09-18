@@ -353,6 +353,41 @@ commit $Order on error without rollback {
 | `on error { ... }` | Execute handler block, then continue (with rollback) |
 | `on error without rollback { ... }` | Execute handler block, keep database changes |
 
+### RAISE ERROR is handler-only
+
+`raise error;` builds Mendix's **error event**, which *re-raises the error
+currently being handled*. Mendix therefore allows one only where an error is in
+scope — that is, inside an `on error { ... }` block. Studio Pro will not even
+let you draw the connection from the normal flow to an error event.
+
+```mdl
+-- ✅ inside a handler: an error IS in scope
+call microflow Module.RiskyOperation()
+on error {
+  log error node 'Module' 'failed, re-raising';
+  raise error;
+};
+
+-- ❌ on the main flow: MDL084, and mxbuild rejects it with
+--    CE0710 "The main flow cannot join an error flow or end in an error event."
+create microflow Module.Fail ()
+begin
+  raise error;
+end;
+```
+
+Nesting does not change this: a `raise error;` inside an `if` or a `loop` on the
+main flow is still on the main flow, and one inside a branch of a handler body is
+still on the error flow.
+
+Mendix has **no main-flow "throw" activity**. To fail deliberately from the normal
+path, call a Java action that throws:
+
+```mdl
+create java action Module.JA_RaiseTechnicalError(Message: string not null) returns boolean as
+$$ throw new com.mendix.systemwideinterfaces.MendixRuntimeException(Message); $$;
+```
+
 ### When to Use Each Type
 
 - **CONTINUE**: Non-critical operations where failure is acceptable

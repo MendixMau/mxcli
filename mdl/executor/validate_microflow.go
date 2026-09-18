@@ -146,6 +146,10 @@ func (v *microflowValidator) validate(body []ast.MicroflowStatement) {
 	v.checkReturnInLoop(body)
 	v.checkDuplicateVariableNames(v.params, body)
 
+	// mendixlabs/mxcli#1030: an error event is legal only on an error-handling
+	// flow. See validate_microflow_raise_error.go.
+	v.checkRaiseErrorOutsideHandler(body)
+
 	// #895: the commit default changed to match Studio Pro. One informational
 	// note per microflow, not per statement — see validate_commit_events.go.
 	v.checkBareCommitEvents(body)
