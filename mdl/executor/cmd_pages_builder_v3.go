@@ -587,7 +587,15 @@ func applyWidgetAppearance(widget pages.Widget, w *ast.WidgetV3, theme *ThemeReg
 		}
 		var dpValues []pages.DesignPropertyValue
 		for _, p := range astProps {
-			if dp, ok := astDesignPropToValue(p, themeProps); ok {
+			// Refuse rather than write, when the theme proves the shape wrong —
+			// a flat value on a multi-select property (ako/mxcli#511). Silently
+			// writing it produced a document mxbuild rejects with CE6084, whose
+			// wording names a type mismatch and not the spelling that fixes it.
+			dp, ok, err := astDesignPropToValueChecked(p, themeProps)
+			if err != nil {
+				return fmt.Errorf("widget %q: %w", w.Name, err)
+			}
+			if ok {
 				dpValues = append(dpValues, dp)
 			}
 		}
@@ -615,10 +623,61 @@ func applyWidgetAppearance(widget pages.Widget, w *ast.WidgetV3, theme *ThemeReg
 // the option default (findings: typed design properties). Without metadata the
 // prior syntactic behaviour (on→toggle, else→option) is preserved.
 func astDesignPropToValue(p ast.DesignPropertyEntryV3, themeProps []ThemeProperty) (pages.DesignPropertyValue, bool) {
+	dp, ok, _ := astDesignPropToValueChecked(p, themeProps)
+	return dp, ok
+}
+
+// astDesignPropToValueChecked is astDesignPropToValue plus the one shape the
+// theme can prove wrong: a FLAT value on a property declared `"multiSelect": true`.
+//
+// Such a property is a SET of the declared options, and Mendix stores it as a
+// Forms$CompoundDesignPropertyValue holding one entry per selected option, each
+// valued with a bare Forms$ToggleDesignPropertyValue — measured by decoding a
+// Studio Pro-authored Atlas page in a blank 11.12.2 project. Structurally that is
+// `Spacing`, which MDL already writes, so the capability is not missing: the
+// compound spelling works, round-trips through DESCRIBE, and builds at 0 errors.
+//
+// The flat spelling is the trap. `'Hide on': 'Phone'` names a declared option, so
+// resolveDesignPropertyValueType returned "option" and the write produced a
+// document mxbuild refuses:
+//
+//	[CE6084] "Expected design property Hide on to be of type Toggle button group,
+//	         but found Option."
+//
+// Refusing it and naming the spelling that works is the fix; the author cannot
+// derive `['Phone': on]` from CE6084's wording (ako/mxcli#511).
+func astDesignPropToValueChecked(p ast.DesignPropertyEntryV3, themeProps []ThemeProperty) (pages.DesignPropertyValue, bool, error) {
+	if len(p.Nested) == 0 && p.Value != "" && isMultiSelectDesignProperty(p.Key, themeProps) {
+		return pages.DesignPropertyValue{}, false, mdlerrors.NewValidation(fmt.Sprintf(
+			"design property %q takes a SET of options, not one value — write it as "+
+				"`'%s': ['%s': on]` (add one `'<option>': on` per selection). "+
+				"A single value is stored as an Option and mxbuild refuses it with CE6084.",
+			p.Key, p.Key, p.Value))
+	}
+	dp, ok := astDesignPropToValueInner(p, themeProps)
+	return dp, ok, nil
+}
+
+// isMultiSelectDesignProperty reports whether the theme declares this key as
+// multi-select. Unknown keys answer false: with no metadata there is nothing to
+// refuse on the strength of, and a theme newer than the snapshot must not be
+// blocked.
+func isMultiSelectDesignProperty(key string, themeProps []ThemeProperty) bool {
+	for i := range themeProps {
+		if strings.EqualFold(themeProps[i].Name, key) {
+			return themeProps[i].MultiSelect
+		}
+	}
+	return false
+}
+
+func astDesignPropToValueInner(p ast.DesignPropertyEntryV3, themeProps []ThemeProperty) (pages.DesignPropertyValue, bool) {
 	if len(p.Nested) > 0 {
 		dp := pages.DesignPropertyValue{Key: p.Key, ValueType: "compound"}
 		for _, sub := range p.Nested {
-			if sv, ok := astDesignPropToValue(sub, themeProps); ok {
+			// The inner function: a sub-entry is `'Phone': on`, which is a toggle
+			// by construction and never itself multi-select.
+			if sv, ok := astDesignPropToValueInner(sub, themeProps); ok {
 				dp.Compound = append(dp.Compound, sv)
 			}
 		}
