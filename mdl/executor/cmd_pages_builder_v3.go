@@ -320,6 +320,10 @@ func (pb *pageBuilder) buildWidgetV3(w *ast.WidgetV3) (pages.Widget, error) {
 	var widget pages.Widget
 	var err error
 
+	if err := checkSearchByIsOnAListView(w); err != nil {
+		return nil, err
+	}
+
 	switch strings.ToLower(w.Type) {
 	case "dataview":
 		widget, err = pb.buildDataViewV3(w)
@@ -622,11 +626,6 @@ func applyWidgetAppearance(widget pages.Widget, w *ast.WidgetV3, theme *ThemeReg
 // ToggleButtonGroup materializes as Forms$CustomDesignPropertyValue rather than
 // the option default (findings: typed design properties). Without metadata the
 // prior syntactic behaviour (on→toggle, else→option) is preserved.
-func astDesignPropToValue(p ast.DesignPropertyEntryV3, themeProps []ThemeProperty) (pages.DesignPropertyValue, bool) {
-	dp, ok, _ := astDesignPropToValueChecked(p, themeProps)
-	return dp, ok
-}
-
 // astDesignPropToValueChecked is astDesignPropToValue plus the one shape the
 // theme can prove wrong: a FLAT value on a property declared `"multiSelect": true`.
 //
@@ -731,6 +730,32 @@ func resolveDesignPropertyValueType(key, value string, themeProps []ThemePropert
 // =============================================================================
 // V3 DataSource and Action Builders
 // =============================================================================
+
+// checkSearchByIsOnAListView refuses `search by` on a widget that cannot store it.
+//
+// The clause hangs off the shared database-source rule, so the grammar accepts it
+// on a gallery or a data grid too — and only Forms$ListViewXPathSource declares
+// Search, so listViewSourceToGen is the only writer that emits it. Everything
+// else accepted the clause and dropped it: check passed, exec reported success,
+// and DESCRIBE did not echo it back. That is the silent-drop this whole area
+// keeps producing, and the reason MDL-WIDGET07 exists (ako/mxcli#512).
+//
+// An error rather than a warning: unlike an unrecognised PROPERTY key, which a
+// newer widget package might legitimately define, this one is decided by Mendix's
+// metamodel and cannot become valid later.
+func checkSearchByIsOnAListView(w *ast.WidgetV3) error {
+	if w == nil || strings.EqualFold(w.Type, "listview") {
+		return nil
+	}
+	ds := w.GetDataSource()
+	if ds == nil || len(ds.SearchAttributes) == 0 {
+		return nil
+	}
+	return mdlerrors.NewValidation(fmt.Sprintf(
+		"widget %q (%s): `search by` is a LIST VIEW search bar and %s cannot store one — "+
+			"only Forms$ListViewXPathSource declares Search. Drop the clause, or use a `listview`.",
+		w.Name, strings.ToLower(w.Type), strings.ToLower(w.Type)))
+}
 
 // buildDataSourceV3 converts a V3 DataSource AST to a pages.DataSource.
 // Returns the datasource, the entity name for context, and any error.

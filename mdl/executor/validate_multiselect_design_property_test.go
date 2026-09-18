@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/mendixlabs/mxcli/mdl/ast"
+	"github.com/mendixlabs/mxcli/sdk/pages"
 )
 
 // ako/mxcli#511.
@@ -140,4 +141,16 @@ func TestThemeReader_ParsesMultiSelect(t *testing.T) {
 	if byName["Align self"].MultiSelect {
 		t.Error("multiSelect was set for a property that does not declare it")
 	}
+}
+
+// mustDesignPropValue is the two-result form the older tests were written
+// against. It exists so they exercise astDesignPropToValueChecked — the function
+// production calls — rather than a wrapper kept alive only by those tests.
+func mustDesignPropValue(t *testing.T, p ast.DesignPropertyEntryV3, themeProps []ThemeProperty) (pages.DesignPropertyValue, bool) {
+	t.Helper()
+	dp, ok, err := astDesignPropToValueChecked(p, themeProps)
+	if err != nil {
+		t.Fatalf("design property %q: %v", p.Key, err)
+	}
+	return dp, ok
 }

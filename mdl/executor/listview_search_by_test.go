@@ -102,3 +102,53 @@ func firstListViewDataSource(t *testing.T, prog *ast.Program) *ast.DataSourceV3 
 	t.Fatal("no list view datasource in the parsed page")
 	return nil
 }
+
+// `search by` hangs off the SHARED database-source rule, so the grammar accepts
+// it on a gallery or a grid — and only Forms$ListViewXPathSource declares Search,
+// so only the list view writer emits it. Caught in review of ako/mxcli#512 by
+// running the clause on a gallery: check passed, exec reported "Created page",
+// and DESCRIBE did not echo it back. A silent drop, shipped by the commit that
+// was fixing silent drops.
+func TestSearchBy_RefusedOnAWidgetThatCannotStoreIt(t *testing.T) {
+	for _, typ := range []string{"gallery", "datagrid", "dataview"} {
+		t.Run(typ, func(t *testing.T) {
+			w := &ast.WidgetV3{Type: typ, Name: "w1", Properties: map[string]any{
+				"DataSource": &ast.DataSourceV3{
+					Type: "database", Reference: "Pages.Vehicle",
+					SearchAttributes: []string{"Brand"},
+				},
+			}}
+			err := checkSearchByIsOnAListView(w)
+			if err == nil {
+				t.Fatalf("`search by` on a %s was accepted; it is dropped on write", typ)
+			}
+			if !strings.Contains(err.Error(), "listview") && !strings.Contains(err.Error(), "LIST VIEW") {
+				t.Errorf("the message does not name the widget that can store it: %q", err)
+			}
+		})
+	}
+}
+
+// The two controls. A list view must keep it, and a widget without the clause
+// must not be refused — a guard that rejected either would be worse than the
+// silent drop it replaces.
+func TestSearchBy_AllowedOnAListView(t *testing.T) {
+	w := &ast.WidgetV3{Type: "listview", Name: "lv", Properties: map[string]any{
+		"DataSource": &ast.DataSourceV3{
+			Type: "database", Reference: "Pages.Vehicle",
+			SearchAttributes: []string{"Brand"},
+		},
+	}}
+	if err := checkSearchByIsOnAListView(w); err != nil {
+		t.Errorf("`search by` on a list view was refused: %v", err)
+	}
+}
+
+func TestSearchBy_NoClauseIsNeverRefused(t *testing.T) {
+	w := &ast.WidgetV3{Type: "gallery", Name: "gl", Properties: map[string]any{
+		"DataSource": &ast.DataSourceV3{Type: "database", Reference: "Pages.Vehicle"},
+	}}
+	if err := checkSearchByIsOnAListView(w); err != nil {
+		t.Errorf("a gallery with no search clause was refused: %v", err)
+	}
+}
