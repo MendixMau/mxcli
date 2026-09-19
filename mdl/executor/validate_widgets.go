@@ -673,6 +673,9 @@ var staticWidgetKnownProps = func() map[string]bool {
 		// (mendixlabs/mxcli#1057). Describe emits it, so leaving it out here
 		// makes the describe -> create round trip warn about its own output.
 		"Image",
+		// dynamicimage's fallback image, and the two display flags it shares
+		// with the pluggable image widget. Same reason: describe emits them.
+		"DefaultImage", "OnClickType",
 		// fragment / building-block sentinel-internal keys (USE_FRAGMENT /
 		// USE_BUILDING_BLOCK), consumed by the expander, never serialized
 		"Args", "DataSourceOverride", "ActionOverride",
@@ -703,7 +706,7 @@ var staticWidgetKnownPropList = func() []string {
 		"Attributes", "FilterType", "DesignProperties", "Width", "Height", "Visible",
 		"Editable", "Tooltip", "DynamicClasses", "WidthUnit", "HeightUnit",
 		"DesktopColumns", "TabletColumns", "PhoneColumns", "PageSize", "Pagination",
-		"Image")
+		"Image", "DefaultImage", "DisplayAs", "OnClickType")
 	return list
 }()
 

@@ -703,6 +703,35 @@ appears — it is deprecated in favour of the pluggable `image` widget, which
 takes the same `Image:`. mxcli still writes it, because round-tripping a model
 that already contains one is the point; prefer `image` on a new page.
 
+#### `DataSource:` — which object a DYNAMICIMAGE shows
+
+A dynamic image shows the image held by an **object**, so it needs the entity
+that object belongs to — reachable from the widget's context, which in practice
+means the enclosing data container's entity:
+
+```sql
+listview lvPhoto (DataSource: database from MyModule.Photo) {
+  dynamicimage imgPhoto (
+    DataSource: database from MyModule.Photo,
+    DefaultImage: 'MyModule.Images.placeholder',
+    Width: 200, Height: 200
+  )
+}
+```
+
+**Without `DataSource:` the build fails with CE0489** ("Select an entity for the
+data source of this dynamic image"). Every `dynamicimage` mxcli wrote before this
+was missing it, so the widget could not build at all.
+
+`DefaultImage:` is the fallback shown when the object carries no image, named the
+same three-part way as `staticimage`'s `Image:`. `WidthUnit:`/`HeightUnit:`,
+`Responsive: false`, `DisplayAs: thumbnail` and `OnClickType: enlarge` are all
+written; leave them out for Mendix's defaults (auto, responsive, full size, no
+enlarge), which `describe page` also omits.
+
+CE0582 applies here too — `dynamicimage` is deprecated alongside `staticimage`,
+and the pluggable `image` widget is the replacement for both.
+
 #### Setting Image Source (PLUGGABLEWIDGET syntax)
 
 The IMAGE shorthand creates a pluggable Image widget. For advanced properties like image source, use PLUGGABLEWIDGET syntax:
