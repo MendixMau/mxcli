@@ -562,6 +562,56 @@ func parseRawWidget(ctx *ExecContext, w map[string]any, parentEntityContext ...s
 		}
 		return []rawWidget{widget}
 
+	case "Forms$ImageViewer", "Pages$ImageViewer":
+		// The DYNAMIC image. Its binding is a Forms$ImageViewerSource, which the
+		// shared datasource reader already knows (entityBackedSourceTypes), so
+		// the entity CE0489 asks for costs nothing to read back.
+		//
+		// Nothing read this widget at all before, and the writer bound it to no
+		// entity, so every dynamic image mxcli authored failed the build and
+		// every stored one was dropped by describe -> exec.
+		if ds, ok := w["DataSource"].(map[string]any); ok {
+			widget.DataSource = parseDataSource(ds)
+			if widget.DataSource != nil && widget.DataSource.Reference != "" {
+				widget.EntityContext = dataSourceEntityContext(ctx, widget.DataSource)
+			}
+		}
+		if widget.EntityContext == "" {
+			widget.EntityContext = inheritedCtx
+		}
+		// The fallback image, a by-name reference like the static image's.
+		if fallback, ok := w["DefaultImage"].(string); ok && fallback != "" {
+			widget.DefaultImage = fallback
+		}
+		if width := extractInt(w["Width"]); width > 0 {
+			widget.ImageWidth = strconv.Itoa(width)
+		}
+		if height := extractInt(w["Height"]); height > 0 {
+			widget.ImageHeight = strconv.Itoa(height)
+		}
+		if u, ok := w["WidthUnit"].(string); ok {
+			widget.WidthUnit = strings.ToLower(u)
+		}
+		if u, ok := w["HeightUnit"].(string); ok {
+			widget.HeightUnit = strings.ToLower(u)
+		}
+		if responsive, ok := w["Responsive"].(bool); ok && !responsive {
+			widget.Responsive = "false"
+		}
+		// ShowAsThumbnail and OnClickEnlarge reuse the vocabulary the PLUGGABLE
+		// image widget already describes with (DisplayAs, OnClickType), so one
+		// property name means one thing across all three image widgets.
+		if thumb, ok := w["ShowAsThumbnail"].(bool); ok && thumb {
+			widget.DisplayAs = "thumbnail"
+		}
+		if enlarge, ok := w["OnClickEnlarge"].(bool); ok && enlarge {
+			widget.OnClickType = "enlarge"
+		}
+		if onClick := asActionMap(w["ClickAction"]); onClick != nil {
+			widget.Action = extractButtonAction(ctx, map[string]any{"Action": onClick})
+		}
+		return []rawWidget{widget}
+
 	case "Forms$Label", "Pages$Label":
 		widget.Content = extractTextCaption(ctx, w)
 		return []rawWidget{widget}

@@ -109,6 +109,7 @@ func TestStaticWidgetKnownPropsCoverDescribe(t *testing.T) {
 		"Caption", "CaptionAttribute", "CaptionParams", "Class", "Collapsible", "ColumnWidth",
 		"Content", "ContentParams", "DataSource", "DesignProperties", "DesktopColumns",
 		"DisplayAs", "DynamicCellClass", "DynamicClasses", "Editable", "FilterType", "HeaderMode",
+		"DefaultImage", "OnClickType",
 		"Height", "HeightUnit", "Hidable", "Image", "ImageType", "ImageUrl", "Label", "LabelWidth",
 		"OnClick", "PageSize", "Pagination", "PagingPosition", "PhoneColumns", "PhoneWidth",
 		"ReadOnlyStyle", "RenderMode", "Responsive", "Selection", "ShowContentAs",

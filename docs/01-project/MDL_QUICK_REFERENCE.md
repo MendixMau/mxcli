@@ -1498,6 +1498,8 @@ create page MyModule.Customer_Edit
 | Visible | `textbox txt (visible: [IsActive])` | Conditional visibility (XPath expression) |
 | Editable | `textbox txt (editable: [status != 'Closed'])` | Conditional editability (XPath expression) |
 | Image | `staticimage img (Image: 'Mod.Images.logo')` | Image-collection entry, `Module.Collection.Image`. Omitted → CE0436 "No image selected." |
+| DataSource (dynamicimage) | `dynamicimage img (DataSource: database from Mod.Photo)` | The entity holding the image. Omitted → CE0489 "Select an entity for the data source of this dynamic image." |
+| DefaultImage | `dynamicimage img (DefaultImage: 'Mod.Images.placeholder')` | Fallback when the object has no image |
 
 **Supported Widgets:**
 - Layout: `layoutgrid`, `row`, `column`, `container`, `customcontainer`

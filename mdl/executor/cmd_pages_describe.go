@@ -724,7 +724,12 @@ type rawWidget struct {
 	// is not an image collection, or when none is selected. Without it a
 	// describe -> exec copy loses the image (mxcli-formula1 FINDINGS §142).
 	ImageObject string
-	OnClickType string // "action", "enlarge"
+	// DefaultImage is a DYNAMIC image's fallback, shown when the bound object
+	// carries none — Forms$ImageViewer.DefaultImage, a by-name reference to
+	// Images$Image, so the same three-part Module.Collection.Image name as
+	// ImageObject but a different property, which is why it is not that field.
+	DefaultImage string
+	OnClickType  string // "action", "enlarge"
 }
 
 // rawExplicitProp represents a non-default property extracted from a CustomWidget.
