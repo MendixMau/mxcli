@@ -432,8 +432,15 @@ func PerformInstall(mprPath, referenceMpr, packageMpk, moduleName, version, vers
 	if err != nil {
 		return nil, fmt.Errorf("copy the module in: %w", err)
 	}
-	if err := StampMarketplaceVersion(mprPath, moduleName, version, versionID); err != nil {
-		return nil, fmt.Errorf("record the installed version: %w", err)
+	// A package installed from disk (marketplace install --file) has no
+	// marketplace identity. Stamping it FromAppStore with an empty GUID would
+	// tell `update` and `diff` that some release is installed while naming
+	// none; leaving the module unstamped is the truthful record, and both then
+	// report — correctly — that no marketplace content is installed under it.
+	if versionID != "" {
+		if err := StampMarketplaceVersion(mprPath, moduleName, version, versionID); err != nil {
+			return nil, fmt.Errorf("record the installed version: %w", err)
+		}
 	}
 	files, skippedFiles, err := InstallPackageFiles(packageMpk, filepath.Dir(mprPath))
 	if err != nil {
