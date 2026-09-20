@@ -4,6 +4,7 @@ package modelsdkbackend
 
 import (
 	"fmt"
+	"strings"
 
 	"go.mongodb.org/mongo-driver/bson"
 
@@ -46,12 +47,7 @@ func (b *Backend) CreatePage(page *pages.Page) error {
 	if page.ID == "" {
 		page.ID = model.ID(mmpr.GenerateID())
 	}
-	g, err := pageToGen(page, b.ProjectVersion())
-	if err != nil {
-		return err
-	}
-	g.SetID(element.ID(page.ID))
-	contents, err := (&codec.Encoder{}).Encode(g)
+	contents, err := encodePage(page, b.ProjectVersion(), nil)
 	if err != nil {
 		return fmt.Errorf("CreatePage: encode: %w", err)
 	}
@@ -78,13 +74,10 @@ func (b *Backend) UpdatePage(page *pages.Page) error {
 	if b.writer == nil {
 		return fmt.Errorf("UpdatePage: not connected for writing")
 	}
-	g, err := pageToGen(page, b.ProjectVersion())
-	if err != nil {
-		return err
-	}
-	g.SetID(element.ID(page.ID))
-	b.carryStoredPageHeader(page.ID, g)
-	contents, err := (&codec.Encoder{}).Encode(g)
+	pv := b.ProjectVersion()
+	contents, err := encodePage(page, pv, func(g *genPg.Page) {
+		b.carryStoredPageHeader(page.ID, g, pv)
+	})
 	if err != nil {
 		return fmt.Errorf("UpdatePage: encode: %w", err)
 	}
@@ -122,7 +115,7 @@ func (b *Backend) DeletePage(id model.ID) error {
 // A missing or unreadable stored unit leaves the defaults in place rather than
 // failing the write — this is a fidelity improvement on a rewrite, not a
 // precondition for one, and CreatePage has no stored document by definition.
-func (b *Backend) carryStoredPageHeader(id model.ID, g *genPg.Page) {
+func (b *Backend) carryStoredPageHeader(id model.ID, g *genPg.Page, pv *types.ProjectVersion) {
 	if b.reader == nil || id == "" {
 		return
 	}
@@ -134,7 +127,13 @@ func (b *Backend) carryStoredPageHeader(id model.ID, g *genPg.Page) {
 	if err := bson.Unmarshal(raw, &stored); err != nil {
 		return
 	}
-	if v := bsonnav.DGetString(stored, "Autofocus"); v != "" {
+	// Carrying a stored value is right — except below the floor, where the key
+	// should not be in the document at all. A pre-#547 mxcli wrote Autofocus into
+	// Mendix 10 projects, so the stored value may itself be the defect; carrying
+	// it would make the rewrite preserve a key that project's metamodel does not
+	// declare. Dropping it is the repair, not data loss: there is no version of
+	// this property the project can express.
+	if v := bsonnav.DGetString(stored, "Autofocus"); v != "" && pageSupportsAutofocus(pv) {
 		g.SetAutofocus(v)
 	}
 	// Read width-agnostically. Studio Pro stores both canvas dimensions as
@@ -182,6 +181,84 @@ func popupDimension(n int) int32 {
 	return int32(n)
 }
 
+// Mendix introduced these two Forms$Page properties after the oldest version
+// mxcli supports (mendixmodelsdk, Page.versionInfo). A key the project's
+// metamodel does not declare makes a document Studio Pro cannot open, and
+// mxbuild does not catch it — see codec.Encoder.OmitKeys.
+const (
+	pageAutofocusMajor, pageAutofocusMinor = 11, 1
+	pageVariablesMajor, pageVariablesMinor = 10, 17
+)
+
+// pageSupportsAutofocus / pageSupportsVariables report whether the project's
+// version declares the property. An unreadable version omits, matching the
+// page-parameter guard: an absent optional property is filled in on load, an
+// unknown one is unopenable.
+func pageSupportsAutofocus(pv *types.ProjectVersion) bool {
+	return pv != nil && pv.IsAtLeast(pageAutofocusMajor, pageAutofocusMinor)
+}
+
+func pageSupportsVariables(pv *types.ProjectVersion) bool {
+	return pv != nil && pv.IsAtLeast(pageVariablesMajor, pageVariablesMinor)
+}
+
+// versionLabel renders a project version for an error message, including the
+// case where it could not be read at all.
+func versionLabel(pv *types.ProjectVersion) string {
+	if pv == nil {
+		return "unknown"
+	}
+	if pv.ProductVersion != "" {
+		return pv.ProductVersion
+	}
+	return fmt.Sprintf("%d.%d.%d", pv.MajorVersion, pv.MinorVersion, pv.PatchVersion)
+}
+
+// docEncoder returns an encoder that drops the version-floored keys this project
+// cannot carry. Variables is emitted by the codec's Studio Pro defaults registry
+// rather than by a gen property, so suppressing it is the encoder's job; a gen
+// PartList has no "present but empty" state to leave unset.
+func docEncoder(typeName string, pv *types.ProjectVersion) *codec.Encoder {
+	if pageSupportsVariables(pv) {
+		return &codec.Encoder{}
+	}
+	return &codec.Encoder{OmitKeys: map[string]map[string]bool{
+		typeName: {"Variables": true},
+	}}
+}
+
+// encodePage builds and serializes a Forms$Page for a project of this version.
+// Both CreatePage and UpdatePage go through it, so the version guards cannot be
+// applied on one path and forgotten on the other.
+// carry, when non-nil, runs against the built document before it is encoded —
+// UpdatePage uses it for carryStoredPageHeader. CreatePage passes nil: a new
+// page has no stored document to carry from.
+func encodePage(page *pages.Page, pv *types.ProjectVersion, carry func(*genPg.Page)) ([]byte, error) {
+	// Suppressing the key is right for the empty list Studio Pro always writes.
+	// It is not right for variables the script actually declared: dropping those
+	// would leave a page whose widgets reference names that are no longer there
+	// (CE1151), from a statement that reported success. Refuse instead
+	// (guard-don't-drop, ADR-0005).
+	if len(page.Variables) > 0 && !pageSupportsVariables(pv) {
+		names := make([]string, 0, len(page.Variables))
+		for _, v := range page.Variables {
+			names = append(names, v.Name)
+		}
+		return nil, fmt.Errorf(
+			"page %q declares page variable(s) %s, which Mendix introduced in %d.%d (project is %s)",
+			page.Name, strings.Join(names, ", "), pageVariablesMajor, pageVariablesMinor, versionLabel(pv))
+	}
+	g, err := pageToGen(page, pv)
+	if err != nil {
+		return nil, err
+	}
+	g.SetID(element.ID(page.ID))
+	if carry != nil {
+		carry(g)
+	}
+	return docEncoder("Forms$Page", pv).Encode(g)
+}
+
 // pageToGen builds the full gen Page: header, layout call, the widget tree (under
 // the layout call's form-call arguments), parameters, and variables.
 func pageToGen(page *pages.Page, pv *types.ProjectVersion) (*genPg.Page, error) {
@@ -190,7 +267,9 @@ func pageToGen(page *pages.Page, pv *types.ProjectVersion) (*genPg.Page, error) 
 	out.SetDocumentation(page.Documentation)
 	out.SetExcluded(page.Excluded)
 	out.SetExportLevel("Hidden")
-	out.SetAutofocus("DesktopOnly")
+	if pageSupportsAutofocus(pv) {
+		out.SetAutofocus("DesktopOnly")
+	}
 	out.SetCanvasWidth(1200)
 	out.SetCanvasHeight(600)
 	out.SetMarkAsUsed(page.MarkAsUsed)
