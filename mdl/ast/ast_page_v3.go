@@ -53,6 +53,10 @@ type CreatePageStmtV3 struct {
 	PopupWidth     *int
 	PopupHeight    *int
 	PopupResizable *bool
+	// PopupCloseAction names the widget on this page whose action closes it when
+	// shown as a pop-up (Forms$Page.PopupCloseAction). Set on 9 of ako/TestApp's
+	// 67 pages; a rewrite wrote "" over it (ako/mxcli#550).
+	PopupCloseAction string
 }
 
 func (s *CreatePageStmtV3) isStatement() {}

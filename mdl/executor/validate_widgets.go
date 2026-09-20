@@ -667,6 +667,10 @@ var staticWidgetKnownProps = func() map[string]bool {
 		"ImageUrl", "LabelPosition", "PageSize", "Pagination", "PagingPosition",
 		"PhoneColumns", "ReadOnlyStyle", "Resizable", "Responsive", "ShowPagingButtons",
 		"Size", "Sortable", "TabletColumns", "WidthUnit", "WrapText", "Name",
+		// input-widget properties describe page emits (ako/mxcli#550): a text
+		// box's password flag and its Forms$WidgetValidation. Leaving them out
+		// makes the describe -> create round trip warn about its own output.
+		"Password", "Validation", "ValidationMessage",
 		// button icon-collection reference (issue #602)
 		"Icon",
 		// staticimage's image-collection reference, Module.Collection.Image

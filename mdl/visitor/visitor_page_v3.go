@@ -165,9 +165,13 @@ func (b *Builder) applyGenericPageHeaderProp(stmt *ast.CreatePageStmtV3, name st
 			return
 		}
 		stmt.PopupResizable = &bval
+	case "PopupCloseAction":
+		// The value is a widget NAME on this page, so it arrives as a bare
+		// identifier rather than a quoted string; accept either spelling.
+		stmt.PopupCloseAction = strings.Trim(fmt.Sprintf("%v", val), `"'`)
 	default:
 		b.addError(fmt.Errorf("line %d:%d: unknown page property %q "+
-			"(supported: Title, Layout, Url, Folder, Params, Variables, PopupWidth, PopupHeight, PopupResizable, Class, Style)",
+			"(supported: Title, Layout, Url, Folder, Params, Variables, PopupWidth, PopupHeight, PopupResizable, PopupCloseAction, Class, Style)",
 			tok.GetLine(), tok.GetColumn(), name))
 	}
 }

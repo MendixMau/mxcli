@@ -144,15 +144,23 @@ func init() {
 	})
 	// A microflow data source's settings carry an always-emitted (empty) parameter
 	// mapping list and null progress/confirmation slots.
+	//
+	// Both mapping lists are always emitted. The markers are measured, not
+	// assumed: across ako/TestApp's 67 pages at 11.14.0, ParameterMappings
+	// carries marker 2 on 220 of 220 lists in every parent type (empty or
+	// populated), and OutputMappings is present on 91 of 91 MicroflowSettings
+	// with marker 3 and no items. MandatoryLists emits the encoder's default 3,
+	// so ParameterMappings needs the explicit marker (ako/mxcli#550).
 	codec.RegisterTypeDefaults("Forms$MicroflowSettings", codec.TypeDefaults{
-		MandatoryLists: []string{"ParameterMappings"},
-		NullFields:     []string{"ProgressMessage", "ConfirmationInfo"},
+		MandatoryLists:       []string{"OutputMappings"},
+		MandatoryListMarkers: map[string]int32{"ParameterMappings": 2},
+		NullFields:           []string{"ProgressMessage", "ConfirmationInfo"},
 	})
 	// A nanoflow client action carries its (possibly empty) parameter-mapping
 	// list directly and nulls its progress/confirmation slots. Bug 2.
 	codec.RegisterTypeDefaults("Forms$CallNanoflowClientAction", codec.TypeDefaults{
-		MandatoryLists: []string{"ParameterMappings"},
-		NullFields:     []string{"ProgressMessage", "ConfirmationInfo"},
+		MandatoryListMarkers: map[string]int32{"ParameterMappings": 2},
+		NullFields:           []string{"ProgressMessage", "ConfirmationInfo"},
 	})
 	// TextBox: many null slots when unbound (attribute ref, screen-reader label,
 	// source variable, label template, visibility/editability/native settings).
@@ -231,8 +239,14 @@ func init() {
 		NullFields: []string{"ConditionalVisibilitySettings"},
 	})
 	codec.RegisterListMarker("Forms$SnippetCallWidget", 2)
+	// The three parameter-mapping child types. MandatoryListMarkers covers an
+	// EMPTY list; a populated one takes its marker from the child type, and all
+	// three measured 2 (ako/mxcli#550).
+	codec.RegisterListMarker("Forms$MicroflowParameterMapping", 2)
+	codec.RegisterListMarker("Forms$PageParameterMapping", 2)
+	codec.RegisterListMarker("Forms$SnippetParameterMapping", 2)
 	codec.RegisterTypeDefaults("Forms$SnippetCall", codec.TypeDefaults{
-		MandatoryLists: []string{"ParameterMappings"},
+		MandatoryListMarkers: map[string]int32{"ParameterMappings": 2},
 	})
 	// ListView: null visibility; always emits its Templates list; marker 2.
 	codec.RegisterTypeDefaults("Forms$ListView", codec.TypeDefaults{
@@ -365,7 +379,14 @@ func widgetToGen(w pages.Widget) (element.Element, error) {
 		}
 		g.SetDataSource(ds)
 		g.SetEditability(editability(x.ReadOnly))
-		g.SetReadOnlyStyle("Control")
+		// Control is the DataView default, measured 47 of 56 across ako/TestApp's
+		// 67 pages with not one Inherit — so it is NOT the "Inherit" every other
+		// input widget uses. An authored or carried value wins (ako/mxcli#550).
+		if x.ReadOnlyStyle != "" {
+			g.SetReadOnlyStyle(x.ReadOnlyStyle)
+		} else {
+			g.SetReadOnlyStyle("Control")
+		}
 		g.SetShowFooter(x.ShowFooter)
 		// Always emit LabelWidth. It carries Studio Pro's "Form orientation" radio,
 		// which has no BSON field of its own — so writing it only when an explicit
@@ -431,7 +452,7 @@ func widgetToGen(w pages.Widget) (element.Element, error) {
 		g.SetReadOnlyStyle("Inherit")
 		g.SetSubmitBehaviour("OnEndEditing")
 		g.SetSubmitOnInputDelay(300)
-		g.SetValidation(widgetValidationToGen())
+		g.SetValidation(widgetValidationToGenWith(x.ValidationExpression, x.ValidationMessage))
 		return g, nil
 
 	case *pages.ActionButton:
@@ -1245,10 +1266,23 @@ func attributeRefWithStepsToGen(attrQN string, steps []pages.AttributeRefStep) e
 
 // widgetValidationToGen builds the default empty Forms$WidgetValidation.
 func widgetValidationToGen() element.Element {
+	return widgetValidationToGenWith("", "")
+}
+
+// widgetValidationToGenWith builds a Forms$WidgetValidation carrying the widget's
+// own validation: the expression Mendix evaluates over $value, and the message
+// shown when it fails.
+//
+// The element is written either way — Studio Pro stores it on every input widget,
+// empty or not — so the empty form here is the same document the unconditional
+// default used to produce. What changed is that an authored expression is no
+// longer overwritten by it: a rewrite used to blank the validation on every text
+// box it touched, with mx check at 0 errors (ako/mxcli#550).
+func widgetValidationToGenWith(expression, message string) element.Element {
 	v := genPg.NewWidgetValidation()
 	assignID(v)
-	v.SetExpression("")
-	v.SetMessage(genTexts.NewText())
+	v.SetExpression(expression)
+	v.SetMessage(captionToGen(textFromString(message)))
 	return v
 }
 

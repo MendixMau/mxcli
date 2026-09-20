@@ -18,9 +18,14 @@ type TextBox struct {
 	Placeholder       *model.Text        `json:"placeholder,omitempty"`
 	MaxLength         int                `json:"maxLength,omitempty"`
 	IsPassword        bool               `json:"isPassword,omitempty"`
-	ReadOnly          bool               `json:"readOnly,omitempty"`
-	OnChangeAction    ClientAction       `json:"onChangeAction,omitempty"`
-	OnEnterAction     ClientAction       `json:"onEnterAction,omitempty"`
+	// ValidationExpression / ValidationMessage are the two fields of the widget's
+	// Forms$WidgetValidation. Without them a rewrite wrote the empty default over
+	// whatever Studio Pro had stored (ako/mxcli#550).
+	ValidationExpression string       `json:"validationExpression,omitempty"`
+	ValidationMessage    string       `json:"validationMessage,omitempty"`
+	ReadOnly             bool         `json:"readOnly,omitempty"`
+	OnChangeAction       ClientAction `json:"onChangeAction,omitempty"`
+	OnEnterAction        ClientAction `json:"onEnterAction,omitempty"`
 }
 
 // TextArea represents a multi-line text input widget.

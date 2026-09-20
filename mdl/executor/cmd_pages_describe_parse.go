@@ -321,6 +321,7 @@ func parseRawWidget(ctx *ExecContext, w map[string]any, parentEntityContext ...s
 			widget.EntityContext = inheritedCtx
 		}
 		widget.LabelWidth = extractDataViewLabelWidth(w)
+		widget.ReadOnlyStyle = extractReadOnlyStyle(ctx, w)
 		widget.ShowFooter, _ = w["ShowFooter"].(bool)
 		widget.Children = parseDataViewChildren(ctx, w, widget.EntityContext)
 		return []rawWidget{widget}
@@ -330,6 +331,8 @@ func parseRawWidget(ctx *ExecContext, w map[string]any, parentEntityContext ...s
 		widget.Content = extractAttributeRef(ctx, w)
 		widget.Placeholder = extractPlaceholderText(ctx, w)
 		widget.Editable = extractEditable(ctx, w)
+		widget.IsPassword, _ = w["IsPasswordBox"].(bool)
+		widget.ValidationExpression, widget.ValidationMessage = extractWidgetValidation(ctx, w)
 		widget.OnChange = extractOnChangeAction(ctx, w)
 		return []rawWidget{widget}
 
@@ -898,6 +901,31 @@ func extractEditable(ctx *ExecContext, w map[string]any) string {
 		return editable
 	}
 	return ""
+}
+
+// extractWidgetValidation reads the two fields of a Forms$WidgetValidation: the
+// expression Mendix evaluates over $value, and the message shown when it fails.
+//
+// An empty expression means the widget has no validation — Studio Pro stores the
+// element either way — so both come back empty and the describer emits nothing.
+// Emitting a clause for a stored-but-empty validation would be the "invents"
+// shape: it puts something in the user's script that they did not write.
+func extractWidgetValidation(ctx *ExecContext, w map[string]any) (expression, message string) {
+	v, ok := w["Validation"].(map[string]any)
+	if !ok || v == nil {
+		return "", ""
+	}
+	expression = extractString(v["Expression"])
+	if expression == "" {
+		return "", ""
+	}
+	// Message is a bare Texts$Text (Items[] of translations), not a
+	// Forms$ClientTemplate — extractTextFromTemplate's fallback branch handles
+	// exactly that shape.
+	if msg, ok := v["Message"].(map[string]any); ok {
+		message = extractTextFromTemplate(ctx, msg)
+	}
+	return expression, message
 }
 
 // extractReadOnlyStyle extracts the ReadOnlyStyle from an input widget.
