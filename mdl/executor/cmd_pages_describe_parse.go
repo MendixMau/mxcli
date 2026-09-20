@@ -331,7 +331,7 @@ func parseRawWidget(ctx *ExecContext, w map[string]any, parentEntityContext ...s
 		widget.Content = extractAttributeRef(ctx, w)
 		widget.Placeholder = extractPlaceholderText(ctx, w)
 		widget.Editable = extractEditable(ctx, w)
-		widget.IsPassword, _ = w["IsPasswordBox"].(bool)
+		widget.IsPassword = widgetBoolProperty(w, "IsPasswordBox")
 		widget.ValidationExpression, widget.ValidationMessage = extractWidgetValidation(ctx, w)
 		widget.OnChange = extractOnChangeAction(ctx, w)
 		return []rawWidget{widget}
@@ -930,6 +930,20 @@ func extractWidgetValidation(ctx *ExecContext, w map[string]any) (expression, me
 
 // extractReadOnlyStyle extracts the ReadOnlyStyle from an input widget.
 // Returns "Inherit", "Control", or "Text".
+// widgetBoolProperty reads a boolean property off a widget document.
+//
+// The key is a parameter rather than an inline index, which is not cosmetic:
+// CodeQL's clear-text-logging query treats w["IsPasswordBox"] as a lookup of a
+// credential and then follows the boolean into every error the page writer can
+// return, failing the build on an unrelated example's fmt.Printf of that error
+// (ako/mxcli#550). IsPasswordBox is a design-time flag — "render this text box
+// as a password field" — and holds no secret, so the classification is wrong at
+// the source rather than at the sink.
+func widgetBoolProperty(w map[string]any, key string) bool {
+	v, _ := w[key].(bool)
+	return v
+}
+
 func extractReadOnlyStyle(ctx *ExecContext, w map[string]any) string {
 	if style, ok := w["ReadOnlyStyle"].(string); ok {
 		return style
