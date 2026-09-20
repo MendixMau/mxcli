@@ -1976,6 +1976,33 @@ func (pb *pageBuilder) resolveTemplateAssociationPath(attrRef string, param *pag
 	return true
 }
 
+// resolveInputAttribute resolves the `attribute:` of an input widget (text box,
+// text area, date picker, drop-down, check box, radio buttons) into the
+// qualified final attribute plus the association hops to reach it.
+//
+// A bare name resolves against the enclosing entity context as before and
+// carries no steps. `Assoc/Attr` navigates: Studio Pro stores exactly this on a
+// plain text box, as ako/TestApp's Rules.RuleAction_NewEdit does for
+// Rules.BusinessRule.Name over Rules.RuleAction_BusinessRule.
+//
+// Before this, every input builder called resolveAttributePath, which knows
+// nothing about associations — the slashes survived into a flat path that
+// resolved to nothing and the build failed CE1613 (ako/mxcli#529). DataGrid2
+// columns and DynamicText parameters already resolved it, so one page could
+// bind an associated attribute in a grid column and fail on the text box beside
+// it.
+//
+// An unresolvable path falls back to resolveAttributePath rather than erroring,
+// matching what the column builder does: the reference checker
+// (--references) is where an unknown member is reported, and failing here would
+// reject paths whose entity context this pass cannot see.
+func (pb *pageBuilder) resolveInputAttribute(attr string) (string, []pages.AttributeRefStep) {
+	if finalQN, steps, ok := pb.resolveAssociationAttributePath(attr); ok {
+		return finalQN, steps
+	}
+	return pb.resolveAttributePath(attr), nil
+}
+
 // resolveAssociationAttributePath resolves a context-relative attribute path that
 // navigates one or more associations (e.g. "Order_Customer/Name" or
 // "$currentObject/Sales.Order_Customer/Name") into the fully-qualified FINAL
