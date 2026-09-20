@@ -317,6 +317,13 @@ func setBoolField(doc bson.D, key string, value bool) {
 // rather than dropped quietly, because "the package wanted a different version"
 // is exactly the thing that was invisible before.
 func InstallPackageFiles(mpkPath, projectDir string) (written []string, skipped []SkippedFile, err error) {
+	// Anchor the project first. A relative projectDir ("." from `-p app.mpr`)
+	// made filepath.Join drop the dot, so "manifest.json" was compared against
+	// the prefix "./" and every legitimate entry was refused as a traversal.
+	projectDir, err = filepath.Abs(projectDir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve project dir: %w", err)
+	}
 	zr, err := zip.OpenReader(mpkPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open package %s: %w", filepath.Base(mpkPath), err)
