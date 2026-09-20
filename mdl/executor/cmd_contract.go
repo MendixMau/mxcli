@@ -626,17 +626,47 @@ func createExternalEntities(ctx *ExecContext, s *ast.CreateExternalEntitiesStmt)
 			// write flow. (The earlier permissive default regressed this; the
 			// service that motivated #729 was a narrower ETag/Concurrency case.)
 			defaultCreatable := false
-			defaultUpdatable := false
 			if !isTopLevel {
 				defaultCreatable = true
-				defaultUpdatable = true
 			}
 			if entitySet != nil && entitySet.Insertable != nil {
 				defaultCreatable = *entitySet.Insertable
 			}
-			if entitySet != nil && entitySet.Updatable != nil {
-				defaultUpdatable = *entitySet.Updatable
-			}
+
+			// Updatable does NOT follow UpdateRestrictions, and that asymmetry
+			// with Creatable right above it is the whole of this rule: NO
+			// attribute of a top-level entity is updatable, and EVERY attribute
+			// of a non-top-level one is, because the latter is written through
+			// its parent's flow.
+			//
+			// Measured on mxbuild 11.12.1 across ten contract shapes, each a
+			// top-level set mxbuild reads as updatable and each answering
+			// False — inline <Record>, typed <Record Type=…>,
+			// UpdateMethod=PATCH, +NonUpdatableProperties +DeleteRestrictions,
+			// unannotated, external <Annotations Target=…>,
+			// Core.Permissions/ReadWrite, Core.OptimisticConcurrency (ETag),
+			// DeepUpdateSupport/Supported=true, and NonUpdatableProperties
+			// naming ONLY the key. That last one is what closes it: the service
+			// lists `Id` as the sole non-updatable property, i.e. asserts that
+			// the others ARE updatable, and mxbuild still says False. Following
+			// the annotation is one CE6630 per attribute.
+			//
+			// It is not "the entity is read-only" — Creatable follows
+			// Insertable on the very same attributes. It is not the model's
+			// "allow creating and changing objects locally" either: setting
+			// AllowCreateChangeLocally=Yes left the expectation at False. An
+			// external object can be changed in memory and passed to an
+			// external action, which is what that flag governs; this one
+			// mirrors what the endpoint itself accepts.
+			//
+			// entitySet.Updatable and NonUpdatableProperties are therefore read
+			// but never consulted here. They are left in place deliberately: if
+			// a contract is ever found that mxbuild does treat as updatable,
+			// this is where the per-property list becomes load-bearing again —
+			// and the key would then need its own guard, since mxbuild computes
+			// a top-level key as non-updatable independently (one CE6630 per
+			// key part, measured across the same ten shapes).
+			defaultUpdatable := !isTopLevel
 			nonInsertable := make(map[string]bool)
 			nonUpdatable := make(map[string]bool)
 			// Filter/Sort restrictions name the properties the service refuses to
@@ -697,38 +727,18 @@ func createExternalEntities(ctx *ExecContext, s *ast.CreateExternalEntitiesStmt)
 				if nonUpdatable[remoteName] || p.Computed || p.Immutable {
 					updatable = false
 				}
-				// A KEY of a TOP-LEVEL entity is never updatable, whatever the
-				// entity set's UpdateRestrictions say: Mendix computes it False
-				// because a key cannot be changed after the object exists.
-				// Letting it follow the set is exactly one CE6630 per key part
-				// on every writable service — "'DefinitionId' is marked
-				// Updatable=False in the OData service, but True in the app" —
-				// measured on mxbuild 11.12.1 against a set annotated
-				// Updatable=true, and on six further annotation shapes.
-				//
-				// isTopLevel is load-bearing, and the live TripPin contract is
-				// what proves it: a key reached through a PARENT's write flow
-				// (a derived type or a contained entity, so no entity set of
-				// its own) goes the other way, and clearing it there is CE6630
-				// inverted —
-				//
-				//	"'TripId' is marked Updatable=True in the OData service,
-				//	 but False in the app."   at TripPinClient.Trip.TripId
-				//
-				// measured on 11.12.2 over `Trip`, `PlanItem`, `Event`,
-				// `Flight`, `PublicTransportation`, `Employee` and `Manager`,
-				// while `Person`/`Airline`/`Airport` — the entity sets — stayed
-				// silent. `UserName` is the two-sided control inside one
-				// contract: False on Person, True on Employee and Manager.
-				//
-				// Creatable is deliberately NOT cleared with it. The same build
-				// reported the key Updatable=False *only*, with no Creatable
-				// error beside it: the key is written once, at creation, so the
-				// rule is "cannot be changed", not "read-only". Clearing both
-				// would be CE6630 inverted on the key of any insertable set.
-				if isKey && isTopLevel {
-					updatable = false
-				}
+				// The key of a top-level entity is non-updatable for a reason
+				// of its own — a key cannot be changed after the object exists,
+				// which is the symptom that was reported ("'DefinitionId' is
+				// marked Updatable=False in the OData service, but True in the
+				// app") — but it needs no guard here, because defaultUpdatable
+				// already answers false for every top-level attribute. On a
+				// NON-top-level entity the key goes the other way and must stay
+				// updatable: clearing it there is CE6630 inverted, measured on
+				// the live TripPin contract over Trip, PlanItem, Event, Flight,
+				// PublicTransportation, Employee and Manager. `UserName` is the
+				// two-sided control inside that one document — False on Person
+				// (an entity set), True on Employee and Manager (derived).
 				// A property reached through a complex type carries NONE of the
 				// four capabilities, whatever the entity set says.
 				//

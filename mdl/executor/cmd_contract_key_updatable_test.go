@@ -71,25 +71,14 @@ const insertOnlySetMetadata = `<?xml version="1.0" encoding="utf-8"?>
 // UpdateRestrictions say — a key cannot be changed after creation — so an
 // import that lets the key follow the set is exactly one CE6630 per key part.
 //
-// The control is `Label`: an ordinary attribute of the SAME writable set keeps
-// the import's current answer, so the test cannot pass against a fix that
-// simply stamped every attribute read-only. It pins behaviour, it is NOT a
-// claim that mxbuild wants Updatable=true there — measured on 11.12.1, mxbuild
-// says Updatable=False for `Label` too, and for the non-key attribute of all
-// SEVEN annotation shapes probed (inline record, typed record, UpdateMethod,
-// +NonUpdatableProperties/+DeleteRestrictions, unannotated, external
-// <Annotations Target=…>, Core.Permissions/ReadWrite). That is a SECOND,
-// separate defect in how this import reads UpdateRestrictions, and it is
-// deliberately left alone here: no TOP-LEVEL entity set has yet been seen that
-// mxbuild treats as having an updatable attribute, so there is no positive
-// control for what the right rule is there, and mxcli-formula1 §48 measured
-// CE6630 firing in BOTH directions — a blanket "never updatable" is a guess
-// that can be wrong the other way.
+// The key is a special case of the wider rule proved in
+// TestCreateExternalEntities_TopLevelAttributesAreNeverUpdatable below — no
+// attribute of a top-level entity is updatable — and it is kept as its own
+// test because it is the symptom that was reported, and because `Creatable`
+// going the other way on the very same attribute is the sharpest statement
+// that this is not a read-only stamp.
 //
-// The key rule, by contrast, has a clean two-sided measurement: with the key
-// at Updatable=false mxbuild is silent on the key of all seven shapes, and
-// with it following the entity set it is exactly one CE6630 per key. The other
-// side of it is TestCreateExternalEntities_DerivedTypeKeyStaysUpdatable below,
+// The other side is TestCreateExternalEntities_DerivedTypeKeyStaysUpdatable,
 // which the live TripPin contract supplied after a blanket version of this
 // rule turned one CE6630 into seven of its inverse.
 func TestCreateExternalEntities_KeyAttributeIsNeverUpdatable(t *testing.T) {
@@ -107,13 +96,9 @@ func TestCreateExternalEntities_KeyAttributeIsNeverUpdatable(t *testing.T) {
 			`"'DefinitionId' is marked Updatable=False in the OData service, but True in the app."`)
 	}
 
-	label := byName["Label"]
-	if label == nil {
-		t.Fatalf("attribute Label missing; got %v", attrNames(ent))
-	}
-	if !label.Updatable {
-		t.Error("control failed: the fix must be key-specific — a non-key attribute of the same " +
-			"set still follows the entity set, so a blanket read-only stamp is caught here")
+	if !key.Creatable {
+		t.Error("control failed: the key must stay Creatable — it is written once, at creation, " +
+			"and clearing both capabilities is CE6630 inverted")
 	}
 }
 
@@ -248,4 +233,100 @@ func entityNamesOf(m map[string]*domainmodel.Entity) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// A top-level entity set that names the KEY as the only non-updatable property:
+// the service is saying, by name, that `Label` IS updatable. Nothing states the
+// case more plainly, and mxbuild still computes False for it.
+const explicitNonUpdatableMetadata = `<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="App.Model" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityType Name="Definition">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.String" Nullable="false" MaxLength="36"/>
+        <Property Name="Label" Type="Edm.String" MaxLength="100"/>
+      </EntityType>
+      <EntityContainer Name="Container">
+        <EntitySet Name="Definition" EntityType="App.Model.Definition">
+          <Annotation Term="Org.OData.Capabilities.V1.InsertRestrictions">
+            <Record><PropertyValue Property="Insertable" Bool="true"/></Record>
+          </Annotation>
+          <Annotation Term="Org.OData.Capabilities.V1.UpdateRestrictions">
+            <Record>
+              <PropertyValue Property="Updatable" Bool="true"/>
+              <PropertyValue Property="NonUpdatableProperties">
+                <Collection><PropertyPath>Id</PropertyPath></Collection>
+              </PropertyValue>
+            </Record>
+          </Annotation>
+        </EntitySet>
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>`
+
+// NO attribute of a TOP-LEVEL external entity is updatable, whatever the entity
+// set's UpdateRestrictions say. Following the annotation is one CE6630 per
+// attribute — "'Label' is marked Updatable=False in the OData service, but True
+// in the app."
+//
+// Measured on mxbuild 11.12.1 across TEN contract shapes, every one of them a
+// top-level set mxbuild reads as updatable, every one answering False:
+//
+//	inline <Record>                     typed <Record Type=…>
+//	UpdateMethod=PATCH                  +NonUpdatableProperties +DeleteRestrictions
+//	unannotated                         external <Annotations Target=…>
+//	Core.Permissions/ReadWrite          Core.OptimisticConcurrency (ETag)
+//	DeepUpdateSupport/Supported=true    NonUpdatableProperties naming ONLY the key
+//
+// The last is the one that closes it: the service lists `Id` as the sole
+// non-updatable property, so it is asserting that `Label` is updatable, and
+// mxbuild still says False. The aliased-vocabulary run is the other half — with
+// mxbuild reading an Updatable=true set and the app at false on every
+// attribute, the build reported Creatable errors and NO Updatable error, so
+// False is what it wants rather than merely what it tolerates.
+//
+// Two things this rule is NOT, each ruled out by its own control:
+//
+//   - It is not "the entity is read-only". Creatable follows Insertable and
+//     stays true on the same attributes — asserted below, and the reason a
+//     blanket read-only stamp cannot pass this test.
+//   - It is not the model's "allow creating and changing objects locally".
+//     Setting AllowCreateChangeLocally=Yes on a top-level entity left the
+//     expectation at False (measured). An external entity's object can be
+//     changed in memory and handed to an external action; that is governed by
+//     that flag, while this one mirrors what the endpoint itself accepts.
+//
+// Non-top-level entities go the other way — see
+// TestCreateExternalEntities_DerivedTypeKeyStaysUpdatable.
+func TestCreateExternalEntities_TopLevelAttributesAreNeverUpdatable(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		metadata string
+	}{
+		{"updatable set", writableSetMetadata},
+		{"non-updatable properties names only the key", explicitNonUpdatableMetadata},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ent, _ := importOne(t, tc.metadata, "Definition")
+			byName := attrByName(ent)
+
+			for _, n := range []string{"DefinitionId", "Label"} {
+				a := byName[n]
+				if a == nil {
+					t.Fatalf("attribute %s missing; got %v", n, attrNames(ent))
+				}
+				if a.Updatable {
+					t.Errorf("%s is Updatable=true on a top-level entity — CE6630 "+
+						`"'%s' is marked Updatable=False in the OData service, but True in the app."`, n, n)
+				}
+				// The control: Creatable goes the other way on the very same
+				// attribute, so this cannot pass against a read-only stamp.
+				if !a.Creatable {
+					t.Errorf("%s lost Creatable against an Insertable=true set — CE6630 inverted", n)
+				}
+			}
+		})
+	}
 }
