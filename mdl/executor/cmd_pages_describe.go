@@ -275,8 +275,7 @@ func describeSnippet(ctx *ExecContext, name ast.QualifiedName) error {
 			paramParts := []string{}
 			for _, p := range params {
 				paramName, _ := p["Name"].(string)
-				entityName := extractEntityQualifiedName(p["ParameterType"])
-				paramParts = append(paramParts, fmt.Sprintf("$%s: %s", paramName, entityName))
+				paramParts = append(paramParts, fmt.Sprintf("$%s: %s", paramName, snippetParamTypeMDL(p["ParameterType"])))
 			}
 			snippetProps = append(snippetProps, fmt.Sprintf("Params: { %s }", strings.Join(paramParts, ", ")))
 		}
@@ -454,6 +453,26 @@ func extractEntityQualifiedName(paramType any) string {
 		}
 	}
 	return "Unknown"
+}
+
+// snippetParamTypeMDL renders a snippet parameter's stored ParameterType as the
+// MDL type that produces it — an entity's qualified name, or a primitive keyword.
+//
+// It used to be extractEntityQualifiedName alone, which answers "Unknown" for
+// anything that is not an entity: a primitive-typed parameter described as
+// `$Label: Unknown`, MDL that re-executes as a reference to an entity called
+// Unknown (mendixlabs/mxcli#1028).
+func snippetParamTypeMDL(paramType any) string {
+	ptMap, ok := paramType.(map[string]any)
+	if !ok {
+		return "Unknown"
+	}
+	bsonType, _ := ptMap["$Type"].(string)
+	switch bsonType {
+	case "", "Pages$EntityType", "Forms$EntityType", "DataTypes$ObjectType":
+		return extractEntityQualifiedName(paramType)
+	}
+	return primitiveParamTypeMDL(bsonType)
 }
 
 // getBsonArrayMaps extracts []map[string]interface{} from BSON array types.
@@ -991,25 +1010,34 @@ func wrapStringLiteralExpression(value string) string {
 // Primitive params return "String", "Integer", etc.; entity params return the qualified name.
 func pageParamTypeMDL(p *pages.PageParameter) string {
 	if p.TypeName != "" {
-		switch p.TypeName {
-		case "DataTypes$StringType":
-			return "String"
-		case "DataTypes$IntegerType":
-			return "Integer"
-		case "DataTypes$LongType":
-			return "Long"
-		case "DataTypes$DecimalType":
-			return "Decimal"
-		case "DataTypes$BooleanType":
-			return "Boolean"
-		case "DataTypes$DateTimeType":
-			return "DateTime"
-		default:
-			return p.TypeName
-		}
+		return primitiveParamTypeMDL(p.TypeName)
 	}
 	if p.EntityName != "" {
 		return p.EntityName
 	}
 	return string(p.EntityID)
+}
+
+// primitiveParamTypeMDL maps a parameter's primitive BSON $Type back to the MDL
+// keyword that produces it, so `describe` re-emits something `exec` accepts.
+// An unrecognised $Type is returned as-is rather than guessed at — it will not
+// re-parse, which is the visible symptom a silent "String" would hide.
+//
+// Long has no entry: storage has no DataTypes$LongType (see pageParamBSONType),
+// so `Long` and `Integer` are one stored type and describe says Integer.
+func primitiveParamTypeMDL(bsonType string) string {
+	switch bsonType {
+	case "DataTypes$StringType":
+		return "String"
+	case "DataTypes$IntegerType":
+		return "Integer"
+	case "DataTypes$DecimalType":
+		return "Decimal"
+	case "DataTypes$BooleanType":
+		return "Boolean"
+	case "DataTypes$DateTimeType":
+		return "DateTime"
+	default:
+		return bsonType
+	}
 }

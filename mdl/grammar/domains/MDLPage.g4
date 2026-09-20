@@ -59,13 +59,11 @@ pageParameter
     : (IDENTIFIER | VARIABLE | QUOTED_IDENTIFIER) COLON dataType
     ;
 
-snippetParameterList
-    : snippetParameter (COMMA snippetParameter)*
-    ;
-
-snippetParameter
-    : (IDENTIFIER | VARIABLE | QUOTED_IDENTIFIER) COLON dataType
-    ;
+// A snippet parameter is a page parameter. There used to be a byte-identical
+// `snippetParameterList` rule here with its own visitor, and the two drifted
+// twice from the same clause: a quoted entity name reached the resolver with
+// its quotes, and a primitive type was taken for an entity
+// (mendixlabs/mxcli#1028). One rule, one conversion.
 
 variableDeclarationList
     : variableDeclaration (COMMA variableDeclaration)*
@@ -246,7 +244,7 @@ snippetHeaderV3
     ;
 
 snippetHeaderPropertyV3
-    : PARAMS COLON LBRACE snippetParameterList RBRACE              // Params: { $Customer: Entity }
+    : PARAMS COLON LBRACE pageParameterList RBRACE                 // Params: { $Customer: Module.Entity } — entities only (MDL087)
     | VARIABLES_KW COLON LBRACE variableDeclarationList RBRACE     // Variables: { $show: Boolean = 'true' }
     | FOLDER COLON STRING_LITERAL                                  // Folder: 'Snippets/Common'
     ;

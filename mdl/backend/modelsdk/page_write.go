@@ -256,15 +256,31 @@ func pageParameterToGen(p *pages.PageParameter, pv *types.ProjectVersion) *genPg
 // entity parameter, or the named primitive DataTypes type. p.TypeName carries the
 // primitive's BSON $Type (e.g. "DataTypes$StringType") when set.
 func pageParamTypeToGen(p *pages.PageParameter) element.Element {
-	if p.TypeName == "" {
+	return paramTypeToGen(p.TypeName, p.EntityName)
+}
+
+// paramTypeToGen builds the ParameterType child shared by Forms$PageParameter and
+// Forms$SnippetParameter — both declare it as the polymorphic DataTypes$DataType,
+// so one builder serves both. bsonType empty means "entity", and entityName is
+// then the qualified name the DataTypes$ObjectType points at.
+//
+// Keeping the two on one builder is the point: a snippet parameter used to have
+// its own, entity-only copy, so `Params: { $Label: String }` wrote a snippet
+// parameter with no type at all (mendixlabs/mxcli#1028).
+func paramTypeToGen(bsonType, entityName string) element.Element {
+	if bsonType == "" {
 		t := genDT.NewObjectType()
 		assignID(t)
-		t.SetEntityQualifiedName(p.EntityName)
+		t.SetEntityQualifiedName(entityName)
 		return t
 	}
 	var t element.Element
-	switch p.TypeName {
-	case "DataTypes$IntegerType":
+	switch bsonType {
+	case "DataTypes$IntegerType", "DataTypes$LongType":
+		// gen has no Long: Mendix models both as the same data type, as
+		// localVarTypeToGen notes for the sibling case. pageParamBSONType no
+		// longer produces DataTypes$LongType, but a caller that sets TypeName
+		// itself must not fall through to the String default the way one did.
 		t = genDT.NewIntegerType()
 	case "DataTypes$BooleanType":
 		t = genDT.NewBooleanType()

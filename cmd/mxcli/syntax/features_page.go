@@ -385,7 +385,7 @@ CREATE PAGE Sales.Detail (Title: 'Detail', Layout: Atlas_Core.Atlas_Default) {
 			"snippet", "snippets", "reusable", "snippetcall",
 			"page fragment", "component",
 		},
-		Syntax:  "CREATE SNIPPET Module.Name\n  [( Params: { $P: Module.Entity }, Folder: 'path' )]\n  {\n    -- widgets (same as page)\n  }\n\n-- Embed in a page:\nSNIPPETCALL scName (Snippet: Module.SnippetName)",
+		Syntax:  "CREATE SNIPPET Module.Name\n  [( Params: { $P: Module.Entity }, Folder: 'path' )]   -- parameters are entities only\n  {\n    -- widgets (same as page)\n  }\n\n-- Embed in a page:\nSNIPPETCALL scName (Snippet: Module.SnippetName)",
 		Example: "CREATE SNIPPET MyModule.CustomerInfo (\n  Params: { $Customer: MyModule.Customer }\n)\n{\n  DATAVIEW dv (DataSource: $Customer) {\n    TEXTBOX txtName (Label: 'Name', Attribute: Name)\n    TEXTBOX txtEmail (Label: 'Email', Attribute: Email)\n  }\n}",
 		SeeAlso: []string{"snippet.create", "snippet.alter", "page"},
 	})
@@ -397,7 +397,13 @@ CREATE PAGE Sales.Detail (Title: 'Detail', Layout: Atlas_Core.Atlas_Default) {
 			"create snippet", "new snippet", "snippet parameters",
 			"snippet variables",
 		},
-		Syntax:  "CREATE SNIPPET Module.Name\n  [( Params: { $P: Module.Entity, $Label: String } )]\n  [( Variables: { $isEditable: Boolean = 'true' } )]\n  [( Folder: 'Snippets/Common' )]\n  {\n    -- widgets\n  }",
+		// Every snippet parameter is an entity. This line used to print
+		// "$Label: String", which is not executable: mxbuild rejects a
+		// primitive snippet parameter with CE0046 "Invalid data type 'String'."
+		// (a PAGE parameter may be primitive; a snippet parameter may not), and
+		// the reporter of mendixlabs/mxcli#1028 reached the bug by following
+		// this line. A primitive is now refused as MDL087.
+		Syntax:  "CREATE SNIPPET Module.Name\n  [( Params: { $P: Module.Entity } )]   -- entities only; a primitive is CE0046\n  [( Variables: { $isEditable: Boolean = 'true' } )]\n  [( Folder: 'Snippets/Common' )]\n  {\n    -- widgets\n  }\n\n-- To parameterise a snippet on a primitive, keep the primitive on the\n-- calling PAGE and pass an object, or read the value off an entity member.",
 		Example: "CREATE SNIPPET MyModule.NavigationMenu\n{\n  NAVIGATIONLIST navMenu {\n    ITEM itemCustomers (Action: SHOW_PAGE MyModule.CustomerOverview) {\n      DYNAMICTEXT txtCustomers (Content: 'Customers')\n    }\n  }\n}",
 		SeeAlso: []string{"snippet", "snippet.alter", "page.widgets"},
 	})

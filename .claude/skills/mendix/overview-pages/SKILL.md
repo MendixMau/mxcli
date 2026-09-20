@@ -504,7 +504,12 @@ module/
 
 ## Parameterized Snippets
 
-Snippets can accept parameters to display context-specific data:
+Snippets can accept parameters to display context-specific data. **A snippet
+parameter must be an entity.** A primitive one (`params: { $Label: String }`) is
+refused as **MDL087**, because Mendix rejects it with **CE0046** *"Invalid data
+type 'String'."* — a *page* parameter may be a primitive, a snippet parameter may
+not. To parameterise a snippet on a value, keep the primitive on the calling
+page's parameters, or pass an object and read the member inside the snippet.
 
 ```sql
 -- Create a snippet with a parameter
