@@ -155,13 +155,22 @@ CREATE PAGE Sales.Detail (Title: 'Detail', Layout: Atlas_Core.Atlas_Default) {
 			"--   `check --references` rather than failing the build with CE1613.\n" +
 			"--   The alternatives are the URL form above, or `ImageType: icon`.\n\n" +
 			"-- Any pluggable widget by its id (id FIRST, then the name)\nPLUGGABLEWIDGET 'com.mendix.widget.web.badge.Badge' name (value: 'x')\nCUSTOMWIDGET 'com.mendix.widget.custom.x.X' name (prop: 'x')      -- legacy spelling\n\n" +
+			"-- DYNAMICIMAGE shows the image held by an OBJECT, so it needs the entity that\n" +
+			"-- object belongs to — reachable from the widget's context. Without it mxbuild\n" +
+			"-- reports CE0489, so the widget cannot build at all:\n" +
+			"DYNAMICIMAGE imgPhoto (DataSource: database from MyModule.Photo,\n" +
+			"                       DefaultImage: 'MyModule.Images.placeholder')\n" +
+			"--   DefaultImage is the fallback when the object carries none. DisplayAs:\n" +
+			"--   thumbnail and OnClickType: enlarge are written too.\n\n" +
 			"-- STATICIMAGE takes the same three-part image-collection reference as IMAGE,\n" +
 			"-- so a stored one round-trips through DESCRIBE (mendixlabs/mxcli#1057). Without\n" +
 			"-- it the widget is written with no image and mxbuild reports CE0436:\n" +
 			"STATICIMAGE imgLogo (Image: 'MyModule.Images.logo', Width: 64, Height: 64)\n\n" +
-			"-- Deprecated in the Mendix 11 React client. These are written correctly by\n" +
-			"-- both engines, but mxbuild reports CE0582 (\"not supported in React client\")\n" +
-			"-- on each, so prefer the alternative:\n" +
+			"-- Not supported by the React client — added in Mendix 10.7, and the only\n" +
+			"-- client on 11, so this is not a Mendix 11 rule. These are written correctly,\n" +
+			"-- but mxbuild reports CE0582 (\"not supported in React client\") on each\n" +
+			"-- wherever that client is enabled, and `mxcli lint` reports them as MPR012.\n" +
+			"-- Prefer the alternative:\n" +
 			"--   STATICIMAGE    -> IMAGE\n" +
 			"--   DYNAMICIMAGE   -> IMAGE\n" +
 			"--   DROPDOWN       -> COMBOBOX\n" +
@@ -268,7 +277,7 @@ CREATE PAGE Sales.Detail (Title: 'Detail', Layout: Atlas_Core.Atlas_Default) {
 			"popup width", "popup height", "popup resizable",
 			"drop template", "insert template", "list view template",
 		},
-		Syntax:  "ALTER PAGE Module.Name {\n  SET property = value ON widgetName;   -- widget property names: any casing\n  SET Action = MICROFLOW Module.MF ON btnSave;   -- any CREATE PAGE action form\n  SET DataSource = $Param ON dvOrder;\n  SET (prop1 = val1, prop2 = val2) ON widgetName;\n  SET Title = 'New Title';  -- page-level (case-sensitive)\n  SET Class = 'css-class';  -- page-level CSS class / style\n  SET Style = 'css: rule';\n  SET PopupWidth = 800;     -- page-level pop-up dimensions\n  SET PopupHeight = 480;\n  SET PopupResizable = true;\n  INSERT AFTER widgetName { <widgets> };\n  INSERT BEFORE widgetName { <widgets> };\n  INSERT INTO containerName { <widgets> };\n  DROP WIDGET name1, name2;\n  DROP TEMPLATE FOR Module.Specialization IN listViewName;\n  REPLACE widgetName WITH { <widgets> };\n};",
+		Syntax:  "ALTER PAGE Module.Name {\n  SET property = value ON widgetName;   -- widget property names: any casing\n  SET Action = MICROFLOW Module.MF ON btnSave;   -- any CREATE PAGE action form\n  SET DataSource = $Param ON dvOrder;   -- parameter/microflow/nanoflow/selection;\n                                        --   DATABASE and association are REPLACE-only,\n                                        --   and a data view takes no database source\n  SET (prop1 = val1, prop2 = val2) ON widgetName;\n  SET Title = 'New Title';  -- page-level (case-sensitive)\n  SET Documentation = 'What this page is for.';\n  SET Class = 'css-class';  -- page-level CSS class / style\n  SET Style = 'css: rule';\n  SET PopupWidth = 800;     -- page-level pop-up dimensions\n  SET PopupHeight = 480;\n  SET PopupResizable = true;\n  INSERT AFTER widgetName { <widgets> };\n  INSERT BEFORE widgetName { <widgets> };\n  INSERT INTO containerName { <widgets> };\n  DROP WIDGET name1, name2;\n  DROP TEMPLATE FOR Module.Specialization IN listViewName;\n  REPLACE widgetName WITH { <widgets> };\n};",
 		Example: "ALTER PAGE Module.EditPage {\n  SET (Caption = 'Save & Close', ButtonStyle = Success) ON btnSave;\n  INSERT AFTER txtName {\n    TEXTBOX txtMiddleName (Label: 'Middle Name', Attribute: MiddleName)\n  };\n  DROP WIDGET txtUnused;\n};",
 		SeeAlso: []string{"page.create", "page.show", "snippet.alter"},
 	})

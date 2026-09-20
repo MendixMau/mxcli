@@ -698,10 +698,43 @@ staticimage imgAllSelected (Image: 'MyFirstModule.Images.gallery')
 auto units and a responsive image — which `describe page` also omits, so a
 round trip neither loses them nor invents them.
 
-Mendix 11's React client reports **CE0582** for `staticimage` wherever it
-appears — it is deprecated in favour of the pluggable `image` widget, which
-takes the same `Image:`. mxcli still writes it, because round-tripping a model
-that already contains one is the point; prefer `image` on a new page.
+**CE0582** is reported for `staticimage` wherever it appears, by any app running
+the React client — which Mendix added in **10.7** and which is the only client on
+11, so this is not a Mendix 11 rule. The replacement is the pluggable `image`
+widget, which takes the same `Image:`; Studio Pro offers the conversion from the
+CE0582 error's context menu. mxcli still writes it, because round-tripping a
+model that already contains one is the point — and `mxcli lint` reports it as
+**MPR012** so a new page does not reach for it by accident.
+
+#### `DataSource:` — which object a DYNAMICIMAGE shows
+
+A dynamic image shows the image held by an **object**, so it needs the entity
+that object belongs to — reachable from the widget's context, which in practice
+means the enclosing data container's entity:
+
+```sql
+listview lvPhoto (DataSource: database from MyModule.Photo) {
+  dynamicimage imgPhoto (
+    DataSource: database from MyModule.Photo,
+    DefaultImage: 'MyModule.Images.placeholder',
+    Width: 200, Height: 200
+  )
+}
+```
+
+**Without `DataSource:` the build fails with CE0489** ("Select an entity for the
+data source of this dynamic image"). Every `dynamicimage` mxcli wrote before this
+was missing it, so the widget could not build at all.
+
+`DefaultImage:` is the fallback shown when the object carries no image, named the
+same three-part way as `staticimage`'s `Image:`. `WidthUnit:`/`HeightUnit:`,
+`Responsive: false`, `DisplayAs: thumbnail` and `OnClickType: enlarge` are all
+written; leave them out for Mendix's defaults (auto, responsive, full size, no
+enlarge), which `describe page` also omits.
+
+CE0582 applies here too — the React client supports neither legacy image widget,
+and the pluggable `image` widget is the replacement for both. `mxcli lint` reports
+either as **MPR012**.
 
 #### Setting Image Source (PLUGGABLEWIDGET syntax)
 

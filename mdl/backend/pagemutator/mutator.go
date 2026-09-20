@@ -140,12 +140,56 @@ func (m *Mutator) SetWidgetDataSource(widgetRef string, ds pages.DataSource) err
 		ds = &resolved
 	}
 
+	if err := databaseSourceRefusal(result.widget, ds); err != nil {
+		return err
+	}
+
 	serialized := serializeDataSourceBson(ds)
 	if serialized == nil {
 		return fmt.Errorf("unsupported DataSource type %T", ds)
 	}
 	bsonnav.DSet(result.widget, "DataSource", serialized)
 	return nil
+}
+
+// databaseSourceRefusal turns away `set DataSource = DATABASE …`, which this
+// setter cannot write correctly for any widget (#1032).
+//
+// A DATABASE source is not one element but several, chosen by the widget that
+// holds it: Forms$ListViewXPathSource on a list view,
+// CustomWidgets$CustomWidgetXPathSource on a pluggable widget,
+// Forms$GridXPathSource on a grid — each with its own sort bar and search
+// sub-elements. A DATA VIEW has no database form at all, which is why the CREATE
+// PAGE builder refuses that pairing outright.
+//
+// One mapping stood in for all of them and wrote a Forms$DataViewSource — the
+// "data from context" source — with the entity in EntityRef and SourceVariable
+// left null. Nothing rejected it: `exec` reported success, DESCRIBE read it back
+// as no datasource at all (the context reader needs a SourceVariable), and the
+// first signal was CE7007 from mxbuild, naming the widget rather than the
+// statement that broke it.
+//
+// Refusing is what the two reads agree on. Rebuilding the shapes here would be a
+// second copy of listViewSourceToGen and friends in a second currency — the
+// drift CLAUDE.md's duplicate-resolver rule is about — while REPLACE already
+// reaches the one that exists, by rebuilding the widget through CREATE PAGE.
+func databaseSourceRefusal(widget bson.D, ds pages.DataSource) error {
+	if _, ok := ds.(*pages.DatabaseSource); !ok {
+		return nil
+	}
+	if bsonnav.DGetString(widget, "$Type") == "Forms$DataView" {
+		// Not "use replace": REPLACE goes through the same CREATE PAGE builder,
+		// which refuses a database source on a data view as well. Naming it
+		// would send the author down a dead end.
+		return fmt.Errorf("a data view cannot take a database datasource — a data view binds to a " +
+			"single object, so its source is a context parameter (`$Param`), a microflow, a nanoflow " +
+			"or `selection <widget>`; to show the result of a database query, use a list view or a " +
+			"data grid instead")
+	}
+	return fmt.Errorf("setting a database datasource on %q (%s) is not supported by `set` — "+
+		"its stored shape depends on the widget and is built by the CREATE PAGE path; "+
+		"use `replace <widget> with …` instead, which rebuilds the widget through that path",
+		bsonnav.DGetString(widget, "Name"), widgetTypeName(widget))
 }
 
 // SetWidgetAction retargets the on-click action of an existing widget.
@@ -2321,6 +2365,25 @@ func applyPageLevelSetMut(rawData bson.D, prop string, value any) (bson.D, error
 	case "Url":
 		strVal, _ := value.(string)
 		rawData = dSetOrAppend(rawData, "Url", strVal)
+	case "Documentation":
+		// A plain top-level string, the same shape as Url, and declared on
+		// Page, Layout and Snippet alike — all three reach this function
+		// through SetWidgetProperty(""), so one case covers them.
+		//
+		// Without it, documenting an existing page meant re-running its CREATE
+		// (the doc comment is the only other source), which for a real page
+		// means re-emitting its whole widget tree through a describe → exec
+		// round trip that is only as complete as what MDL can spell
+		// (ako/mxcli#527).
+		//
+		// An empty string is stored rather than rejected: removing a doc
+		// comment from a script has to be expressible, and the property is a
+		// bare string with no unset value.
+		strVal, ok := value.(string)
+		if !ok {
+			return rawData, fmt.Errorf("Documentation value must be a string")
+		}
+		rawData = dSetOrAppend(rawData, "Documentation", strVal)
 	case "PopupWidth", "PopupHeight":
 		// Pop-up dimensions live at the top level of the Forms$Page document and
 		// are stored as int64 (matching what Studio Pro and the legacy writer
@@ -2359,7 +2422,8 @@ func applyPageLevelSetMut(rawData bson.D, prop string, value any) (bson.D, error
 		}
 	default:
 		return rawData, fmt.Errorf("unsupported page-level property: %s "+
-			"(supported: Title, Url, PopupWidth, PopupHeight, PopupResizable, PopupCloseAction, Class, Style)", prop)
+			"(supported: Title, Url, Documentation, PopupWidth, PopupHeight, PopupResizable, "+
+			"PopupCloseAction, Class, Style)", prop)
 	}
 	return rawData, nil
 }
@@ -2909,22 +2973,9 @@ func serializeDataSourceBson(ds pages.DataSource) bson.D {
 			{Key: "$Type", Value: "Forms$ListenTargetSource"},
 			{Key: "ListenTarget", Value: d.WidgetName},
 		}
-	case *pages.DatabaseSource:
-		var entityRef any
-		if d.EntityName != "" {
-			entityRef = bson.D{
-				{Key: "$ID", Value: bsonutil.NewIDBsonBinary()},
-				{Key: "$Type", Value: "DomainModels$DirectEntityRef"},
-				{Key: "Entity", Value: d.EntityName},
-			}
-		}
-		return bson.D{
-			{Key: "$ID", Value: bsonutil.NewIDBsonBinary()},
-			{Key: "$Type", Value: "Forms$DataViewSource"},
-			{Key: "EntityRef", Value: entityRef},
-			{Key: "ForceFullObjects", Value: false},
-			{Key: "SourceVariable", Value: nil},
-		}
+	// A *pages.DatabaseSource is deliberately absent: it has no single stored
+	// shape, so there is nothing to map it to here. databaseSourceRefusal
+	// above turns it away before this is reached.
 	case *pages.DataViewSource:
 		// "Data from context": the widget binds to a page/snippet parameter. The
 		// EntityRef names the parameter's entity and the SourceVariable points at

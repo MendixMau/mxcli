@@ -673,6 +673,9 @@ keyword
     | PHONEWIDTH | TABLETWIDTH | READONLY | RENDERMODE | REQUIRED | NULLABLE
     | SELECTION | STYLE | STYLING | TABINDEX | TITLE | TOOLTIP
     | URL | POSITION | VISIBLE | WIDTH | HEIGHT | WIDGETTYPE
+    // Microflow document properties — keywords only inside a microflow header,
+    // so they must stay usable as element names everywhere else.
+    | HIDDEN_KW | ALLOW | DISALLOW | CONCURRENT | EXECUTION
     | VARIABLES_KW
 
     // Button actions
@@ -688,7 +691,12 @@ keyword
     | ACCESS | APPLY | AUTH | AUTHENTICATION | BASIC | DEMO
     | DESCRIPTION | GRANT | GUEST | LEVEL | MANAGE | MATRIX
     | OFF | OWNER | PASSWORD | PRODUCTION | PROTOTYPE
-    | REVOKE | ROLE | ROLES | SECURITY | SESSION | USER | USERNAME | USERS
+    | REVOKE | ROLE | ROLES | SECURITY | SESSION | STRICT | USER | USERNAME | USERS
+    // MODE is listed here rather than left reserved because `mode` is an
+    // entirely plausible attribute or widget-property name, and a new keyword
+    // that is not in this rule silently breaks every model that already uses
+    // the word.
+    | MODE
 
     // Validation
     | CONSTRAINT | FEEDBACK | PATTERN | RANGE | REGEX | RULE | VALIDATION | WITHOUT

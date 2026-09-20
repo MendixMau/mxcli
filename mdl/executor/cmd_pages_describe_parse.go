@@ -562,6 +562,56 @@ func parseRawWidget(ctx *ExecContext, w map[string]any, parentEntityContext ...s
 		}
 		return []rawWidget{widget}
 
+	case "Forms$ImageViewer", "Pages$ImageViewer":
+		// The DYNAMIC image. Its binding is a Forms$ImageViewerSource, which the
+		// shared datasource reader already knows (entityBackedSourceTypes), so
+		// the entity CE0489 asks for costs nothing to read back.
+		//
+		// Nothing read this widget at all before, and the writer bound it to no
+		// entity, so every dynamic image mxcli authored failed the build and
+		// every stored one was dropped by describe -> exec.
+		if ds, ok := w["DataSource"].(map[string]any); ok {
+			widget.DataSource = parseDataSource(ds)
+			if widget.DataSource != nil && widget.DataSource.Reference != "" {
+				widget.EntityContext = dataSourceEntityContext(ctx, widget.DataSource)
+			}
+		}
+		if widget.EntityContext == "" {
+			widget.EntityContext = inheritedCtx
+		}
+		// The fallback image, a by-name reference like the static image's.
+		if fallback, ok := w["DefaultImage"].(string); ok && fallback != "" {
+			widget.DefaultImage = fallback
+		}
+		if width := extractInt(w["Width"]); width > 0 {
+			widget.ImageWidth = strconv.Itoa(width)
+		}
+		if height := extractInt(w["Height"]); height > 0 {
+			widget.ImageHeight = strconv.Itoa(height)
+		}
+		if u, ok := w["WidthUnit"].(string); ok {
+			widget.WidthUnit = strings.ToLower(u)
+		}
+		if u, ok := w["HeightUnit"].(string); ok {
+			widget.HeightUnit = strings.ToLower(u)
+		}
+		if responsive, ok := w["Responsive"].(bool); ok && !responsive {
+			widget.Responsive = "false"
+		}
+		// ShowAsThumbnail and OnClickEnlarge reuse the vocabulary the PLUGGABLE
+		// image widget already describes with (DisplayAs, OnClickType), so one
+		// property name means one thing across all three image widgets.
+		if thumb, ok := w["ShowAsThumbnail"].(bool); ok && thumb {
+			widget.DisplayAs = "thumbnail"
+		}
+		if enlarge, ok := w["OnClickEnlarge"].(bool); ok && enlarge {
+			widget.OnClickType = "enlarge"
+		}
+		if onClick := asActionMap(w["ClickAction"]); onClick != nil {
+			widget.Action = extractButtonAction(ctx, map[string]any{"Action": onClick})
+		}
+		return []rawWidget{widget}
+
 	case "Forms$Label", "Pages$Label":
 		widget.Content = extractTextCaption(ctx, w)
 		return []rawWidget{widget}
@@ -896,18 +946,32 @@ func shortAttributeName(attr string) string {
 	return attr
 }
 
-// extractAttributeRef extracts the attribute reference from an input widget.
-// Returns just the attribute name (last segment).
+// extractAttributeRef extracts the attribute reference from an input widget as
+// the short form MDL accepts: a bare name for an own attribute, or
+// `Assoc/.../Attr` when the binding navigates associations.
+//
+// This used to return the last segment of AttributeRef.Attribute and ignore
+// AttributeRef.EntityRef entirely, which silently dropped every association
+// hop. Measured on ako/TestApp's Rules.RuleAction_NewEdit, whose text box binds
+// Rules.BusinessRule.Name over Rules.RuleAction_BusinessRule: DESCRIBE emitted
+// `Attribute: Name`, and Rules.RuleAction has no Name — so a describe → exec
+// round trip rebound the widget to nothing. `check` stayed clean and the damage
+// surfaced at build time as CE1613, or in a browser as a blank field
+// (ako/mxcli#529).
+//
+// columnAttributeFromRef already did this correctly for DataGrid2 columns (bug
+// 7), so one page could round-trip a grid column and destroy a text box beside
+// it. Sharing that function is the point: two readers of one BSON shape is how
+// the halves drifted apart to begin with.
 func extractAttributeRef(ctx *ExecContext, w map[string]any) string {
 	attrRef, ok := w["AttributeRef"].(map[string]any)
 	if !ok {
 		return ""
 	}
-	attr, ok := attrRef["Attribute"].(string)
-	if !ok {
+	if _, ok := attrRef["Attribute"].(string); !ok {
 		return ""
 	}
-	return shortAttributeName(attr)
+	return columnAttributeFromRef(attrRef)
 }
 
 // parseGalleryContent extracts the content widget from a Gallery.

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/mendixlabs/mxcli/mdl/types"
+	genPg "github.com/mendixlabs/mxcli/modelsdk/gen/pages"
 	"github.com/mendixlabs/mxcli/sdk/pages"
 	"go.mongodb.org/mongo-driver/bson"
 )
@@ -37,7 +38,7 @@ func pageKeys(t *testing.T, pv *types.ProjectVersion) bson.Raw {
 	t.Helper()
 	p := &pages.Page{Name: "P"}
 	p.ID = "1"
-	b, err := encodePage(p, pv)
+	b, err := encodePage(p, pv, nil)
 	if err != nil {
 		t.Fatalf("encodePage: %v", err)
 	}
@@ -148,7 +149,7 @@ func TestPageWithVariablesIsRefusedBelow10_17(t *testing.T) {
 		return p
 	}
 
-	_, err := encodePage(withVars(), v(10, 16, 0))
+	_, err := encodePage(withVars(), v(10, 16, 0), nil)
 	if err == nil {
 		t.Fatal("10.16: a page with variables was encoded, want a refusal")
 	}
@@ -161,11 +162,46 @@ func TestPageWithVariablesIsRefusedBelow10_17(t *testing.T) {
 	}
 
 	// At and above the floor the same page encodes, with its variables.
-	b, err := encodePage(withVars(), v(10, 17, 0))
+	b, err := encodePage(withVars(), v(10, 17, 0), nil)
 	if err != nil {
 		t.Fatalf("10.17: %v", err)
 	}
 	if !has(bson.Raw(b), "Variables") {
 		t.Error("10.17: Variables missing from a page that declares one")
+	}
+}
+
+// The merge of #541 (carry the stored header) and this fix (do not write a key
+// the project's version does not declare) has a case neither had alone: a
+// rewrite whose STORED document already carries Autofocus on a project below
+// 11.1. A pre-fix mxcli wrote exactly that, so the stored value can itself be
+// the defect — carrying it would make the repair a no-op.
+//
+// The fixture project is 11.6.6, so the version is passed explicitly rather than
+// read off the backend: what is under test is the decision, against a real
+// stored document that really does carry the key.
+func TestStoredAutofocusIsNotCarriedBelow11_1(t *testing.T) {
+	b, page := headerFixture(t)
+	setStoredHeader(t, b, page.ID, "Off", int64(800), int64(500))
+
+	carried := func(pv *types.ProjectVersion) string {
+		t.Helper()
+		g := genPg.NewPage()
+		b.carryStoredPageHeader(page.ID, g, pv)
+		return g.Autofocus()
+	}
+
+	// Control first: at and above the floor the stored value IS carried, so a
+	// failure below it cannot be "the carry never works".
+	if got := carried(v(11, 6, 6)); got != "Off" {
+		t.Fatalf("11.6.6: Autofocus = %q, want the stored Off", got)
+	}
+	if got := carried(v(11, 1, 0)); got != "Off" {
+		t.Errorf("11.1.0 (the floor): Autofocus = %q, want the stored Off", got)
+	}
+	for _, pv := range []*types.ProjectVersion{v(10, 24, 25), v(11, 0, 0), nil} {
+		if got := carried(pv); got == "Off" {
+			t.Errorf("pv=%v: carried the stored Autofocus into a project that cannot declare it", pv)
+		}
 	}
 }
