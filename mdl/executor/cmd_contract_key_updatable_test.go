@@ -2,7 +2,11 @@
 
 package executor
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/mendixlabs/mxcli/sdk/domainmodel"
+)
 
 // A writable OData entity set: the container declares Insertable=true AND
 // Updatable=true, and the entity has one key property plus one ordinary one.
@@ -76,14 +80,18 @@ const insertOnlySetMetadata = `<?xml version="1.0" encoding="utf-8"?>
 // +NonUpdatableProperties/+DeleteRestrictions, unannotated, external
 // <Annotations Target=…>, Core.Permissions/ReadWrite). That is a SECOND,
 // separate defect in how this import reads UpdateRestrictions, and it is
-// deliberately left alone here: no probe produced a contract mxbuild treats as
-// updatable, so there is no positive control for what the right rule is, and
-// mxcli-formula1 §48 measured CE6630 firing in BOTH directions — a blanket
-// "never updatable" is a guess that can be wrong the other way.
+// deliberately left alone here: no TOP-LEVEL entity set has yet been seen that
+// mxbuild treats as having an updatable attribute, so there is no positive
+// control for what the right rule is there, and mxcli-formula1 §48 measured
+// CE6630 firing in BOTH directions — a blanket "never updatable" is a guess
+// that can be wrong the other way.
 //
 // The key rule, by contrast, has a clean two-sided measurement: with the key
 // at Updatable=false mxbuild is silent on the key of all seven shapes, and
-// with it following the entity set it is exactly one CE6630 per key.
+// with it following the entity set it is exactly one CE6630 per key. The other
+// side of it is TestCreateExternalEntities_DerivedTypeKeyStaysUpdatable below,
+// which the live TripPin contract supplied after a blanket version of this
+// rule turned one CE6630 into seven of its inverse.
 func TestCreateExternalEntities_KeyAttributeIsNeverUpdatable(t *testing.T) {
 	ent, _ := importOne(t, writableSetMetadata, "Definition")
 	byName := attrByName(ent)
@@ -157,4 +165,87 @@ func TestCreateExternalEntities_InsertableButNotUpdatableSet(t *testing.T) {
 	if !label.Creatable {
 		t.Error("control failed: a non-key attribute of an insertable set still follows the set's Insertable=true")
 	}
+}
+
+// A base type with an entity set, plus a type derived from it that has NONE —
+// TripPin's Person/Employee shape, reduced. The derived entity is reached
+// through its parent's write flow, which is why its capabilities go the other
+// way from a top-level entity's.
+const derivedTypeMetadata = `<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="App.Model" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityType Name="Person">
+        <Key><PropertyRef Name="UserName"/></Key>
+        <Property Name="UserName" Type="Edm.String" Nullable="false" MaxLength="36"/>
+        <Property Name="Label" Type="Edm.String" MaxLength="100"/>
+      </EntityType>
+      <EntityType Name="Employee" BaseType="App.Model.Person">
+        <Property Name="Cost" Type="Edm.Decimal"/>
+      </EntityType>
+      <EntityContainer Name="Container">
+        <EntitySet Name="People" EntityType="App.Model.Person">
+          <Annotation Term="Org.OData.Capabilities.V1.InsertRestrictions">
+            <Record><PropertyValue Property="Insertable" Bool="true"/></Record>
+          </Annotation>
+          <Annotation Term="Org.OData.Capabilities.V1.UpdateRestrictions">
+            <Record><PropertyValue Property="Updatable" Bool="true"/></Record>
+          </Annotation>
+        </EntitySet>
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>`
+
+// The control the live TripPin contract supplied, after a blanket "a key is
+// never updatable" turned the reported CE6630 into seven of its inverse:
+//
+//	[error] [CE6630] "'TripId' is marked Updatable=True in the OData service,
+//	                  but False in the app."
+//	        at Attribute 'TripPinClient.Trip.TripId'
+//
+// measured on mxbuild 11.12.2 over Trip, PlanItem, Event, Flight,
+// PublicTransportation, Employee and Manager — every one of them a derived or
+// contained type with no entity set of its own, mutated through its parent's
+// write flow. The entity sets in the same contract (Person, Airline, Airport)
+// stayed silent at Updatable=false.
+//
+// `UserName` is the sharpest form of it: the SAME property is expected False on
+// Person and True on Employee and Manager, so the split is the entity set and
+// cannot be inheritance or the property itself. That is why the key rule is
+// gated on isTopLevel, and why this test exists beside the top-level one — the
+// pair is the two-sided control, and either alone passes against a fix that is
+// wrong in the other direction.
+func TestCreateExternalEntities_DerivedTypeKeyStaysUpdatable(t *testing.T) {
+	all, _ := importComplexTypeContract(t, derivedTypeMetadata)
+
+	top := all["People"]
+	if top == nil {
+		t.Fatalf("top-level entity People not created; got %v", entityNamesOf(all))
+	}
+	if k := attrByName(top)["UserName"]; k == nil {
+		t.Fatal("People.UserName missing")
+	} else if k.Updatable {
+		t.Error("top-level key is Updatable=true — CE6630 " +
+			`"'UserName' is marked Updatable=False in the OData service, but True in the app."`)
+	}
+
+	derived := all["Employee"]
+	if derived == nil {
+		t.Fatalf("derived entity Employee not created; got %v", entityNamesOf(all))
+	}
+	if k := attrByName(derived)["UserName"]; k == nil {
+		t.Fatal("Employee.UserName missing")
+	} else if !k.Updatable {
+		t.Error("derived-type key lost Updatable — CE6630 inverted, the TripPin failure: " +
+			`"'UserName' is marked Updatable=True in the OData service, but False in the app."`)
+	}
+}
+
+func entityNamesOf(m map[string]*domainmodel.Entity) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }

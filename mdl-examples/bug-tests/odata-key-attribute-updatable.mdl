@@ -19,27 +19,44 @@
 -- keyPropSet[p.Name] — it was passed to edmToDomainModelAttrType and never
 -- consulted for updatability.
 --
--- Fix: a key attribute is never updatable. Creatable is deliberately NOT
--- cleared with it: the key is written once, at creation, and the report's build
--- flagged it Updatable=False ONLY, with no Creatable error beside it.
+-- Fix: the key of a TOP-LEVEL entity is never updatable. Creatable is
+-- deliberately NOT cleared with it: the key is written once, at creation, and
+-- the report's build flagged it Updatable=False ONLY, with no Creatable error
+-- beside it.
+--
+-- `isTopLevel` is load-bearing and was NOT in the first version of this fix.
+-- A blanket "a key is never updatable" turned the one reported CE6630 into
+-- SEVEN of its inverse on the live TripPin contract (mxbuild 11.12.2):
+--
+--   [error] [CE6630] "'TripId' is marked Updatable=True in the OData service,
+--                     but False in the app."
+--           at Attribute 'TripPinClient.Trip.TripId'
+--
+-- over Trip, PlanItem, Event, Flight, PublicTransportation, Employee and
+-- Manager — every one a derived or contained type with NO entity set, mutated
+-- through its parent's write flow — while the entity sets in the same contract
+-- (Person, Airline, Airport) stayed silent at Updatable=false. `UserName` is
+-- the two-sided control inside one document: False on Person, True on Employee
+-- and Manager, so the split is the entity set, not inheritance.
 --
 -- Measured on mxbuild 11.12.1, two copies of one project, same script:
 --
 --   pre-fix  (key Updatable=true)   -> CE6630 on DefinitionId  AND on Label
 --   post-fix (key Updatable=false)  -> CE6630 on Label only
 --
--- and across a seven-variant probe contract (inline record, typed record,
--- UpdateMethod=PATCH, +NonUpdatableProperties/+DeleteRestrictions, unannotated,
--- external <Annotations Target=…>, Core.Permissions/ReadWrite) mxbuild was
--- SILENT on every key once it was non-updatable — the rule holds in all of them.
+-- and across a seven-variant probe contract of TOP-LEVEL sets (inline record,
+-- typed record, UpdateMethod=PATCH, +NonUpdatableProperties/+DeleteRestrictions,
+-- unannotated, external <Annotations Target=…>, Core.Permissions/ReadWrite)
+-- mxbuild was SILENT on every key once it was non-updatable.
 --
 -- STILL OPEN, and visible in the numbers above: the non-key `Label` is flagged
 -- too. mxbuild reported "Updatable=False in the OData service" for the non-key
 -- attribute of all seven shapes, so mxcli's reading of UpdateRestrictions does
 -- not match Mendix's for ordinary attributes either. No probe produced a
--- contract mxbuild treats as updatable, so there is no positive control for
--- what the right rule is, and CE6630 fires in BOTH directions (mxcli-formula1
--- §48) — a blanket "never updatable" would be a guess. Tracked separately.
+-- TOP-LEVEL entity set mxbuild treats as having an updatable attribute, so
+-- there is no positive control for what the right rule is there, and CE6630
+-- fires in BOTH directions (mxcli-formula1 §48, and the TripPin inversion
+-- above) — a blanket "never updatable" would be a guess. Tracked separately.
 --
 -- Run it:
 --   cp mdl-examples/bug-tests/contracts/key-updatable-metadata.xml \
