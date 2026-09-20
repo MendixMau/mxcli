@@ -155,6 +155,13 @@ CREATE PAGE Sales.Detail (Title: 'Detail', Layout: Atlas_Core.Atlas_Default) {
 			"--   `check --references` rather than failing the build with CE1613.\n" +
 			"--   The alternatives are the URL form above, or `ImageType: icon`.\n\n" +
 			"-- Any pluggable widget by its id (id FIRST, then the name)\nPLUGGABLEWIDGET 'com.mendix.widget.web.badge.Badge' name (value: 'x')\nCUSTOMWIDGET 'com.mendix.widget.custom.x.X' name (prop: 'x')      -- legacy spelling\n\n" +
+			"-- DYNAMICIMAGE shows the image held by an OBJECT, so it needs the entity that\n" +
+			"-- object belongs to — reachable from the widget's context. Without it mxbuild\n" +
+			"-- reports CE0489, so the widget cannot build at all:\n" +
+			"DYNAMICIMAGE imgPhoto (DataSource: database from MyModule.Photo,\n" +
+			"                       DefaultImage: 'MyModule.Images.placeholder')\n" +
+			"--   DefaultImage is the fallback when the object carries none. DisplayAs:\n" +
+			"--   thumbnail and OnClickType: enlarge are written too.\n\n" +
 			"-- STATICIMAGE takes the same three-part image-collection reference as IMAGE,\n" +
 			"-- so a stored one round-trips through DESCRIBE (mendixlabs/mxcli#1057). Without\n" +
 			"-- it the widget is written with no image and mxbuild reports CE0436:\n" +

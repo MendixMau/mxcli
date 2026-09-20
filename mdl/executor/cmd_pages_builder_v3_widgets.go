@@ -1303,11 +1303,45 @@ func (pb *pageBuilder) buildDynamicImageV3(w *ast.WidgetV3) (*pages.DynamicImage
 		Responsive: true,
 	}
 
+	// The entity holding the image. Without it mxbuild refuses the widget —
+	// CE0489 "Select an entity for the data source of this dynamic image" — so
+	// every dynamic image mxcli wrote before this was broken at build time, not
+	// merely lossy. The entity must be reachable from the widget's context; a
+	// wrong one is mxbuild's to reject, not this builder's to guess at.
+	if ds := w.GetDataSource(); ds != nil {
+		dataSource, _, err := pb.buildDataSourceV3(ds)
+		if err != nil {
+			return nil, mdlerrors.NewBackend("build datasource", err)
+		}
+		img.DataSource = dataSource
+	}
+
+	// The fallback shown when the bound object has no image, as the qualified
+	// name of an image-collection entry (Module.Collection.Image).
+	img.DefaultImageName = w.GetStringProp("DefaultImage")
+
 	if width := w.GetIntProp("Width"); width > 0 {
 		img.Width = width
 	}
 	if height := w.GetIntProp("Height"); height > 0 {
 		img.Height = height
+	}
+	img.WidthUnit = pages.WidthUnit(w.GetStringProp("WidthUnit"))
+	img.HeightUnit = pages.WidthUnit(w.GetStringProp("HeightUnit"))
+	// Same vocabulary as the pluggable image widget: DisplayAs: thumbnail and
+	// OnClickType: enlarge. Both were hardcoded false in the writer, so neither
+	// was reachable from MDL at all.
+	img.ShowAsThumbnail = strings.EqualFold(w.GetStringProp("DisplayAs"), "thumbnail")
+	img.OnClickEnlarge = strings.EqualFold(w.GetStringProp("OnClickType"), "enlarge")
+	// Responsive defaults to TRUE (Mendix's default, set above), so only an
+	// explicit `Responsive: false` turns it off — an ABSENT property must not
+	// read as false, which is what GetBoolProp would do.
+	if raw, ok := lookupPropCI(w, "Responsive"); ok {
+		v, err := propBool(raw)
+		if err != nil {
+			return nil, mdlerrors.NewBackend("dynamicimage Responsive", err)
+		}
+		img.Responsive = v
 	}
 
 	// Pages$StaticImageViewer.ClickAction / Pages$DynamicImageViewer.ClickAction.
