@@ -384,7 +384,7 @@ func widgetToGen(w pages.Widget) (element.Element, error) {
 		g.SetAutoFocus(false)
 		g.SetAutocomplete(true)
 		g.SetAutocompletePurpose("On")
-		if ref := attributeRefToGen(x.AttributePath); ref != nil {
+		if ref := inputAttributeRefToGen(x.AttributePath, x.AttributeRefSteps); ref != nil {
 			g.SetAttributeRef(ref)
 		}
 		g.SetEditable(pages.WidgetEditability(&x.BaseWidget))
@@ -449,7 +449,7 @@ func widgetToGen(w pages.Widget) (element.Element, error) {
 	case *pages.CheckBox:
 		g := genPg.NewCheckBox()
 		applyWidgetBase(g, &x.BaseWidget)
-		if ref := attributeRefToGen(x.AttributePath); ref != nil {
+		if ref := inputAttributeRefToGen(x.AttributePath, x.AttributeRefSteps); ref != nil {
 			g.SetAttributeRef(ref)
 		}
 		g.SetEditable(pages.WidgetEditability(&x.BaseWidget))
@@ -474,7 +474,7 @@ func widgetToGen(w pages.Widget) (element.Element, error) {
 		applyWidgetBase(g, &x.BaseWidget)
 		g.SetAriaRequired(false)
 		g.SetAutoFocus(false)
-		if ref := attributeRefToGen(x.AttributePath); ref != nil {
+		if ref := inputAttributeRefToGen(x.AttributePath, x.AttributeRefSteps); ref != nil {
 			g.SetAttributeRef(ref)
 		}
 		g.SetCounterMessage(captionToGen(x.CounterMessage))
@@ -506,7 +506,7 @@ func widgetToGen(w pages.Widget) (element.Element, error) {
 		g := genPg.NewDatePicker()
 		applyWidgetBase(g, &x.BaseWidget)
 		g.SetAriaRequired(false)
-		if ref := attributeRefToGen(x.AttributePath); ref != nil {
+		if ref := inputAttributeRefToGen(x.AttributePath, x.AttributeRefSteps); ref != nil {
 			g.SetAttributeRef(ref)
 		}
 		g.SetEditable(pages.WidgetEditability(&x.BaseWidget))
@@ -529,7 +529,7 @@ func widgetToGen(w pages.Widget) (element.Element, error) {
 		g := genPg.NewRadioButtonGroup()
 		applyWidgetBase(g, &x.BaseWidget)
 		g.SetAriaRequired(false)
-		if ref := attributeRefToGen(x.AttributePath); ref != nil {
+		if ref := inputAttributeRefToGen(x.AttributePath, x.AttributeRefSteps); ref != nil {
 			g.SetAttributeRef(ref)
 		}
 		g.SetEditable(pages.WidgetEditability(&x.BaseWidget))
@@ -1181,6 +1181,30 @@ func attributeRefToGen(path string) element.Element {
 	assignID(r)
 	r.SetAttributeQualifiedName(path)
 	return r
+}
+
+// inputAttributeRefToGen builds the AttributeRef for an input widget, carrying
+// association hops when the binding navigates them.
+//
+// Studio Pro stores an attribute-over-association binding on a plain text box —
+// measured on ako/TestApp's Rules.RuleAction_NewEdit, whose textBox4 holds
+// Attribute "Rules.BusinessRule.Name" with an IndirectEntityRef over
+// Rules.RuleAction_BusinessRule. mxcli could read that page and not write one:
+// every input builder resolved the path with resolveAttributePath, which knows
+// nothing about associations, so `attribute: Assoc/Attr` produced a flat
+// unresolvable path and the build failed CE1613 (ako/mxcli#529).
+//
+// Steps with no attribute qualified name fall through to nil the same way
+// attributeRefToGen does, rather than emitting an EntityRef hanging off
+// nothing.
+func inputAttributeRefToGen(path string, steps []pages.AttributeRefStep) element.Element {
+	if len(steps) == 0 {
+		return attributeRefToGen(path)
+	}
+	if strings.Count(path, ".") < 2 {
+		return nil
+	}
+	return attributeRefWithStepsToGen(path, steps)
 }
 
 // attributeRefWithStepsToGen builds a DomainModels$AttributeRef for an attribute

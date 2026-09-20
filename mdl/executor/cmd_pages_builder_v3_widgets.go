@@ -444,7 +444,7 @@ func (pb *pageBuilder) buildTextBoxV3(w *ast.WidgetV3) (*pages.TextBox, error) {
 
 	// Handle Attribute (attribute path)
 	if attr := w.GetAttribute(); attr != "" {
-		tb.AttributePath = pb.resolveAttributePath(attr)
+		tb.AttributePath, tb.AttributeRefSteps = pb.resolveInputAttribute(attr)
 	}
 
 	// Handle Label
@@ -488,7 +488,7 @@ func (pb *pageBuilder) buildTextAreaV3(w *ast.WidgetV3) (*pages.TextArea, error)
 
 	// Handle Attribute
 	if attr := w.GetAttribute(); attr != "" {
-		ta.AttributePath = pb.resolveAttributePath(attr)
+		ta.AttributePath, ta.AttributeRefSteps = pb.resolveInputAttribute(attr)
 	}
 
 	// Handle Label
@@ -521,7 +521,7 @@ func (pb *pageBuilder) buildDatePickerV3(w *ast.WidgetV3) (*pages.DatePicker, er
 
 	// Handle Attribute
 	if attr := w.GetAttribute(); attr != "" {
-		dp.AttributePath = pb.resolveAttributePath(attr)
+		dp.AttributePath, dp.AttributeRefSteps = pb.resolveInputAttribute(attr)
 	}
 
 	// Handle Label
@@ -554,7 +554,7 @@ func (pb *pageBuilder) buildDropdownV3(w *ast.WidgetV3) (*pages.DropDown, error)
 
 	// Handle Attribute
 	if attr := w.GetAttribute(); attr != "" {
-		dd.AttributePath = pb.resolveAttributePath(attr)
+		dd.AttributePath, dd.AttributeRefSteps = pb.resolveInputAttribute(attr)
 	}
 
 	// Handle Label
@@ -587,7 +587,7 @@ func (pb *pageBuilder) buildCheckBoxV3(w *ast.WidgetV3) (*pages.CheckBox, error)
 
 	// Handle Attribute
 	if attr := w.GetAttribute(); attr != "" {
-		cb.AttributePath = pb.resolveAttributePath(attr)
+		cb.AttributePath, cb.AttributeRefSteps = pb.resolveInputAttribute(attr)
 	}
 
 	// Handle Label
@@ -652,7 +652,7 @@ func (pb *pageBuilder) buildRadioButtonsV3(w *ast.WidgetV3) (*pages.RadioButtons
 
 	// Get attribute path from Attribute property
 	if attr := w.GetAttribute(); attr != "" {
-		rb.AttributePath = pb.resolveAttributePath(attr)
+		rb.AttributePath, rb.AttributeRefSteps = pb.resolveInputAttribute(attr)
 	}
 
 	// Handle OnChange (the "On change" client action)

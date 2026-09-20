@@ -73,7 +73,7 @@ func dropDownToGen(dd *pages.DropDown) (element.Element, error) {
 	g := genPg.NewDropDown()
 	applyWidgetBase(g, &dd.BaseWidget)
 	g.SetAriaRequired(false)
-	if ref := attributeRefToGen(dd.AttributePath); ref != nil {
+	if ref := inputAttributeRefToGen(dd.AttributePath, dd.AttributeRefSteps); ref != nil {
 		g.SetAttributeRef(ref)
 	}
 	g.SetEditable(pages.WidgetEditability(&dd.BaseWidget))

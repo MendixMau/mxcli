@@ -946,18 +946,32 @@ func shortAttributeName(attr string) string {
 	return attr
 }
 
-// extractAttributeRef extracts the attribute reference from an input widget.
-// Returns just the attribute name (last segment).
+// extractAttributeRef extracts the attribute reference from an input widget as
+// the short form MDL accepts: a bare name for an own attribute, or
+// `Assoc/.../Attr` when the binding navigates associations.
+//
+// This used to return the last segment of AttributeRef.Attribute and ignore
+// AttributeRef.EntityRef entirely, which silently dropped every association
+// hop. Measured on ako/TestApp's Rules.RuleAction_NewEdit, whose text box binds
+// Rules.BusinessRule.Name over Rules.RuleAction_BusinessRule: DESCRIBE emitted
+// `Attribute: Name`, and Rules.RuleAction has no Name — so a describe → exec
+// round trip rebound the widget to nothing. `check` stayed clean and the damage
+// surfaced at build time as CE1613, or in a browser as a blank field
+// (ako/mxcli#529).
+//
+// columnAttributeFromRef already did this correctly for DataGrid2 columns (bug
+// 7), so one page could round-trip a grid column and destroy a text box beside
+// it. Sharing that function is the point: two readers of one BSON shape is how
+// the halves drifted apart to begin with.
 func extractAttributeRef(ctx *ExecContext, w map[string]any) string {
 	attrRef, ok := w["AttributeRef"].(map[string]any)
 	if !ok {
 		return ""
 	}
-	attr, ok := attrRef["Attribute"].(string)
-	if !ok {
+	if _, ok := attrRef["Attribute"].(string); !ok {
 		return ""
 	}
-	return shortAttributeName(attr)
+	return columnAttributeFromRef(attrRef)
 }
 
 // parseGalleryContent extracts the content widget from a Gallery.
