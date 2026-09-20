@@ -79,19 +79,33 @@ and break the MCP backend + the future format (ADR-0005). See `docs/11-proposals
 
 ## Recipe: add a document type or activity group
 
-1. **Find the legacy serializer** for the type (`sdk/mpr/writer_*.go`) — the field set + ordering spec.
-2. **Capture real BSON when unsure** — legacy can be wrong (e.g. the index `SortOrder` bug). Dump an
-   on-disk `.mxunit` or use the MCP/PED probe (`cmd/mcpprobe`) to get authoritative keys/markers.
+1. **Get a Studio Pro-authored reference document** of the type — from a Marketplace module that uses
+   it, or by asking for one to be created in Studio Pro. This is the field set + ordering spec. There is
+   no second engine to copy from any more, and there is nothing else that will tell you the truth.
+2. **Read its BSON**: `mxcli bson dump -p app.mpr --type <type> --object "Mod.Name"`, or the MCP/PED
+   probe (`cmd/mcpprobe`) against a live Studio Pro.
 3. **Write `xToGen`** (+ `xFromGen` if reads/ALTER need it), registering any TypeDefaults / list markers.
 4. **`assignXIDs`** walks new sub-elements.
-5. **Add a parity test** in `mdl/enginecompare/` (`copyProject` → `Run(Legacy,…)` + `Run(ModelSDK,…)` →
-   `XCanonBSON` → diff). Add an `XCanonBSON` dumper to `bsoncompare.go` for new top-level types.
-6. **Iterate on the diff** until byte-identical. (Per-group this is fast: 1–2 iterations.)
+5. **Pin the document against the reference** — re-serialize the reference element by element and assert
+   the keys, markers and value types match. `mdl/scheduledevents` and `mdl/regularexpressions` are the
+   worked examples; both found gen wrong about a property that way.
+6. **Iterate until the diff is empty**, then build it (`mxcli docker check`) and, where the construct
+   renders or runs, verify it there too — `mx check` tolerates unknown properties, so a clean build is
+   not evidence the document is right.
 7. **gofmt any hand-edited gen file** or `TestGeneratedCodeIsFormatted` fails.
 
 ## Verification truth
 
-`legacy` is the parity baseline, but it is **not infallible** — it has had stale serializers (index
-`SortOrder`). When a gen-vs-legacy disagreement appears, the tiebreaker is **real Studio-Pro BSON**
-(on-disk dump or MCP capture), not whichever engine you trust. The gen has been wrong (EventHandler keys);
-legacy has been wrong (indexes). Capture, don't guess.
+**A Studio Pro-authored document is the arbiter.** There used to be a second engine to diff against;
+`sdk/mpr` was deleted ([ADR-0004](../13-decisions/0004-full-codec-engine.md)) and it had been wrong often
+enough that it was never the real baseline anyway (stale index `SortOrder` serializer).
+
+Where `modelsdk/gen` and `generated/metamodel` disagree about a property key, **`generated/metamodel` is
+the arbiter** — it is built from reflection data carrying storage names, while gen's generator reads the
+TypeScript SDK, which has none, and patches them back by hand. The caveat is that it is a snapshot of
+11.6.0, so it says nothing about properties introduced later; for those, get a real document. See
+CLAUDE.md, "`modelsdk/gen` Binds Some Properties Under the Wrong BSON Key".
+
+Capture, don't guess — and note what a green build does *not* tell you: mxbuild accepts properties the
+project's metamodel does not declare, while Studio Pro throws `InvalidOperationException` at
+`MprProperty.cs`. Measured on 10.24.25 with two 11.5-only keys present: 0 errors.

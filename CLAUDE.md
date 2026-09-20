@@ -533,7 +533,7 @@ The `api/` package provides a simplified, fluent API inspired by Mendix Web Exte
 a, err := api.Open("/path/to/project.mpr")   // or api.New(b) over any backend
 defer a.Close()
 
-module, _ := a.Modules.GetModule("MyModule")
+module, _ := a.Modules.Get("MyModule")
 a.SetModule(module)
 
 entity, _ := a.DomainModels.CreateEntity("Customer").

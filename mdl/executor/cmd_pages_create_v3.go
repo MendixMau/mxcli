@@ -110,6 +110,9 @@ func execCreatePageV3(ctx *ExecContext, s *ast.CreatePageStmtV3) error {
 		fragments:        ctx.Fragments,
 		themeRegistry:    ctx.GetThemeRegistry(),
 		widgetBackend:    ctx.Backend,
+		// The root of a document that this pass walks in full: there is no
+		// enclosing data widget, so there is no context object. #1029.
+		argCtx: atDocumentRoot(),
 	}
 
 	page, err := pb.buildPageV3(s)
@@ -246,6 +249,9 @@ func execCreateSnippetV3(ctx *ExecContext, s *ast.CreateSnippetStmtV3) error {
 		fragments:        ctx.Fragments,
 		themeRegistry:    ctx.GetThemeRegistry(),
 		widgetBackend:    ctx.Backend,
+		// The root of a document that this pass walks in full: there is no
+		// enclosing data widget, so there is no context object. #1029.
+		argCtx: atDocumentRoot(),
 	}
 
 	snippet, err := pb.buildSnippetV3(s)

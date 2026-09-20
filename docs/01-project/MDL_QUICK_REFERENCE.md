@@ -549,6 +549,9 @@ it is for pages.
 | Log | `log info\|warning\|error [node 'name'] 'message';` | |
 | Apply entity access | `@applyentityaccess` / `@applyentityaccess(false)` before `create microflow` or `create rule` | Runs the flow under the **current user's** entity access rules instead of with full access. A **security** setting and only ever narrowing, so an ABSENT annotation **preserves** what is stored rather than clearing it — the same rule as `@excluded`. Not available on a nanoflow: it runs in the client and Mendix stores no such property |
 | Position | `@position(x, y)` | Canvas position (before activity) |
+| Deep-link URL | `url 'item/{Key}'` / `url search parameters ($Filter)` / `drop url` | Header clauses on `create microflow`, Mendix **10.6+**. Every `{Name}` must name a parameter (**MDL-MF01**), and a parameter used in the PATH may **not** also be a search parameter (**MDL-MF02** / CE5612) — the two sets are disjoint. With a project, a URL another microflow already owns is refused (CE0570). An OMITTED clause **preserves** what is stored |
+| Export level | `export level api` / `export level hidden` | Header clause. Whether the microflow is part of the module's public surface when the module is exported. Keywords, not a quoted string: both `ExportLevel` enums have exactly two members and `'Public'` is neither. Omitted **preserves** |
+| Concurrent execution | `disallow concurrent execution error message 'text'` / `… error microflow Mod.Name` / `allow concurrent execution` | Header clause. Mendix **requires** a handler when disallowing (**MDL-MF03** / CE4899). `allow` sets the flag and **leaves** a stored message — Studio Pro greys those fields rather than erasing them, and `canon.CarryTranslations` would restore it anyway. Omitted **preserves** |
 | Unknown annotation | — | **MDL059**. An annotation that parses and does nothing loses whatever it was meant to express, so a name the target does not read is refused — on a statement *and* before a `create`. Covers a typo (`@applyentityacces`), an annotation on a document kind that reads none (`@excluded` on a queue), and an activity annotation written at document level. The message names what that document does accept |
 | Parameter position | `@position(x, y)` before a parameter, **inside** the `( … )` list | The only annotation a parameter takes. Omit it and parameters form a row at 200;53, 300;53, …; a parameter off that row is treated as hand-placed, survives a rewrite, and is emitted by DESCRIBE (#993) |
 | Start event | `@start(x, y)` | Canvas position of the start, on the **first** statement. Omit it and the start is placed one spacing unit left of the first activity and MOVES with it on a rewrite; a start that is not at that derived spot is treated as hand-placed, survives a rewrite, and is emitted by DESCRIBE (#951) |
@@ -1384,6 +1387,7 @@ MDL uses explicit property declarations for pages:
 | Inspect a widget | `describe widget <keyword\|'widget id'>;` | `describe widget combobox;` — properties, enum values, defaults and the editor rules that HIDE properties under some configurations. **Body containers** names what the widget's body takes, and for an object list the widgets-typed slots *inside one item* plus the widget types that route into each — that is where `column … { textfilter }` is spelled out. Works with no project open; with one, reads the installed `.mpk` (version-accurate, and the only place a Marketplace widget appears). Same output as `mxcli widget describe` |
 | Widget name | Required after type | `textbox txtName (...)` |
 | Attribute binding | `attribute: AttrName` | `textbox txt (label: 'Name', attribute: Name)` |
+| Attribute over an association | `attribute: Assoc/Attr` (bare association name, multi-hop OK) | `textbox txt (label: 'Rule', attribute: RuleAction_BusinessRule/Name)` — works on textbox, textarea, datepicker, dropdown, checkbox and radiobuttons, the same as on a data grid column |
 | Variable binding | `datasource: $Var` | `dataview dv (datasource: $Product) { ... }` |
 | Action binding | `action: type` | `actionbutton btn (caption: 'Save', action: save_changes)` — the forms are a closed set (`mxcli syntax page.action`); anything else is **MDL-WIDGET28** |
 | No action | `action: nothing` | `actionbutton btn (caption: 'Decorative', action: nothing)` — an explicitly inert control. Write it deliberately: an action keyword **short its argument** (`action: open_link` with no URL) is now an error rather than a widget silently written with no action at all |
@@ -1498,6 +1502,8 @@ create page MyModule.Customer_Edit
 | Visible | `textbox txt (visible: [IsActive])` | Conditional visibility (XPath expression) |
 | Editable | `textbox txt (editable: [status != 'Closed'])` | Conditional editability (XPath expression) |
 | Image | `staticimage img (Image: 'Mod.Images.logo')` | Image-collection entry, `Module.Collection.Image`. Omitted → CE0436 "No image selected." |
+| DataSource (dynamicimage) | `dynamicimage img (DataSource: database from Mod.Photo)` | The entity holding the image. Omitted → CE0489 "Select an entity for the data source of this dynamic image." |
+| DefaultImage | `dynamicimage img (DefaultImage: 'Mod.Images.placeholder')` | Fallback when the object has no image |
 
 **Supported Widgets:**
 - Layout: `layoutgrid`, `row`, `column`, `container`, `customcontainer`
@@ -1582,6 +1588,7 @@ Modify an existing page or snippet's widget tree in-place without full `create o
 | Set property | `set caption = 'New' on widgetName` | Single property on a widget |
 | Set multiple | `set (caption = 'Save', buttonstyle = success) on btn` | Multiple properties at once |
 | Page-level set | `set Title = 'New title'` | No ON clause; page-level names are case-sensitive |
+| Documentation | `set Documentation = 'What this page is for.'` | Page-level. Same property the `/** … */` doc comment on `CREATE PAGE` writes, so an existing page can be documented without restating it. `''` clears it |
 | Pop-up dimensions | `set PopupWidth = 800` / `set PopupHeight = 480` / `set PopupResizable = true` | Page-level; apply when the page opens in a pop-up |
 | Page CSS class / style | `set Class = 'css-class'` / `set Style = 'css: rule'` | Page-level (no ON clause); sets the page's Appearance |
 | Widget dynamic classes | `set DynamicClasses = 'expr' on widgetName` | Runtime-computed classes on a widget — the surgical alternative to a bulk `update widgets` |
@@ -1599,7 +1606,7 @@ Modify an existing page or snippet's widget tree in-place without full `create o
 | Set layout | `set layout = Module.LayoutName` | Change page layout, auto-maps placeholders |
 | Set layout + map | `set layout = Module.Layout map (Old as New)` | Explicit placeholder mapping |
 
-**Supported SET properties:** Caption, Label, ButtonStyle, Class, Style, DynamicClasses, Editable, Visible, Name, Title (page-level), Layout (page-level), PopupWidth / PopupHeight / PopupResizable (page-level), and quoted pluggable widget properties.
+**Supported SET properties:** Caption, Label, ButtonStyle, Class, Style, DynamicClasses, Editable, Visible, Name, Title (page-level), Documentation (page-level), Layout (page-level), PopupWidth / PopupHeight / PopupResizable (page-level), and quoted pluggable widget properties.
 
 **Example:**
 ```sql

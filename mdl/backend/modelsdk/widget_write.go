@@ -384,7 +384,7 @@ func widgetToGen(w pages.Widget) (element.Element, error) {
 		g.SetAutoFocus(false)
 		g.SetAutocomplete(true)
 		g.SetAutocompletePurpose("On")
-		if ref := attributeRefToGen(x.AttributePath); ref != nil {
+		if ref := inputAttributeRefToGen(x.AttributePath, x.AttributeRefSteps); ref != nil {
 			g.SetAttributeRef(ref)
 		}
 		g.SetEditable(pages.WidgetEditability(&x.BaseWidget))
@@ -449,7 +449,7 @@ func widgetToGen(w pages.Widget) (element.Element, error) {
 	case *pages.CheckBox:
 		g := genPg.NewCheckBox()
 		applyWidgetBase(g, &x.BaseWidget)
-		if ref := attributeRefToGen(x.AttributePath); ref != nil {
+		if ref := inputAttributeRefToGen(x.AttributePath, x.AttributeRefSteps); ref != nil {
 			g.SetAttributeRef(ref)
 		}
 		g.SetEditable(pages.WidgetEditability(&x.BaseWidget))
@@ -474,7 +474,7 @@ func widgetToGen(w pages.Widget) (element.Element, error) {
 		applyWidgetBase(g, &x.BaseWidget)
 		g.SetAriaRequired(false)
 		g.SetAutoFocus(false)
-		if ref := attributeRefToGen(x.AttributePath); ref != nil {
+		if ref := inputAttributeRefToGen(x.AttributePath, x.AttributeRefSteps); ref != nil {
 			g.SetAttributeRef(ref)
 		}
 		g.SetCounterMessage(captionToGen(x.CounterMessage))
@@ -506,7 +506,7 @@ func widgetToGen(w pages.Widget) (element.Element, error) {
 		g := genPg.NewDatePicker()
 		applyWidgetBase(g, &x.BaseWidget)
 		g.SetAriaRequired(false)
-		if ref := attributeRefToGen(x.AttributePath); ref != nil {
+		if ref := inputAttributeRefToGen(x.AttributePath, x.AttributeRefSteps); ref != nil {
 			g.SetAttributeRef(ref)
 		}
 		g.SetEditable(pages.WidgetEditability(&x.BaseWidget))
@@ -529,7 +529,7 @@ func widgetToGen(w pages.Widget) (element.Element, error) {
 		g := genPg.NewRadioButtonGroup()
 		applyWidgetBase(g, &x.BaseWidget)
 		g.SetAriaRequired(false)
-		if ref := attributeRefToGen(x.AttributePath); ref != nil {
+		if ref := inputAttributeRefToGen(x.AttributePath, x.AttributeRefSteps); ref != nil {
 			g.SetAttributeRef(ref)
 		}
 		g.SetEditable(pages.WidgetEditability(&x.BaseWidget))
@@ -1183,6 +1183,30 @@ func attributeRefToGen(path string) element.Element {
 	return r
 }
 
+// inputAttributeRefToGen builds the AttributeRef for an input widget, carrying
+// association hops when the binding navigates them.
+//
+// Studio Pro stores an attribute-over-association binding on a plain text box —
+// measured on ako/TestApp's Rules.RuleAction_NewEdit, whose textBox4 holds
+// Attribute "Rules.BusinessRule.Name" with an IndirectEntityRef over
+// Rules.RuleAction_BusinessRule. mxcli could read that page and not write one:
+// every input builder resolved the path with resolveAttributePath, which knows
+// nothing about associations, so `attribute: Assoc/Attr` produced a flat
+// unresolvable path and the build failed CE1613 (ako/mxcli#529).
+//
+// Steps with no attribute qualified name fall through to nil the same way
+// attributeRefToGen does, rather than emitting an EntityRef hanging off
+// nothing.
+func inputAttributeRefToGen(path string, steps []pages.AttributeRefStep) element.Element {
+	if len(steps) == 0 {
+		return attributeRefToGen(path)
+	}
+	if strings.Count(path, ".") < 2 {
+		return nil
+	}
+	return attributeRefWithStepsToGen(path, steps)
+}
+
 // attributeRefWithStepsToGen builds a DomainModels$AttributeRef for an attribute
 // navigated over one or more associations: the final attribute qualified name
 // plus an EntityRef (DomainModels$IndirectEntityRef) of association hops. Reuses
@@ -1492,6 +1516,49 @@ func associationSourceToGen(d *pages.AssociationSource) element.Element {
 	return src
 }
 
+// parameterMappingTarget is the half of Forms$MicroflowParameterMapping and
+// Forms$NanoflowParameterMapping that carries an argument's value. The two gen
+// types are unrelated Go types with identical shape, so the binding rule is
+// written once against what they have in common rather than twice.
+type parameterMappingTarget interface {
+	SetExpression(string)
+	SetVariable(element.Element)
+}
+
+// bindParameterMappingValue writes an argument into whichever of the mapping's
+// two value slots Mendix uses for it.
+//
+// A reference to a page parameter, snippet parameter or page variable is a
+// Forms$PageVariable under Variable; a literal or expression is text under
+// Expression. Measured on Workflow Commons 4.11.0 (Studio Pro-authored): 95 of
+// 101 flow parameter mappings bind through Variable, the other 6 through
+// Expression — and every one of those 6 is a Boolean literal. A $-prefixed
+// Expression, which is all mxcli wrote before #1140, occurs zero times; it leaves
+// the parameter unbound, so Studio Pro reports CE1571 while mxbuild builds the
+// same document at 0 errors.
+//
+// kind empty means "not a page-variable reference": variable is then written as
+// the expression, preserving what every caller before #1140 relied on —
+// $currentObject among them, whose stored form has not been measured.
+func bindParameterMappingValue(m parameterMappingTarget, variable, kind, expression string) {
+	if variable != "" && kind != "" {
+		// sourceVariableToGen spells the page-parameter slot as the empty kind.
+		svKind := kind
+		if svKind == "parameter" {
+			svKind = ""
+		}
+		m.SetVariable(sourceVariableToGen(strings.TrimPrefix(variable, "$"), svKind))
+		// Studio Pro writes both keys, the unused one empty.
+		m.SetExpression("")
+		return
+	}
+	if variable != "" {
+		m.SetExpression(variable)
+		return
+	}
+	m.SetExpression(expression)
+}
+
 // microflowSettingsToGen builds the Forms$MicroflowSettings shared by the
 // microflow DataView source and the call-microflow action. mappings carries the
 // argument bindings — for an action's call, and (since #835) for a parameterized
@@ -1510,12 +1577,7 @@ func microflowSettingsToGen(microflowName string, mappings []*pages.MicroflowPar
 		assignID(gm)
 		// Parameter is a BY_NAME reference: <MicroflowQName>.<ParameterName>.
 		gm.SetParameterQualifiedName(microflowName + "." + pm.ParameterName)
-		// The bound value: a variable ref ($x, $currentObject) or an expression.
-		if pm.Variable != "" {
-			gm.SetExpression(pm.Variable)
-		} else {
-			gm.SetExpression(pm.Expression)
-		}
+		bindParameterMappingValue(gm, pm.Variable, pm.VariableKind, pm.Expression)
 		s.AddParameterMappings(gm)
 	}
 	return s
@@ -1674,11 +1736,7 @@ func clientActionToGen(a pages.ClientAction) (element.Element, error) {
 			assignID(m)
 			// Parameter is a BY_NAME reference: Nanoflow.ParamName.
 			m.SetParameterQualifiedName(x.NanoflowName + "." + pm.ParameterName)
-			expr := pm.Variable
-			if expr == "" {
-				expr = pm.Expression
-			}
-			m.SetExpression(expr)
+			bindParameterMappingValue(m, pm.Variable, pm.VariableKind, pm.Expression)
 			g.AddParameterMappings(m)
 		}
 		return g, nil

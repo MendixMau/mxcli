@@ -865,6 +865,47 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 		props = appendAppearanceProps(props, w)
 		formatWidgetProps(ctx.Output, prefix, header, props, "\n")
 
+	case "Forms$ImageViewer", "Pages$ImageViewer":
+		// The DYNAMIC image's sibling case. Property names are shared with the
+		// static and the pluggable image on purpose — Width/Height, the units,
+		// Responsive, DisplayAs, OnClickType — so one spelling means one thing
+		// across all three. `DefaultImage:` is its own, because the fallback is
+		// a different property from the image a static viewer shows.
+		header := fmt.Sprintf("dynamicimage %s", mdlIdent(w.Name))
+		props := []string{}
+		props = appendWidgetDataSources(props, w)
+		if w.DefaultImage != "" {
+			props = append(props, fmt.Sprintf("DefaultImage: %s", mdlQuote(w.DefaultImage)))
+		}
+		if w.ImageWidth != "" {
+			props = append(props, fmt.Sprintf("Width: %s", w.ImageWidth))
+		}
+		if w.WidthUnit != "" && w.WidthUnit != "auto" {
+			props = append(props, fmt.Sprintf("WidthUnit: %s", w.WidthUnit))
+		}
+		if w.ImageHeight != "" {
+			props = append(props, fmt.Sprintf("Height: %s", w.ImageHeight))
+		}
+		if w.HeightUnit != "" && w.HeightUnit != "auto" {
+			props = append(props, fmt.Sprintf("HeightUnit: %s", w.HeightUnit))
+		}
+		if w.Responsive == "false" {
+			props = append(props, "Responsive: false")
+		}
+		// Only the non-defaults: full size and no enlarge are Mendix's own, and
+		// the writer re-derives them.
+		if w.DisplayAs == "thumbnail" {
+			props = append(props, "DisplayAs: thumbnail")
+		}
+		if w.OnClickType == "enlarge" {
+			props = append(props, "OnClickType: enlarge")
+		}
+		if w.Action != "" {
+			props = append(props, fmt.Sprintf("Action: %s", w.Action))
+		}
+		props = appendAppearanceProps(props, w)
+		formatWidgetProps(ctx.Output, prefix, header, props, "\n")
+
 	case "Forms$SnippetCallWidget", "Pages$SnippetCallWidget":
 		header := fmt.Sprintf("snippetcall %s", mdlIdent(w.Name))
 		props := []string{}
@@ -1472,13 +1513,9 @@ func extractPageParameters(ctx *ExecContext, settings map[string]any) string {
 			}
 		}
 
-		// Check for Variable reference (older format - Variable as a map with Name)
+		// Check for a Forms$PageVariable binding.
 		if value == "" {
-			if varRef, ok := mappingMap["Variable"].(map[string]any); ok && varRef != nil {
-				if varName := extractString(varRef["Name"]); varName != "" {
-					value = "$" + varName
-				}
-			}
+			value = pageVariableArgValue(mappingMap["Variable"])
 		}
 
 		if value != "" {
@@ -1533,13 +1570,9 @@ func extractMicroflowParameters(ctx *ExecContext, settings map[string]any) strin
 			}
 		}
 
-		// Check for Variable reference (older format - Variable as a map with Name)
+		// Check for a Forms$PageVariable binding.
 		if value == "" {
-			if varRef, ok := mappingMap["Variable"].(map[string]any); ok && varRef != nil {
-				if varName := extractString(varRef["Name"]); varName != "" {
-					value = "$" + varName
-				}
-			}
+			value = pageVariableArgValue(mappingMap["Variable"])
 		}
 
 		if value != "" {
@@ -1596,13 +1629,9 @@ func extractNanoflowParameters(ctx *ExecContext, action map[string]any) string {
 			}
 		}
 
-		// Check for Variable reference (older format - Variable as a map with Name)
+		// Check for a Forms$PageVariable binding.
 		if value == "" {
-			if varRef, ok := mappingMap["Variable"].(map[string]any); ok && varRef != nil {
-				if varName := extractString(varRef["Name"]); varName != "" {
-					value = "$" + varName
-				}
-			}
+			value = pageVariableArgValue(mappingMap["Variable"])
 		}
 
 		if value != "" {

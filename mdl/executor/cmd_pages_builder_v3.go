@@ -317,6 +317,19 @@ func (pb *pageBuilder) buildSnippetV3(s *ast.CreateSnippetStmtV3) (*pages.Snippe
 // as item slots. The dispatch table is consumed by inspection commands and
 // DESCRIBE-side keyword resolution rather than overriding write-side routing here.
 func (pb *pageBuilder) buildWidgetV3(w *ast.WidgetV3) (pages.Widget, error) {
+	// What a SHOW_PAGE argument inside this widget may bind to. The data widgets
+	// below overwrite it with the context they actually create; this only stops
+	// "no context object at all" surviving past a widget whose data source this
+	// pass cannot read. See argContextForSubtreeOf.
+	if next := argContextForSubtreeOf(w, pb.argCtx); next != pb.argCtx {
+		old := pb.argCtx
+		pb.argCtx = next
+		defer func() { pb.argCtx = old }()
+	}
+	oldWidget := pb.currentWidget
+	pb.currentWidget = w.Name
+	defer func() { pb.currentWidget = oldWidget }()
+
 	var widget pages.Widget
 	var err error
 
@@ -875,7 +888,7 @@ func (pb *pageBuilder) buildDataSourceV3(ds *ast.DataSourceV3) (pages.DataSource
 			},
 			MicroflowID:       mfID,
 			Microflow:         ds.Reference,
-			ParameterMappings: flowArgsToParameterMappings(ds.Args),
+			ParameterMappings: pb.flowArgsToParameterMappings(ds.Args),
 		}, entityName, nil
 
 	case "nanoflow":
@@ -895,7 +908,7 @@ func (pb *pageBuilder) buildDataSourceV3(ds *ast.DataSourceV3) (pages.DataSource
 			},
 			NanoflowID:        nfID,
 			Nanoflow:          ds.Reference,
-			ParameterMappings: flowArgsToParameterMappings(ds.Args),
+			ParameterMappings: pb.flowArgsToParameterMappings(ds.Args),
 		}, entityName, nil
 
 	case "association":
@@ -1476,12 +1489,13 @@ func (pb *pageBuilder) buildClientActionV3(action *ast.ActionV3) (pages.ClientAc
 			// (#296). An argument naming anything else therefore cannot be honoured,
 			// and was previously dropped in silence: the button opened the page with
 			// the context object, `mx check` reported 0 errors, and DESCRIBE printed
-			// the inferred mapping. Refuse instead of re-pointing the argument.
-			if strVal, ok := arg.Value.(string); ok && !pageArgumentBindsContextObject(strVal, pb.contextVarName, pb.contextKnown) {
-				return nil, mdlerrors.NewValidationf(
-					"show_page %s: argument %s: %s cannot be stored — a widget's page argument is always the enclosing context object, which mxcli records by leaving the mapping empty (an explicit one is rejected as CE0115). Writing %s here would silently open the page with %s instead. Use $currentObject%s, or call a microflow that shows the page with the object you want [MDL-PAGEARG01]",
-					action.Target, arg.Name, strVal, strVal, pb.describeContextObject(),
-					pb.contextVarAlternative())
+			// the inferred mapping. Outside any data widget there is no context
+			// object to infer at all, so every argument is dropped and the build
+			// fails CE1571 (#1029). Refuse instead of re-pointing the argument.
+			if strVal, ok := arg.Value.(string); ok && !pb.argCtx.binds(strVal) {
+				return nil, mdlerrors.NewValidation(
+					refuseShowPageArgument(pb.currentWidget, action.Target, arg.Name, strVal, pb.argCtx) +
+						" [MDL-PAGEARG01]")
 			}
 
 			mapping := &pages.PageClientParameterMapping{
@@ -1532,10 +1546,14 @@ func (pb *pageBuilder) buildClientActionV3(action *ast.ActionV3) (pages.ClientAc
 				ParameterName: arg.Name,
 			}
 
-			// Determine if value is a variable reference or expression
+			// A page/snippet parameter or page variable binds through
+			// Variable (a Forms$PageVariable); anything else is an
+			// Expression. See classifyFlowArgValue — writing a $-reference
+			// as an Expression leaves the parameter unbound (CE1571, #1140).
 			if strVal, ok := arg.Value.(string); ok {
-				if strings.HasPrefix(strVal, "$") {
-					// Variable reference (including $currentObject)
+				if v, kind := pb.classifyFlowArgValue(strVal); kind != "" {
+					mapping.Variable, mapping.VariableKind = v, kind
+				} else if strings.HasPrefix(strVal, "$") {
 					mapping.Variable = strVal
 				} else {
 					mapping.Expression = strVal
@@ -1572,10 +1590,14 @@ func (pb *pageBuilder) buildClientActionV3(action *ast.ActionV3) (pages.ClientAc
 				ParameterName: arg.Name,
 			}
 
-			// Determine if value is a variable reference or expression
+			// A page/snippet parameter or page variable binds through
+			// Variable (a Forms$PageVariable); anything else is an
+			// Expression. See classifyFlowArgValue — writing a $-reference
+			// as an Expression leaves the parameter unbound (CE1571, #1140).
 			if strVal, ok := arg.Value.(string); ok {
-				if strings.HasPrefix(strVal, "$") {
-					// Variable reference (including $currentObject)
+				if v, kind := pb.classifyFlowArgValue(strVal); kind != "" {
+					mapping.Variable, mapping.VariableKind = v, kind
+				} else if strings.HasPrefix(strVal, "$") {
 					mapping.Variable = strVal
 				} else {
 					mapping.Expression = strVal
@@ -1952,6 +1974,33 @@ func (pb *pageBuilder) resolveTemplateAssociationPath(attrRef string, param *pag
 	param.AttributeRef = finalQN
 	param.AttributeRefSteps = steps
 	return true
+}
+
+// resolveInputAttribute resolves the `attribute:` of an input widget (text box,
+// text area, date picker, drop-down, check box, radio buttons) into the
+// qualified final attribute plus the association hops to reach it.
+//
+// A bare name resolves against the enclosing entity context as before and
+// carries no steps. `Assoc/Attr` navigates: Studio Pro stores exactly this on a
+// plain text box, as ako/TestApp's Rules.RuleAction_NewEdit does for
+// Rules.BusinessRule.Name over Rules.RuleAction_BusinessRule.
+//
+// Before this, every input builder called resolveAttributePath, which knows
+// nothing about associations — the slashes survived into a flat path that
+// resolved to nothing and the build failed CE1613 (ako/mxcli#529). DataGrid2
+// columns and DynamicText parameters already resolved it, so one page could
+// bind an associated attribute in a grid column and fail on the text box beside
+// it.
+//
+// An unresolvable path falls back to resolveAttributePath rather than erroring,
+// matching what the column builder does: the reference checker
+// (--references) is where an unknown member is reported, and failing here would
+// reject paths whose entity context this pass cannot see.
+func (pb *pageBuilder) resolveInputAttribute(attr string) (string, []pages.AttributeRefStep) {
+	if finalQN, steps, ok := pb.resolveAssociationAttributePath(attr); ok {
+		return finalQN, steps
+	}
+	return pb.resolveAttributePath(attr), nil
 }
 
 // resolveAssociationAttributePath resolves a context-relative attribute path that
@@ -2595,7 +2644,7 @@ func prefixWidgetNames(widgets []*ast.WidgetV3, prefix string) {
 // needs an argument for every parameter exactly as a call action does — Mendix
 // reports CE1571 "No argument has been selected for parameter 'X'" otherwise
 // (#835). The datasource path previously parsed the arguments and dropped them.
-func flowArgsToParameterMappings(args []ast.FlowArgV3) []*pages.MicroflowParameterMapping {
+func (pb *pageBuilder) flowArgsToParameterMappings(args []ast.FlowArgV3) []*pages.MicroflowParameterMapping {
 	var out []*pages.MicroflowParameterMapping
 	for _, arg := range args {
 		mapping := &pages.MicroflowParameterMapping{
@@ -2605,10 +2654,13 @@ func flowArgsToParameterMappings(args []ast.FlowArgV3) []*pages.MicroflowParamet
 			},
 			ParameterName: arg.Name,
 		}
-		// A leading $ marks a variable reference ($currentObject, a page
-		// parameter); anything else is an expression.
+		// A page/snippet parameter or page variable binds through Variable (a
+		// Forms$PageVariable); $currentObject and anything else stays an
+		// expression. See classifyFlowArgValue (#1140).
 		if strVal, ok := arg.Value.(string); ok {
-			if strings.HasPrefix(strVal, "$") {
+			if v, kind := pb.classifyFlowArgValue(strVal); kind != "" {
+				mapping.Variable, mapping.VariableKind = v, kind
+			} else if strings.HasPrefix(strVal, "$") {
 				mapping.Variable = strVal
 			} else {
 				mapping.Expression = strVal
