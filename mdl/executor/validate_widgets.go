@@ -186,7 +186,9 @@ func validateWidgetTreeIn(widgets []*ast.WidgetV3, registry *WidgetRegistry, loc
 		out = append(out, validateDatasourceXPathAssociationEmpty(w, locationPrefix)...)
 		out = append(out, validateComboBoxAssociation(w, locationPrefix)...)
 		// A show_page argument naming anything but the context object is dropped.
-		out = append(out, validateShowPageArguments(w, argCtx, locationPrefix)...)
+		// The widget's OWN action is judged in the context IT establishes, not the
+		// one it sits in — a list widget's onClick is row-scoped (ako/mxcli#552).
+		out = append(out, validateShowPageArguments(w, argContextForOwnAction(w, argCtx), locationPrefix)...)
 		// Unknown-property warning applies only to built-in widgets; pluggable
 		// widgets get the stricter def.json check (MDL-WIDGET01) above, and
 		// object-list items are validated by the object-list engine.

@@ -108,12 +108,63 @@ func argContextForChildren(w *ast.WidgetV3, parent pageArgContext) pageArgContex
 	return parent
 }
 
+// argContextForOwnAction is the context a widget's OWN action is judged in.
+//
+// A button's action runs in the context its parent supplies. A list widget's does
+// not: `onClick` on a data grid, list view or gallery fires PER ROW, and the row
+// it renders is the context object — so a widget that binds a source of its own
+// supplies the context for its own action. Judging it in the parent's context
+// refused `datagrid dg (DataSource: DATABASE M.E, onClick: SHOW_PAGE M.Edit(E:
+// $currentObject))` against an mxbuild that accepts it at 0 errors, and on a list
+// view the refusal contradicted its own wording (ako/mxcli#552).
+//
+// `Action:` and `onClick:` are aliases that both land on Properties["Action"], so
+// this covers every spelling of a widget's own action.
+func argContextForOwnAction(w *ast.WidgetV3, parent pageArgContext) pageArgContext {
+	if w == nil {
+		return parent
+	}
+	if ds := w.GetDataSource(); ds != nil {
+		// The entity is only used to word a refusal; the executor's builder
+		// overwrites this with one that carries it.
+		return enteringDataWidget(ds, "")
+	}
+	if bindsDataInAnUnreadableShape(w) {
+		// The widget plainly binds data, so a context object EXISTS — but this
+		// pass cannot say what it is called. Unknown, not absent, and the guard
+		// stands down exactly as it does for ALTER PAGE. The bare-entity
+		// shorthand `datagrid dg (DataSource: M.E)` is this case.
+		return pageArgContext{}
+	}
+	return parent
+}
+
+// bindsDataInAnUnreadableShape reports whether w names a data source this pass
+// cannot parse into a *ast.DataSourceV3 — the bare-entity shorthand, or a
+// pluggable widget naming its source under its own key.
+func bindsDataInAnUnreadableShape(w *ast.WidgetV3) bool {
+	for name, v := range w.Properties {
+		if !strings.EqualFold(name, "DataSource") {
+			continue
+		}
+		if _, parsed := v.(*ast.DataSourceV3); !parsed && v != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // argContextForSubtreeOf is argContextForChildren for the executor's builder,
 // which builds a widget AND its children in one call. A widget with no children
 // carries nothing but its own action, and that action is judged in the context
 // its parent supplies — degrading there would stand the guard down on exactly the
-// page-level button #1029 is about.
+// page-level button #1029 is about. A data-bound widget is the exception, and the
+// reason is argContextForOwnAction's: its own action is row-scoped, so it needs
+// the context it creates whether or not it has children to give it to.
 func argContextForSubtreeOf(w *ast.WidgetV3, parent pageArgContext) pageArgContext {
+	if own := argContextForOwnAction(w, parent); own != parent {
+		return own
+	}
 	if len(w.Children) == 0 {
 		return parent
 	}
