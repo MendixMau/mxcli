@@ -687,12 +687,46 @@ func createExternalEntities(ctx *ExecContext, s *ast.CreateExternalEntitiesStmt)
 				// attribute name.
 				remoteName := p.Path()
 
+				isKey := keyPropSet[p.Name]
+
 				creatable := defaultCreatable
 				updatable := defaultUpdatable
 				if nonInsertable[remoteName] || p.Computed {
 					creatable = false
 				}
 				if nonUpdatable[remoteName] || p.Computed || p.Immutable {
+					updatable = false
+				}
+				// A KEY of a TOP-LEVEL entity is never updatable, whatever the
+				// entity set's UpdateRestrictions say: Mendix computes it False
+				// because a key cannot be changed after the object exists.
+				// Letting it follow the set is exactly one CE6630 per key part
+				// on every writable service — "'DefinitionId' is marked
+				// Updatable=False in the OData service, but True in the app" —
+				// measured on mxbuild 11.12.1 against a set annotated
+				// Updatable=true, and on six further annotation shapes.
+				//
+				// isTopLevel is load-bearing, and the live TripPin contract is
+				// what proves it: a key reached through a PARENT's write flow
+				// (a derived type or a contained entity, so no entity set of
+				// its own) goes the other way, and clearing it there is CE6630
+				// inverted —
+				//
+				//	"'TripId' is marked Updatable=True in the OData service,
+				//	 but False in the app."   at TripPinClient.Trip.TripId
+				//
+				// measured on 11.12.2 over `Trip`, `PlanItem`, `Event`,
+				// `Flight`, `PublicTransportation`, `Employee` and `Manager`,
+				// while `Person`/`Airline`/`Airport` — the entity sets — stayed
+				// silent. `UserName` is the two-sided control inside one
+				// contract: False on Person, True on Employee and Manager.
+				//
+				// Creatable is deliberately NOT cleared with it. The same build
+				// reported the key Updatable=False *only*, with no Creatable
+				// error beside it: the key is written once, at creation, so the
+				// rule is "cannot be changed", not "read-only". Clearing both
+				// would be CE6630 inverted on the key of any insertable set.
+				if isKey && isTopLevel {
 					updatable = false
 				}
 				// A property reached through a complex type carries NONE of the
@@ -746,7 +780,7 @@ func createExternalEntities(ctx *ExecContext, s *ast.CreateExternalEntitiesStmt)
 				}
 				attr := &domainmodel.Attribute{
 					Name:       attrName,
-					Type:       edmToDomainModelAttrType(p, keyPropSet[p.Name]),
+					Type:       edmToDomainModelAttrType(p, isKey),
 					RemoteName: remoteName,
 					RemoteType: p.Type,
 					Filterable: filterable,
