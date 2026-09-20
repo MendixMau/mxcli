@@ -272,15 +272,27 @@ func TestCreateExternalEntities_FlattenedAttributesAreReadOnly(t *testing.T) {
 	}
 
 	// The control: an ordinary property of the SAME writable entity set must
-	// still follow the contract. Without it this test passes against an import
-	// that marks everything read-only.
+	// still follow the contract on CREATABLE. Without it this test passes
+	// against an import that marks everything read-only.
+	//
+	// Updatable is deliberately NOT asserted true here, and this control used
+	// to claim it was. That half was assumed rather than measured: mxbuild
+	// computes every attribute of a TOP-LEVEL entity as Updatable=False, plain
+	// and flattened alike, across ten contract shapes — including one whose
+	// NonUpdatableProperties names only the key, i.e. asserts that `Label` is
+	// updatable. See TestCreateExternalEntities_TopLevelAttributesAreNeverUpdatable.
+	// So what is special about a flattened attribute is CREATABLE, not both.
 	plain := byName["Label"]
 	if plain == nil {
 		t.Fatal("Label missing")
 	}
-	if !plain.Creatable || !plain.Updatable {
-		t.Errorf("Label Creatable=%v Updatable=%v, want both true — the contract says the set is writable",
-			plain.Creatable, plain.Updatable)
+	if !plain.Creatable {
+		t.Error("Label lost Creatable — the contract says the set is insertable, and without " +
+			"this the test passes against an import that marks everything read-only")
+	}
+	if plain.Updatable {
+		t.Error("Label is Updatable=true on a top-level entity — CE6630 " +
+			`"'Label' is marked Updatable=False in the OData service, but True in the app."`)
 	}
 }
 

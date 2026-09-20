@@ -41,22 +41,40 @@
 --
 -- Measured on mxbuild 11.12.1, two copies of one project, same script:
 --
---   pre-fix  (key Updatable=true)   -> CE6630 on DefinitionId  AND on Label
---   post-fix (key Updatable=false)  -> CE6630 on Label only
+--   pre-fix   (everything follows the set)  -> CE6630 on DefinitionId AND Label
+--   key-only  (key cleared)                 -> CE6630 on Label
+--   full fix  (top-level attrs cleared)     -> The app contains: 0 errors.
 --
 -- and across a seven-variant probe contract of TOP-LEVEL sets (inline record,
 -- typed record, UpdateMethod=PATCH, +NonUpdatableProperties/+DeleteRestrictions,
 -- unannotated, external <Annotations Target=…>, Core.Permissions/ReadWrite)
 -- mxbuild was SILENT on every key once it was non-updatable.
 --
--- STILL OPEN, and visible in the numbers above: the non-key `Label` is flagged
--- too. mxbuild reported "Updatable=False in the OData service" for the non-key
--- attribute of all seven shapes, so mxcli's reading of UpdateRestrictions does
--- not match Mendix's for ordinary attributes either. No probe produced a
--- TOP-LEVEL entity set mxbuild treats as having an updatable attribute, so
--- there is no positive control for what the right rule is there, and CE6630
--- fires in BOTH directions (mxcli-formula1 §48, and the TripPin inversion
--- above) — a blanket "never updatable" would be a guess. Tracked separately.
+-- THE NON-KEY HALF, fixed in a follow-up: `Label` was flagged too, and the
+-- rule turned out to be wider than the key. NO attribute of a TOP-LEVEL
+-- external entity is updatable, whatever UpdateRestrictions says; EVERY
+-- attribute of a non-top-level one is, because it is written through its
+-- parent's flow. Measured across TEN top-level contract shapes, each one
+-- mxbuild reads as updatable and each answering False:
+--
+--   inline <Record>                  typed <Record Type=...>
+--   UpdateMethod=PATCH               +NonUpdatableProperties +DeleteRestrictions
+--   unannotated                      external <Annotations Target=...>
+--   Core.Permissions/ReadWrite       Core.OptimisticConcurrency (ETag)
+--   DeepUpdateSupport Supported=true NonUpdatableProperties naming ONLY the key
+--
+-- The last closes it: the service lists `Id` as the sole non-updatable
+-- property -- asserting that `Label` IS updatable -- and mxbuild still says
+-- False. Two things the rule is not, each with its own control: not "the
+-- entity is read-only" (Creatable follows Insertable on the same attributes),
+-- and not the model's "allow creating and changing objects locally" (setting
+-- AllowCreateChangeLocally=Yes left the expectation at False). An external
+-- object can be changed in memory and handed to an external action; that is
+-- what the local-change flag governs, while this flag mirrors what the
+-- endpoint itself accepts.
+--
+-- So this script now reaches 0 errors, where it was 2 before any fix and 1
+-- after the key-only one.
 --
 -- Run it:
 --   cp mdl-examples/bug-tests/contracts/key-updatable-metadata.xml \
