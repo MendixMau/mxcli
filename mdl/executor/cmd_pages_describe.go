@@ -114,6 +114,9 @@ func describePage(ctx *ExecContext, name ast.QualifiedName) error {
 		if r, ok := rawData["PopupResizable"].(bool); ok && r {
 			props = append(props, "PopupResizable: true")
 		}
+		if a, _ := rawData["PopupCloseAction"].(string); a != "" {
+			props = append(props, fmt.Sprintf("PopupCloseAction: %s", a))
+		}
 		// Page CSS class / inline style from Forms$Appearance (issue #714) — emit
 		// only when set so the CREATE PAGE header round-trips.
 		if ap, ok := rawData["Appearance"].(map[string]any); ok {
@@ -640,8 +643,16 @@ type rawWidget struct {
 	ShowLabel     bool   // Whether label is shown (from LabelTemplate visibility)
 	LabelPosition string // "Left", "Top", etc.
 	Placeholder   string // Placeholder hint text (from PlaceholderTemplate)
-	OnChange      string // MDL rendering of the OnChangeAction client action
-	OnClick       string // MDL rendering of a pluggable widget's onClick action (e.g. DataGrid2)
+	// IsPassword is Forms$TextBox.IsPasswordBox. Security-relevant: a text box
+	// that round-trips without it renders the value in plaintext (ako/mxcli#550).
+	IsPassword bool
+	// ValidationExpression / ValidationMessage are the two fields of
+	// Forms$WidgetValidation, the per-widget validation Studio Pro stores on
+	// input widgets.
+	ValidationExpression string
+	ValidationMessage    string
+	OnChange             string // MDL rendering of the OnChangeAction client action
+	OnClick              string // MDL rendering of a pluggable widget's onClick action (e.g. DataGrid2)
 	// Filter widget properties
 	FilterAttributes []string // Attributes to filter on
 	FilterExpression string   // Default filter expression (contains, startsWith, etc.)

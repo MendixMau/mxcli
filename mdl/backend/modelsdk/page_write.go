@@ -195,7 +195,16 @@ func pageToGen(page *pages.Page, pv *types.ProjectVersion) (*genPg.Page, error) 
 	out.SetCanvasHeight(600)
 	out.SetMarkAsUsed(page.MarkAsUsed)
 	out.SetUrl(page.URL)
-	out.SetPopupCloseAction("")
+	// Names the widget whose action closes the page as a pop-up. Writing "" here
+	// unconditionally wiped it on every rewrite — set on 9 of ako/TestApp's 67
+	// pages (ako/mxcli#550).
+	//
+	// Deliberately NOT carried from the stored document the way the canvas
+	// properties are: this one names a widget on the page, and a rewrite rebuilds
+	// the widget tree from the statement. Carrying a name the new tree may not
+	// contain would leave a dangling reference. DESCRIBE emits it, so the round
+	// trip is closed by the statement rather than behind it.
+	out.SetPopupCloseAction(page.PopupCloseAction)
 	out.SetPopupWidth(popupDimension(page.PopupWidth))
 	out.SetPopupHeight(popupDimension(page.PopupHeight))
 	out.SetPopupResizable(page.PopupResizable)
