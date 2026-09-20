@@ -181,6 +181,11 @@ func (e *Encoder) buildDoc(elem element.Element) (bson.D, error) {
 					doc = append(doc, bson.E{Key: name, Value: ""})
 				}
 			}
+			for _, name := range d.FalseFields {
+				if !emitted[name] {
+					doc = append(doc, bson.E{Key: name, Value: false})
+				}
+			}
 			for _, name := range d.ZeroGUIDFields {
 				if !emitted[name] {
 					doc = append(doc, bson.E{Key: name, Value: zeroGUIDBinary()})

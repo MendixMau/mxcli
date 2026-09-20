@@ -30,6 +30,25 @@ func init() {
 		// Widgets nested in a Widgets list use the typed-array marker 2 when present.
 		codec.RegisterListMarker(t, 2)
 	}
+	// An AttributeRef always carries EntityRef: it is null for a plain binding
+	// and an IndirectEntityRef when the attribute is reached over associations.
+	// Measured 338 of 338 across the 67 pages of ako/TestApp at 11.14.0 (313
+	// null, 25 navigated). mxcli only ever set it on the navigated branch, so a
+	// rewrite dropped the key from every plain one (ako/mxcli#541). The default
+	// applies only when the field was not otherwise set, so it cannot flatten a
+	// navigated ref.
+	codec.RegisterTypeDefaults("DomainModels$AttributeRef", codec.TypeDefaults{
+		NullFields: []string{"EntityRef"},
+	})
+	// A PageVariable names its source in exactly one of four fields and Studio
+	// Pro writes all six keys regardless. mxcli sets whichever one carries the
+	// value, leaving the rest at Go's zero value, never marked dirty, and so
+	// omitted. Registering them here covers all three construction sites and
+	// any future one, which setting every field at each site would not.
+	codec.RegisterTypeDefaults("Forms$PageVariable", codec.TypeDefaults{
+		EmptyStringFields: []string{"LocalVariable", "PageParameter", "SnippetParameter", "SubKey", "Widget"},
+		FalseFields:       []string{"UseAllPages"},
+	})
 	// A ClientTemplate's Parameters list is always emitted with marker 2, even empty
 	// (unusual — most empty lists are marker 3).
 	codec.RegisterTypeDefaults("Forms$ClientTemplate", codec.TypeDefaults{
@@ -1626,25 +1645,43 @@ func clientActionToGen(a pages.ClientAction) (element.Element, error) {
 	switch x := a.(type) {
 	case nil, *pages.NoClientAction:
 		return noActionGen(), nil
+	// The four simple actions below were the only ones that did not write
+	// DisabledDuringExecution. Studio Pro stores it true on all 39 of them
+	// across the 67 pages of ako/TestApp at 11.14.0 (CancelChanges 16, ClosePage
+	// 10, SaveChanges 8, Delete 5), so its absence was a round-trip loss rather
+	// than a default (ako/mxcli#541). The seven other cases in this switch
+	// already set it.
+	//
+	// Other types carrying the property are NOT unanimous — Forms$NoAction
+	// stores false on 83 of ~7,300 and Forms$MicroflowAction on 5 of 81 — but
+	// those are stored values mxcli overwrites, a carry problem that predates
+	// this change and is tracked separately.
 	case *pages.SaveChangesClientAction:
 		g := genPg.NewSaveChangesClientAction()
 		assignID(g)
 		g.SetClosePage(x.ClosePage)
-		g.SetSyncAutomatically(true)
+		g.SetDisabledDuringExecution(true)
+		// false, not true: all eight Studio Pro SaveChanges actions in that
+		// same sweep store false. Writing true turned a describe → exec of any
+		// page with a Save button into a change nobody asked for.
+		g.SetSyncAutomatically(false)
 		return g, nil
 	case *pages.CancelChangesClientAction:
 		g := genPg.NewCancelChangesClientAction()
 		assignID(g)
 		g.SetClosePage(x.ClosePage)
+		g.SetDisabledDuringExecution(true)
 		return g, nil
 	case *pages.ClosePageClientAction:
 		g := genPg.NewClosePageClientAction()
 		assignID(g)
+		g.SetDisabledDuringExecution(true)
 		return g, nil
 	case *pages.DeleteClientAction:
 		g := genPg.NewDeleteClientAction()
 		assignID(g)
 		g.SetClosePage(x.ClosePage)
+		g.SetDisabledDuringExecution(true)
 		return g, nil
 	case *pages.PageClientAction:
 		// show_page → Forms$FormAction with a Forms$FormSettings (PageSettings).
