@@ -29,6 +29,7 @@ func buildRows(t *testing.T, stmts []ast.MicroflowStatement) []microflows.Microf
 		posY:         200,
 		baseY:        200,
 		spacing:      HorizontalSpacing,
+		allowWrap:    true,
 		varTypes:     map[string]string{},
 		declaredVars: map[string]string{},
 		measurer:     &layoutMeasurer{varTypes: map[string]string{}},
