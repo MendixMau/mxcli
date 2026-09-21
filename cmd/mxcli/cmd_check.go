@@ -246,32 +246,41 @@ Examples:
 				fmt.Printf("✓ All references valid\n")
 			}
 
-			// Expression type checking is the catalog-backed tier: the rules that
-			// need an attribute's type, an enumeration's cases or a microflow's
-			// return type. It runs here rather than in the unconditional pass
-			// because those answers only exist once a project is connected, and
-			// after the reference check because a script naming things that do
-			// not exist has a more basic problem than a mistyped operand — and
-			// because building the catalog for a run that already failed is
-			// wasted work.
+			// The catalog-backed tier: the checks whose answers only exist once a
+			// project is connected. It runs after the reference check because a
+			// script naming things that do not exist has a more basic problem
+			// than a mistyped operand — and because building the catalog for a
+			// run that already failed is wasted work.
 			//
 			// Like every other violation this command emits, only an error
 			// severity fails the run. Warnings and hints are advice, and a
 			// checker whose first outing turns advice into a broken build is a
 			// checker people turn off.
-			typeViolations := exec.TypeCheckProgram(prog)
-			if len(typeViolations) > 0 {
+			//
+			// MDL087 is what this script REMOVES from the project, which nothing
+			// reported until now (ako/mxcli#562). `create or modify entity`
+			// rebuilds the entity from the statement, so a member the script does
+			// not restate is deleted — and the loss only becomes visible slices
+			// later, as a CE1613 on whatever still binds it. exec prints the same
+			// list, but only as it applies the statement; by then it is gone.
+			//
+			// Expression type checking is the other half: the rules that need an
+			// attribute's type, an enumeration's cases or a microflow's return
+			// type. The scope-local tier already ran in the unconditional pass.
+			projectViolations := exec.CheckEntityMemberDrops(prog)
+			projectViolations = append(projectViolations, exec.TypeCheckProgram(prog)...)
+			if len(projectViolations) > 0 {
 				if isStructured {
-					formatter.Format(typeViolations, os.Stderr)
+					formatter.Format(projectViolations, os.Stderr)
 				} else {
 					fmt.Fprintln(os.Stderr)
-					formatter.Format(typeViolations, os.Stderr)
+					formatter.Format(projectViolations, os.Stderr)
 				}
-				if linter.Summarize(typeViolations).Errors > 0 {
+				if linter.Summarize(projectViolations).Errors > 0 {
 					os.Exit(1)
 				}
 			} else if !isStructured {
-				fmt.Printf("✓ Expression types OK\n")
+				fmt.Printf("✓ Expression types OK, no unstated member drops\n")
 			}
 		}
 

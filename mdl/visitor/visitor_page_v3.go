@@ -1418,8 +1418,11 @@ func buildSortColumnAsOrderBy(ctx parser.ISortColumnContext) ast.OrderByItemV3 {
 	scCtx := ctx.(*parser.SortColumnContext)
 	item := ast.OrderByItemV3{Direction: "ASC"}
 
-	if qn := scCtx.QualifiedName(); qn != nil {
-		item.Attribute = getQualifiedNameText(qn)
+	// Several qualifiedNames mean an association path: every segment but the last
+	// is a hop, the last is the attribute (mendixlabs/mxcli#1152).
+	if qns := scCtx.AllQualifiedName(); len(qns) > 0 {
+		item.Associations = sortColumnHops(qns)
+		item.Attribute = getQualifiedNameText(qns[len(qns)-1])
 	} else if id := scCtx.IDENTIFIER(); id != nil {
 		item.Attribute = id.GetText()
 	}

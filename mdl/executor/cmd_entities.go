@@ -812,42 +812,15 @@ func isViewEntity(e *domainmodel.Entity) bool {
 
 // droppedEntityMembers reports the members present on existing but absent from
 // replacement — i.e. what a CREATE OR MODIFY replace would delete. Named
-// attributes are compared case-insensitively; the four audit system fields are
-// reported when their flag is on in existing but off in replacement. Used to
-// surface accidental data loss (findings #24).
+// attributes are compared case-insensitively; the four audit system fields and
+// the generalization are reported when existing carries one and replacement does
+// not. Used to surface accidental data loss (findings #24).
+//
+// The comparison itself lives in droppedMembers, shared with the check-time
+// MDL087 pass (ako/mxcli#562). Two hand-written diffs at two layers is how the
+// audit fields came to be covered by one and not the other.
 func droppedEntityMembers(existing, replacement *domainmodel.Entity) []string {
-	keep := make(map[string]bool, len(replacement.Attributes))
-	for _, a := range replacement.Attributes {
-		keep[strings.ToLower(a.Name)] = true
-	}
-	var dropped []string
-	for _, a := range existing.Attributes {
-		if !keep[strings.ToLower(a.Name)] {
-			dropped = append(dropped, a.Name)
-		}
-	}
-	// Audit system fields that were enabled and are no longer requested are also
-	// removed by the replace.
-	if existing.HasOwner && !replacement.HasOwner {
-		dropped = append(dropped, "owner (system field)")
-	}
-	if existing.HasChangedBy && !replacement.HasChangedBy {
-		dropped = append(dropped, "changedBy (system field)")
-	}
-	if existing.HasCreatedDate && !replacement.HasCreatedDate {
-		dropped = append(dropped, "createdDate (system field)")
-	}
-	if existing.HasChangedDate && !replacement.HasChangedDate {
-		dropped = append(dropped, "changedDate (system field)")
-	}
-	// An omitted EXTENDS un-inherits the entity, which is a bigger change than a
-	// dropped attribute and was the only one of these that happened in silence.
-	// It is reported rather than preserved because there is no "extends nothing"
-	// spelling, so preserving it would make an inheritance impossible to remove.
-	if existing.GeneralizationRef != "" && replacement.GeneralizationRef == "" {
-		dropped = append(dropped, "extends "+existing.GeneralizationRef+" (generalization)")
-	}
-	return dropped
+	return droppedMembers(memberSetFromEntity(existing), memberSetFromEntity(replacement))
 }
 
 // execCreateViewEntity handles CREATE VIEW ENTITY statements.
@@ -948,15 +921,15 @@ func execCreateViewEntity(ctx *ExecContext, s *ast.CreateViewEntityStmt) error {
 		location = model.Point{X: 100 + len(dm.Entities)*150, Y: 100}
 	}
 
-	// Create or update ViewEntitySourceDocument (separate document for OQL query)
+	// Create or update ViewEntitySourceDocument (separate document for OQL query).
+	// Written IN PLACE: this used to delete the stored document and insert a fresh
+	// one every time, which replaced the unit under a new GUID on every run and
+	// made `exec` report `Unchanged view entity` for a statement that had just
+	// rewritten the OQL — an insert is not a counted write, so the elision check
+	// saw only the (genuinely unchanged) domain-model unit (ako/mxcli#583).
+	// Duplicate documents, which the delete existed to clear, are still removed.
 	sourceDocRef := s.Name.Module + "." + s.Name.Name
-	// Always delete any existing ViewEntitySourceDocument before creating a new one.
-	// This prevents duplicate OQL documents from accumulating (e.g., from re-running
-	// scripts or after a previous DROP that didn't clean up properly).
-	if err := ctx.Backend.DeleteViewEntitySourceDocumentByName(s.Name.Module, s.Name.Name); err != nil {
-		return mdlerrors.NewBackend("delete existing ViewEntitySourceDocument", err)
-	}
-	_, err = ctx.Backend.CreateViewEntitySourceDocument(
+	_, err = ctx.Backend.WriteViewEntitySourceDocument(
 		module.ID,
 		s.Name.Module,
 		s.Name.Name,
@@ -964,7 +937,7 @@ func execCreateViewEntity(ctx *ExecContext, s *ast.CreateViewEntityStmt) error {
 		s.Documentation,
 	)
 	if err != nil {
-		return mdlerrors.NewBackend("create ViewEntitySourceDocument", err)
+		return mdlerrors.NewBackend("write ViewEntitySourceDocument", err)
 	}
 
 	// Create view attributes with OqlViewValue references.
