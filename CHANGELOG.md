@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A page's image-collection reference passed `mxcli check --references` and failed the build** (mendixlabs/mxcli#1149) — `staticimage imgAll (Image: 'Atlas_UI_Resources.Atlas_Icons.checkbox_checked')` in a Selection helper's custom state checked clean, exec'd cleanly and then came back as `[error] [CE1613] "The selected image … no longer exists."`, once per state. The report asks for syntax, but the syntax landed with #1057 — describe emits the three `staticimage` lines and re-running the description reports `Unchanged page`, measured on a blank 11.14.0 project. What was missing is that nothing resolved the name #1057 had made writable.
+
+  Two holes, and fixing either alone leaves the reported script unchecked. The image reference was collected by **widget type** (`if w.Type == "image"`), so the pluggable widget was resolved and the two widgets #1057 gave the same property — `staticimage`'s `Image` and `dynamicimage`'s `DefaultImage` — were not; it is a table now, so adding a widget that names an image means adding a row. And a page's widgets live in **two** AST fields: `Widgets` is the bare body, while `placeholder <Name> { … }` content is held apart in `Placeholders` (#532). All three page validators walked the first alone, so **every** reference inside a placeholder block — microflow, nanoflow, page, snippet, entity, image — was validated by nothing. Measured, the same button in the two positions: inside `placeholder Main` → `✓ All references valid`; in the bare body → `microflow not found`. That is the shape mxcli's own skills, examples and DESCRIBE output write, so it was the common case rather than an edge one, and it is the third copy of one walk — `validateIconRefs` (#1008) and `forEachWidget` had each grown the placeholder arm separately — so the roots are now collected once.
+
 ## [0.23.0] - 2026-09-21
 
 Headline: **The last workflow constructs only Studio Pro could author become MDL, `describe` → `exec` stops losing what it just read, and the legacy engine is gone.** Workflow event sub-processes, notification events, multi-user completion rules and AI agent tasks are authorable; a wave of page round-trip fixes closes the gap between what mxcli reads and what it writes back — a password field that came back as a plaintext text box is the one to read first; and `sdk/mpr` is deleted, leaving one engine behind the backend abstraction.
