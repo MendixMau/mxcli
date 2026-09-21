@@ -155,7 +155,12 @@ datagrid GridName (
 **Properties:**
 - `datasource: database from Module.Entity` - Entity data source (required)
 - `where [condition]` - Optional XPath filter (inline after entity in DataSource)
-- `sort by attr asc|desc` - Optional sorting (inline after WHERE: `sort by Name asc, Price desc`)
+- `sort by attr asc|desc` - Optional sorting (inline after WHERE: `sort by Name asc, Price desc`).
+  A sort may navigate associations, one `/` per hop, with the last segment the attribute:
+  `sort by Order_BillTo/City asc`. **Name the hop when more than one association reaches the
+  same entity** — a bare `Module.Address.City` is resolved by inference, which cannot tell
+  `Order_ShipTo` from `Order_BillTo`, and the wrong one builds cleanly and sorts by the wrong
+  thing (mendixlabs/mxcli#1152)
 - `selection: Multi` - Multi-selection (`Multi`, `Single`, or omit for none)
 - `PagingPosition: both` - Pagination bar position (`top`, `bottom`, `both`)
 - `designproperties: ['Compact': on, 'Hover': on, 'Striped': on]` - Atlas design tokens

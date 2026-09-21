@@ -209,8 +209,11 @@ type FlowArgV3 struct {
 
 // OrderByItemV3 represents a sort column.
 type OrderByItemV3 struct {
-	Attribute string // Attribute path
-	Direction string // "ASC" or "DESC"
+	Attribute string // Attribute path — the FINAL segment
+	// Associations holds one qualified association name per `/` hop, in order.
+	// See ast.SortColumnDef.Associations.
+	Associations []string
+	Direction    string // "ASC" or "DESC"
 }
 
 // ActionV3 represents a V3 action expression.
