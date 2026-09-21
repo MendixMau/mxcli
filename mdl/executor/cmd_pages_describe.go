@@ -723,13 +723,19 @@ type rawWidget struct {
 	// Pluggable Image widget properties
 	ImageUrl        string // Image URL (from textTemplate)
 	AlternativeText string // Alt text (from textTemplate)
-	ImageWidth      string // Width in pixels/percentage
-	ImageHeight     string // Height in pixels/percentage
-	WidthUnit       string // "auto", "pixels", "percentage"
-	HeightUnit      string // "auto", "pixels", "percentage", "viewport"
-	DisplayAs       string // "fullImage", "thumbnail"
-	Responsive      string // "true", "false"
-	ImageType       string // "image", "imageUrl", "icon"
+	// The `{N}` bindings of the two templates above, each under its own
+	// `<Name>Params` companion (#575). Without them a bound image described back
+	// as a bare `ImageUrl: '{1}'`, which re-executes into CE0720 — the round trip
+	// silently unbinding what it was asked to copy.
+	ImageUrlParams        []string
+	AlternativeTextParams []string
+	ImageWidth            string // Width in pixels/percentage
+	ImageHeight           string // Height in pixels/percentage
+	WidthUnit             string // "auto", "pixels", "percentage"
+	HeightUnit            string // "auto", "pixels", "percentage", "viewport"
+	DisplayAs             string // "fullImage", "thumbnail"
+	Responsive            string // "true", "false"
+	ImageType             string // "image", "imageUrl", "icon"
 	// ImageObject is the image collection entry the widget shows, as the
 	// three-part qualified name Module.Collection.Image. Empty when the source
 	// is not an image collection, or when none is selected. Without it a

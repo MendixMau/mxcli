@@ -1923,9 +1923,17 @@ func describeImageWidgetProps(w rawWidget) []string {
 	}
 	if w.ImageUrl != "" {
 		props = append(props, fmt.Sprintf("ImageUrl: %s", mdlQuote(w.ImageUrl)))
+		if len(w.ImageUrlParams) > 0 {
+			props = append(props, fmt.Sprintf("ImageUrlParams: [%s]",
+				strings.Join(formatParametersV3(w.ImageUrlParams), ", ")))
+		}
 	}
 	if w.AlternativeText != "" {
 		props = append(props, fmt.Sprintf("AlternativeText: %s", mdlQuote(w.AlternativeText)))
+		if len(w.AlternativeTextParams) > 0 {
+			props = append(props, fmt.Sprintf("AlternativeTextParams: [%s]",
+				strings.Join(formatParametersV3(w.AlternativeTextParams), ", ")))
+		}
 	}
 	if w.WidthUnit != "" && w.WidthUnit != "auto" {
 		props = append(props, fmt.Sprintf("WidthUnit: %s", w.WidthUnit))

@@ -1067,6 +1067,26 @@ resolve is reported by `mxcli check --references` rather than by the build
 (CE1613). The other two sources are `ImageType: imageUrl, ImageUrl: '…'` and
 `ImageType: icon`.
 
+### Binding a pluggable widget's text-template property
+
+A text-template property (`ImageUrl`, a TreeNode's `headerCaption`, a Timeline's
+`title` / `description`) takes **text**, so a bare value renders the same string
+on every row — with `check`, `exec` and `mx check` all clean. Bind it with the
+property's own `<Name>Params` companion:
+
+```sql
+image cardImage (
+  ImageType: imageUrl,
+  ImageUrl: '{1}',        ImageUrlParams: [{1} = PictureUrl],
+  AlternativeText: '{1}', AlternativeTextParams: [{1} = Name]
+);
+```
+
+The widget-wide `contentparams:` is one list shared by every template on the
+widget, so it remains the convenience form for a widget with a single template;
+`'{AttrName}'` is the shortest form for one attribute with no formatting block.
+Parameters with no `{N}` to fill are reported as MDL-WIDGET21.
+
 ## Icon Collections (read-only)
 
 Icon collections (`CustomIcons$CustomIconCollection`, e.g. `Atlas_Core.Atlas_Filled`) ship with the theme/Atlas. Their icons are referenced from a widget as `Module.Collection.IconName` (a button's `icon:`). Use these to discover valid icon names — icons have non-obvious names (it's `add`, not `plus`).

@@ -1167,8 +1167,8 @@ func extractExplicitProperties(ctx *ExecContext, w map[string]any) []rawExplicit
 func extractImageProperties(ctx *ExecContext, w map[string]any, widget *rawWidget) {
 	widget.ImageType = extractCustomWidgetPropertyString(ctx, w, "datasource")
 	widget.ImageObject = extractCustomWidgetPropertyImage(ctx, w, "imageObject")
-	widget.ImageUrl = extractCustomWidgetPropertyTextTemplate(ctx, w, "imageUrl")
-	widget.AlternativeText = extractCustomWidgetPropertyTextTemplate(ctx, w, "alternativeText")
+	widget.ImageUrl, widget.ImageUrlParams = extractCustomWidgetPropertyTextTemplate(ctx, w, "imageUrl")
+	widget.AlternativeText, widget.AlternativeTextParams = extractCustomWidgetPropertyTextTemplate(ctx, w, "alternativeText")
 	widget.ImageWidth = extractCustomWidgetPropertyString(ctx, w, "width")
 	widget.ImageHeight = extractCustomWidgetPropertyString(ctx, w, "height")
 	widget.WidthUnit = extractCustomWidgetPropertyString(ctx, w, "widthUnit")
@@ -1179,11 +1179,16 @@ func extractImageProperties(ctx *ExecContext, w map[string]any, widget *rawWidge
 	widget.Action = extractCustomWidgetPropertyAction(ctx, w, "onClick")
 }
 
-// extractCustomWidgetPropertyTextTemplate extracts text from a TextTemplate property of a CustomWidget.
-func extractCustomWidgetPropertyTextTemplate(ctx *ExecContext, w map[string]any, propertyKey string) string {
+// extractCustomWidgetPropertyTextTemplate extracts the text of a TextTemplate
+// property of a CustomWidget, together with the `{N}` parameters bound to it.
+//
+// The parameters are returned separately rather than folded into the text
+// because MDL spells them separately: `imageUrl: '{1}', imageUrlParams: [{1} =
+// PictureUrl]` (#575).
+func extractCustomWidgetPropertyTextTemplate(ctx *ExecContext, w map[string]any, propertyKey string) (string, []string) {
 	obj, ok := w["Object"].(map[string]any)
 	if !ok {
-		return ""
+		return "", nil
 	}
 
 	propTypeKeyMap := buildPropertyTypeKeyMap(w, false)
@@ -1204,22 +1209,11 @@ func extractCustomWidgetPropertyTextTemplate(ctx *ExecContext, w map[string]any,
 			continue
 		}
 		// Extract text from TextTemplate
-		if textTemplate, ok := value["TextTemplate"].(map[string]any); ok && textTemplate != nil {
-			if template, ok := textTemplate["Template"].(map[string]any); ok && template != nil {
-				items := getBsonArrayElements(template["Items"])
-				for _, item := range items {
-					itemMap, ok := item.(map[string]any)
-					if !ok {
-						continue
-					}
-					if text := extractString(itemMap["Text"]); text != "" {
-						return text
-					}
-				}
-			}
+		if text, tt := extractTextTemplateText(value); text != "" {
+			return text, extractTextTemplateParameters(ctx, tt)
 		}
 	}
-	return ""
+	return "", nil
 }
 
 // customWidgetPropertyActionMap returns the raw Forms$*ClientAction map stored on

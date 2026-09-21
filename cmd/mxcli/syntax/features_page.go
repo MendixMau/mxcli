@@ -153,7 +153,14 @@ CREATE PAGE Sales.Detail (Title: 'Detail', Layout: Atlas_Core.Atlas_Default) {
 			"--   entry writes a model mxbuild refuses (\"No image selected.\"); MDL-WIDGET22\n" +
 			"--   reports that at check time, and a name that does not resolve is reported by\n" +
 			"--   `check --references` rather than failing the build with CE1613.\n" +
-			"--   The alternatives are the URL form above, or `ImageType: icon`.\n\n" +
+			"--   The alternatives are the URL form above, or `ImageType: icon`.\n" +
+			"--   A text-template property (ImageUrl, AlternativeText, a pluggable widget's\n" +
+			"--   headerCaption/title/…) takes TEXT, so a bare value renders the same string\n" +
+			"--   on every row. Bind it with the property's own `<Name>Params` companion:\n" +
+			"IMAGE name (ImageType: imageUrl, ImageUrl: '{1}', ImageUrlParams: [{1} = PictureUrl],\n" +
+			"            AlternativeText: '{1}', AlternativeTextParams: [{1} = Name])\n" +
+			"--   The widget-wide `contentparams:` is one list shared by every template on the\n" +
+			"--   widget; `'{AttrName}'` is the shortest form for a single attribute.\n\n" +
 			"-- Any pluggable widget by its id (id FIRST, then the name)\nPLUGGABLEWIDGET 'com.mendix.widget.web.badge.Badge' name (value: 'x')\nCUSTOMWIDGET 'com.mendix.widget.custom.x.X' name (prop: 'x')      -- legacy spelling\n\n" +
 			"-- DYNAMICIMAGE shows the image held by an OBJECT, so it needs the entity that\n" +
 			"-- object belongs to — reachable from the widget's context. Without it mxbuild\n" +
