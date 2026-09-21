@@ -1776,7 +1776,7 @@ func emitEnumSplitStatement(
 	branches := []enumBranch{}
 	branchByDestination := map[model.ID]int{}
 	var elseFlow *microflows.SequenceFlow
-	for _, flow := range orderedEnumSplitFlows(findNormalFlows(flowsByOrigin[currentID])) {
+	for _, flow := range orderedEnumSplitFlows(findNormalFlows(flowsByOrigin[currentID]), activityMap) {
 		caseValue, ok := enumCaseValue(flow)
 		if !ok {
 			elseFlow = flow
@@ -1929,10 +1929,34 @@ func inheritanceCaseName(flow *microflows.SequenceFlow, entityNames map[model.ID
 	return "", false
 }
 
-func orderedEnumSplitFlows(flows []*microflows.SequenceFlow) []*microflows.SequenceFlow {
+// orderedEnumSplitFlows puts a split's case flows back in the order they were
+// written. Stored flow order does not survive serialization, so the order is read
+// from what does: the anchor pair (splitCaseOrder), then how far down the canvas the
+// branch sits.
+//
+// The pair alone used to carry the whole order, one distinct pair per case. A split
+// of four or more cases now shares three pairs — top, right and bottom of the split,
+// each arriving on the left (enumSplitOriginAnchors) — which the table already ranks
+// in that order, and the branches inside a group are stacked top to bottom in case
+// order, so their Y finishes the job. A model written with one pair per case never
+// reaches the tie-break and reads exactly as before; a split drawn by hand in Studio
+// Pro reads side first, then top to bottom.
+func orderedEnumSplitFlows(flows []*microflows.SequenceFlow, activityMap map[model.ID]microflows.MicroflowObject) []*microflows.SequenceFlow {
 	ordered := append([]*microflows.SequenceFlow(nil), flows...)
+	branchY := func(flow *microflows.SequenceFlow) int {
+		if flow == nil {
+			return 0
+		}
+		if obj := activityMap[flow.DestinationID]; obj != nil {
+			return obj.GetPosition().Y
+		}
+		return 0
+	}
 	sort.SliceStable(ordered, func(i, j int) bool {
-		return splitCaseOrder(ordered[i]) < splitCaseOrder(ordered[j])
+		if ri, rj := splitCaseOrder(ordered[i]), splitCaseOrder(ordered[j]); ri != rj {
+			return ri < rj
+		}
+		return branchY(ordered[i]) < branchY(ordered[j])
 	})
 	return ordered
 }
