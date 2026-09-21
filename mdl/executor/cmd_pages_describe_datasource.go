@@ -215,6 +215,7 @@ func parseSortColumns(ds map[string]any) []rawSortColumn {
 		col := rawSortColumn{Order: "asc"}
 		if attrRef, ok := sortItem["AttributeRef"].(map[string]any); ok {
 			col.Attribute = shortAttributeName(extractString(attrRef["Attribute"]))
+			col.Associations = sortAttributeHops(attrRef)
 		}
 		if gridSortDirection(sortItem) == "Descending" {
 			col.Order = "desc"
@@ -224,6 +225,38 @@ func parseSortColumns(ds map[string]any) []rawSortColumn {
 		}
 	}
 	return cols
+}
+
+// sortAttributeHops reads the association hops of a stored AttributeRef — its
+// EntityRef.Steps, one DomainModels$EntityRefStep per hop. An own-entity
+// attribute carries a DirectEntityRef or no EntityRef and yields none.
+//
+// Without this a sort over an association described as a bare attribute name,
+// and the replay had to guess the hop back (mendixlabs/mxcli#1152).
+func sortAttributeHops(attrRef map[string]any) []string {
+	entityRef, ok := attrRef["EntityRef"].(map[string]any)
+	if !ok || entityRef == nil {
+		return nil
+	}
+	var hops []string
+	for _, raw := range getBsonArrayElements(entityRef["Steps"]) {
+		step, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if assoc := extractString(step["Association"]); assoc != "" {
+			hops = append(hops, assoc)
+		}
+	}
+	return hops
+}
+
+// sortColumnPath renders a sort column as `Assoc/.../Attribute`.
+func sortColumnPath(col rawSortColumn) string {
+	if len(col.Associations) == 0 {
+		return col.Attribute
+	}
+	return strings.Join(append(append([]string{}, col.Associations...), col.Attribute), "/")
 }
 
 // dataSourceExpr renders a datasource as the MDL that reproduces it — the part
@@ -251,7 +284,7 @@ func dataSourceExpr(ds *rawDataSource) string {
 		if len(ds.SortColumns) > 0 {
 			parts := make([]string, 0, len(ds.SortColumns))
 			for _, col := range ds.SortColumns {
-				parts = append(parts, col.Attribute+" "+col.Order)
+				parts = append(parts, sortColumnPath(col)+" "+col.Order)
 			}
 			expr += " sort by " + strings.Join(parts, ", ")
 		}
