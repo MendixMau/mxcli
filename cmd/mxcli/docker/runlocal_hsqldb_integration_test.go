@@ -5,6 +5,7 @@
 package docker
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"os"
@@ -70,6 +71,7 @@ func TestRunLocal_HSQLDBNeedsNoDatabaseServer(t *testing.T) {
 	}
 
 	deployDir := filepath.Join(filepath.Dir(mprPath), "deployment")
+	var rtOut bytes.Buffer
 	rt, err := StartLocalRuntime(LocalRuntimeOptions{
 		DeployDir:   deployDir,
 		InstallPath: installPath,
@@ -78,17 +80,18 @@ func TestRunLocal_HSQLDBNeedsNoDatabaseServer(t *testing.T) {
 		AppPort:     8087,
 		AdminPort:   8097,
 		DB:          DBConfig{Type: "HSQLDB", Name: deriveDBName(mprPath)},
-		Stdout:      io.Discard,
-		Stderr:      io.Discard,
+		Stdout:      &rtOut,
+		Stderr:      &rtOut,
 	})
 	if err != nil {
 		t.Fatalf("boot with the built-in database: %v", err)
 	}
 	defer rt.Stop()
 
+	client := &http.Client{Timeout: 5 * time.Second}
 	deadline := time.Now().Add(90 * time.Second)
 	for {
-		resp, err := http.Get(rt.AppURL())
+		resp, err := client.Get(rt.AppURL())
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode == 200 {
@@ -96,7 +99,7 @@ func TestRunLocal_HSQLDBNeedsNoDatabaseServer(t *testing.T) {
 			}
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("app did not answer 200 at %s", rt.AppURL())
+			t.Fatalf("app did not answer 200 at %s\n--- runtime output ---\n%s", rt.AppURL(), rt.Log())
 		}
 		time.Sleep(time.Second)
 	}
