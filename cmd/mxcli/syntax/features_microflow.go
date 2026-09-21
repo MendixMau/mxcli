@@ -493,6 +493,15 @@ func init() {
 			"pixel offset from its end of the line. (0, 0) at both ends is straight.\n" +
 			"@position on a split belongs to the SPLIT, so its end-if join has its own\n" +
 			"annotation. Container Size is still computed, not authorable.\n\n" +
+			"WITHOUT @position the builder places everything. The main line runs left to\n" +
+			"right and wraps onto a new row past 2880px; the line joining two rows leaves\n" +
+			"the bottom of one and arrives on top of the next. A guard (if … return; end\n" +
+			"if) drops its branch into the lane below and the main line carries straight\n" +
+			"on over it. A CASE of four or more branches leaves the split in three groups\n" +
+			"— top, right, bottom — so its lines do not cross. A statement that carries\n" +
+			"@position is never moved, and starts the row for what follows it. Prefer no\n" +
+			"@position at all to a few: hand-placed statements are not measured against\n" +
+			"what the builder puts around them. (#1154)\n\n" +
 			"@start and @merge position the two nodes that have no statement of their\n" +
 			"own, so each is written on the statement it belongs to. Omit @start and the\n" +
 			"start is placed one spacing unit left of the first activity, on its centre\n" +
