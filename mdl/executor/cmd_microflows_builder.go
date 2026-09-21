@@ -113,6 +113,9 @@ type flowBuilder struct {
 	// pendingJoin is the `join` addStatement just saw, waiting for the enclosing
 	// body loop to say which activity the path had reached.
 	pendingJoin *ast.JoinStmt
+	// lowerLane is how far right the lane under each main line (keyed by the line's
+	// y) is occupied by a guard's branch. See layout_lanes.go.
+	lowerLane map[int]int
 }
 
 type flowBuilderVariableState struct {

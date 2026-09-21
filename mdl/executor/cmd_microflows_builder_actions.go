@@ -425,7 +425,7 @@ func (fb *flowBuilder) addEnumSplit(s *ast.EnumSplitStmt) model.ID {
 
 	branchWidth := 0
 	for _, br := range branches {
-		w := fb.measurer.measureStatements(br.body).Width
+		w := fb.measurer.measureBranch(br.body).Width
 		if w > branchWidth {
 			branchWidth = w
 		}
@@ -433,7 +433,7 @@ func (fb *flowBuilder) addEnumSplit(s *ast.EnumSplitStmt) model.ID {
 	if branchWidth == 0 {
 		branchWidth = HorizontalSpacing / 2
 	}
-	mergeX := splitX + SplitWidth + HorizontalSpacing/2 + branchWidth + HorizontalSpacing/2
+	mergeX := splitX + SplitWidth + HorizontalSpacing/2 + branchWidth
 	mergeX, mergeY := mergePosition(s.Annotations, mergeX, centerY)
 	var merge *microflows.ExclusiveMerge
 	ensureMerge := func() *microflows.ExclusiveMerge {

@@ -571,6 +571,8 @@ func (fb *flowBuilder) addStatement(stmt ast.MicroflowStatement) model.ID {
 	if fb.pendingAnnotations != nil && fb.pendingAnnotations.Position != nil {
 		fb.posX = fb.pendingAnnotations.Position.X
 		fb.posY = fb.pendingAnnotations.Position.Y
+	} else {
+		fb.clearLowerLane(stmt)
 	}
 	if fb.pendingAnnotations != nil {
 		for _, note := range fb.pendingAnnotations.FreeNotes {
