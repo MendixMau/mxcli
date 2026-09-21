@@ -666,42 +666,15 @@ func isViewEntity(e *domainmodel.Entity) bool {
 
 // droppedEntityMembers reports the members present on existing but absent from
 // replacement — i.e. what a CREATE OR MODIFY replace would delete. Named
-// attributes are compared case-insensitively; the four audit system fields are
-// reported when their flag is on in existing but off in replacement. Used to
-// surface accidental data loss (findings #24).
+// attributes are compared case-insensitively; the four audit system fields and
+// the generalization are reported when existing carries one and replacement does
+// not. Used to surface accidental data loss (findings #24).
+//
+// The comparison itself lives in droppedMembers, shared with the check-time
+// MDL087 pass (ako/mxcli#562). Two hand-written diffs at two layers is how the
+// audit fields came to be covered by one and not the other.
 func droppedEntityMembers(existing, replacement *domainmodel.Entity) []string {
-	keep := make(map[string]bool, len(replacement.Attributes))
-	for _, a := range replacement.Attributes {
-		keep[strings.ToLower(a.Name)] = true
-	}
-	var dropped []string
-	for _, a := range existing.Attributes {
-		if !keep[strings.ToLower(a.Name)] {
-			dropped = append(dropped, a.Name)
-		}
-	}
-	// Audit system fields that were enabled and are no longer requested are also
-	// removed by the replace.
-	if existing.HasOwner && !replacement.HasOwner {
-		dropped = append(dropped, "owner (system field)")
-	}
-	if existing.HasChangedBy && !replacement.HasChangedBy {
-		dropped = append(dropped, "changedBy (system field)")
-	}
-	if existing.HasCreatedDate && !replacement.HasCreatedDate {
-		dropped = append(dropped, "createdDate (system field)")
-	}
-	if existing.HasChangedDate && !replacement.HasChangedDate {
-		dropped = append(dropped, "changedDate (system field)")
-	}
-	// An omitted EXTENDS un-inherits the entity, which is a bigger change than a
-	// dropped attribute and was the only one of these that happened in silence.
-	// It is reported rather than preserved because there is no "extends nothing"
-	// spelling, so preserving it would make an inheritance impossible to remove.
-	if existing.GeneralizationRef != "" && replacement.GeneralizationRef == "" {
-		dropped = append(dropped, "extends "+existing.GeneralizationRef+" (generalization)")
-	}
-	return dropped
+	return droppedMembers(memberSetFromEntity(existing), memberSetFromEntity(replacement))
 }
 
 // execCreateViewEntity handles CREATE VIEW ENTITY statements.
