@@ -274,3 +274,33 @@ func TestAgentDocumentsAreGated(t *testing.T) {
 		})
 	}
 }
+
+// TestWorkflowGroupsFloorIs11_2 pins the workflow-group gate to the metamodel,
+// not to the release notes.
+//
+// mendixlabs/mxcli#272 states "Workflow Groups are GA from Mendix 11.6". The
+// arbiter for whether the document loads is the Model SDK's own
+// StructureVersionInfo, and there both Settings$WorkflowGroup and
+// WorkflowsProjectSettingsPart.groups read `introduced: "11.2.0"`
+// (mendixmodelsdk 4.115.0, package/src/gen/settings.js). Gating on 11.6 would
+// refuse four minors of projects that store the property perfectly well.
+func TestWorkflowGroupsFloorIs11_2(t *testing.T) {
+	reg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	cases := []struct {
+		v    SemVer
+		want bool
+	}{
+		{SemVer{Major: 10, Minor: 24, Patch: 0}, false},
+		{SemVer{Major: 11, Minor: 1, Patch: 0}, false},
+		{SemVer{Major: 11, Minor: 2, Patch: 0}, true},
+		{SemVer{Major: 11, Minor: 13, Patch: 0}, true},
+	}
+	for _, tc := range cases {
+		if got := reg.IsAvailable("workflows", "groups", tc.v); got != tc.want {
+			t.Errorf("IsAvailable(workflows, groups, %v) = %v, want %v", tc.v, got, tc.want)
+		}
+	}
+}

@@ -688,6 +688,9 @@ func (b *Builder) ExitShowStatement(ctx *parser.ShowStatementContext) {
 			}
 		}
 		b.statements = append(b.statements, stmt)
+	} else if ctx.WORKFLOW() != nil && ctx.GROUPS() != nil {
+		// SHOW WORKFLOW GROUPS
+		b.statements = append(b.statements, &ast.ShowStmt{ObjectType: ast.ShowWorkflowGroups})
 	} else if ctx.LANGUAGES() != nil {
 		// SHOW LANGUAGES
 		b.statements = append(b.statements, &ast.ShowStmt{ObjectType: ast.ShowLanguages})
