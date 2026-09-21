@@ -85,7 +85,12 @@ func execCreateValidationRule(ctx *ExecContext, s *ast.CreateValidationRuleStmt)
 	invalidateHierarchy(ctx)
 	invalidateDomainModelsCache(ctx)
 
-	fmt.Fprintf(ctx.Output, "Created %s validation rule on %s\n", ruleType, attrQN)
+	// Through ReportMutation, not Fprintf: re-running a script that already
+	// matches the project offers the write and has it elided, and reporting
+	// "Created" there is how ako/mxcli#556 read as churn long after the bytes
+	// had stopped moving. The verb is only downgraded on positive evidence —
+	// writes offered, none landed.
+	ctx.ReportMutation("Created", "%s validation rule on %s", ruleType, attrQN)
 	return nil
 }
 
