@@ -248,3 +248,102 @@ func TestIssue575_DescribeOmitsAnAbsentParamsCompanion(t *testing.T) {
 		}
 	}
 }
+
+// treeNodeStoredWidget is one stored CustomWidget in the shape a TreeNode takes:
+// a text-template property (`headerCaption`) bound to `{1}` = attr, beside a
+// primitive (`headerType`). TreeNode and Timeline have no dedicated DESCRIBE
+// extractor, so they go through extractExplicitProperties — which read
+// AttributeRef and PrimitiveValue only.
+func treeNodeStoredWidget(attr string) map[string]any {
+	template := map[string]any{
+		"$Type": "Forms$ClientTemplate",
+		"Template": map[string]any{
+			"$Type": "Texts$Text",
+			"Items": []any{
+				map[string]any{"$Type": "Texts$Translation", "LanguageCode": "en_US", "Text": "{1}"},
+			},
+		},
+		"Parameters": []any{
+			map[string]any{
+				"$Type":        "Forms$ClientTemplateParameter",
+				"AttributeRef": map[string]any{"$Type": "DomainModels$AttributeRef", "Attribute": attr},
+				"Expression":   "",
+			},
+		},
+	}
+	propType := func(id, key, valueType string) map[string]any {
+		return map[string]any{
+			"$ID": id, "$Type": "CustomWidgets$WidgetPropertyType",
+			"PropertyKey": key, "ValueType": valueType,
+		}
+	}
+	prop := func(ptr string, value map[string]any) map[string]any {
+		return map[string]any{"$Type": "CustomWidgets$WidgetProperty", "TypePointer": ptr, "Value": value}
+	}
+	return map[string]any{
+		"Type": map[string]any{"ObjectType": map[string]any{"PropertyTypes": []any{
+			propType("pt-1", "headerCaption", "TextTemplate"),
+			propType("pt-2", "headerType", "Enumeration"),
+		}}},
+		"Object": map[string]any{"Properties": []any{
+			prop("pt-1", map[string]any{"$Type": "CustomWidgets$WidgetValue", "TextTemplate": template}),
+			prop("pt-2", map[string]any{"$Type": "CustomWidgets$WidgetValue", "PrimitiveValue": "text"}),
+		}},
+	}
+}
+
+// The generic extractor must read text templates. Without this every
+// text-template property of every widget with no dedicated extractor — a
+// TreeNode's headerCaption, a Timeline's title/description/timeIndication — was
+// absent from DESCRIBE whether it was bound OR literal, so describe → exec
+// dropped the caption entirely and the copy rendered blank.
+func TestIssue575_GenericDescribeReadsTextTemplates(t *testing.T) {
+	ctx, _ := newMockCtx(t)
+	props := extractExplicitProperties(ctx, treeNodeStoredWidget("Sales.Customer.Name"))
+
+	var caption *rawExplicitProp
+	for i := range props {
+		if props[i].Key == "headerCaption" {
+			caption = &props[i]
+		}
+	}
+	if caption == nil {
+		t.Fatalf("headerCaption absent from the generic describe; got %+v", props)
+	}
+	if caption.Value != "{1}" {
+		t.Errorf("headerCaption = %q, want {1}", caption.Value)
+	}
+	if len(caption.Params) != 1 || caption.Params[0] != "Name" {
+		t.Errorf("headerCaption params = %v, want [Name] — a `{1}` re-executed with no "+
+			"parameter is CE0720", caption.Params)
+	}
+
+	// The primitive beside it is untouched: the new branch must not swallow
+	// properties the extractor already handled.
+	var seenHeaderType bool
+	for _, p := range props {
+		if p.Key == "headerType" && p.Value == "text" {
+			seenHeaderType = true
+		}
+	}
+	if !seenHeaderType {
+		t.Errorf("headerType lost from the generic describe; got %+v", props)
+	}
+}
+
+// CONTROL: an unset or widget-hidden template stores a null / empty
+// ClientTemplate and must emit nothing — a bare `headerCaption: ”` would
+// re-execute into an empty caption where the widget's own default belongs.
+func TestIssue575_GenericDescribeOmitsAnEmptyTextTemplate(t *testing.T) {
+	ctx, _ := newMockCtx(t)
+	w := treeNodeStoredWidget("Sales.Customer.Name")
+	obj := w["Object"].(map[string]any)
+	obj["Properties"].([]any)[0].(map[string]any)["Value"] = map[string]any{
+		"$Type": "CustomWidgets$WidgetValue", "TextTemplate": nil,
+	}
+	for _, p := range extractExplicitProperties(ctx, w) {
+		if p.Key == "headerCaption" {
+			t.Errorf("emitted %q for an unset template", p.Value)
+		}
+	}
+}

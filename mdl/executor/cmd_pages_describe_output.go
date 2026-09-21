@@ -727,6 +727,12 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 			props = appendWidgetDataSources(props, w)
 			for _, ep := range w.ExplicitProperties {
 				props = append(props, fmt.Sprintf("%s: %s", ep.Key, explicitPropValue(ep)))
+				// A `{1}` re-executed without its parameter is CE0720, so the
+				// companion travels with the text it belongs to (#575).
+				if len(ep.Params) > 0 {
+					props = append(props, fmt.Sprintf("%sParams: [%s]",
+						ep.Key, strings.Join(formatParametersV3(ep.Params), ", ")))
+				}
 			}
 			// onClick action (ledger #67 — reported on CustomChart)
 			if w.OnClick != "" {

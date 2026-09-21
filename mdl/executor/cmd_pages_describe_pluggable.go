@@ -1146,6 +1146,19 @@ func extractExplicitProperties(ctx *ExecContext, w map[string]any) []rawExplicit
 			}
 		}
 
+		// A text-template property: its text, plus the `{N}` bindings under the
+		// `<Key>Params` companion. An unset or widget-hidden template stores a
+		// null or an empty ClientTemplate and yields "", so it emits nothing.
+		if text, tt := extractTextTemplateText(value); text != "" {
+			result = append(result, rawExplicitProp{
+				Key:       propKey,
+				Value:     text,
+				ValueType: valueTypes[typePointerID],
+				Params:    extractTextTemplateParameters(ctx, tt),
+			})
+			continue
+		}
+
 		// Check for a PrimitiveValue.
 		//
 		// Booleans used to be dropped here as "common defaults". They are not:

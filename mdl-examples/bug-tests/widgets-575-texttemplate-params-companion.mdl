@@ -20,17 +20,21 @@
 -- every template on the widget, which cannot say "this caption binds Name and
 -- that one binds Remarks".
 --
--- This file uses the built-in pluggable Image rather than a Marketplace
--- TreeNode, because it has the same shape and needs no download: TWO
--- text-template properties, `imageUrl` and `alternativeText`, which is exactly
--- what one shared contentparams cannot address.
+-- The reported widgets are BUNDLED in a blank app -- TreeNode.mpk and
+-- Timeline.mpk both ship in 11.14.0's `widgets/`, and `mxcli init` generates
+-- their defs -- so this file exercises them directly. The built-in pluggable
+-- Image is here too: it has the same shape (TWO text templates, `imageUrl` and
+-- `alternativeText`) and reaches the engine through a DIFFERENT branch, because
+-- its def.json names the mappings by SOURCE (`ImageUrl`) where the TreeNode's
+-- names them by schema key. A fix applied to one branch looks complete.
 --
 -- Measured on a blank Mendix 11.14.0 project (mxbuild 11.14.0):
 --
---   pre-fix   check    -> widget `cardImage` (IMAGE) has no property
---                         `imageUrlParams` -- did you mean `imageUrl`?
---                         (x4: imageUrlParams, alternativeTextParams, and the
---                         same two in the source-name spelling) [MDL-WIDGET01]
+--   pre-fix   check    -> widget `tnProduct` (TREENODE) has no property
+--                         `headerCaptionParams` -- did you mean
+--                         `headerCaption`? [MDL-WIDGET01], and the same for
+--                         titleParams / descriptionParams / imageUrlParams /
+--                         alternativeTextParams
 --                      -> exec refuses; nothing is written.
 --
 --             with the companions deleted and one shared `contentparams:`
@@ -39,10 +43,17 @@
 --             parameter {1} out of the same list. That is the reported class:
 --             valid, buildable, and wrong.
 --
+--             describe of the treenode/timeline emitted every primitive and
+--             NO caption at all (`extractExplicitProperties` read AttributeRef
+--             and PrimitiveValue only), so describe -> exec lost it outright.
+--
 --   fixed     check    -> Check passed!
---             exec     -> Created page Bug575.Catalogue
+--             exec     -> Created page Bug575.Catalogue / Bug575.Tree
 --             mx check -> 0 errors
---             describe -> each template round-trips with its own binding
+--             BSON     -> headerCaption {1}=[Name]; title {1}=[Name];
+--                         description {1}=[PictureUrl]; imageUrl
+--                         {1}=[PictureUrl]; alternativeText {1}=[Name]
+--             describe -> exec -> "Unchanged page" (round trip stable)
 --
 -- Usage:
 --   mxcli exec mdl-examples/bug-tests/widgets-575-texttemplate-params-companion.mdl -p app.mpr
@@ -93,5 +104,31 @@ create or modify page Bug575.Catalogue (
       imageUrl: '{1}', contentparams: [{1} = PictureUrl]
     )
   }
+}
+/
+
+-- The widgets the issue was filed against, both bundled in a blank app. Neither
+-- has a dedicated DESCRIBE extractor, so they also cover the generic read path:
+-- before the fix their captions were absent from `describe page` entirely.
+create or modify page Bug575.Tree (
+  Title: 'Tree',
+  Layout: Atlas_Core.Atlas_Default
+)
+{
+  TREENODE tnProduct (
+    datasource: DATABASE Bug575.Product,
+    headerType: 'text',
+    headerCaption: '{1}', headerCaptionParams: [{1} = Name]
+  )
+
+  -- Three templates on one widget, of which two are bound to DIFFERENT
+  -- attributes. This is the case the widget-wide `contentparams:` cannot
+  -- express at all; `timeIndication` is left unset and stays unset.
+  TIMELINE tl (
+    data: DATABASE Bug575.Product,
+    groupEvents: false,
+    title: '{1}',       titleParams: [{1} = Name],
+    description: '{1}', descriptionParams: [{1} = PictureUrl]
+  )
 }
 /

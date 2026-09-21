@@ -541,8 +541,11 @@ image cardImage (
 
 The companion is the property's own name + `Params`, in whichever spelling the
 template itself was written. It takes the same per-parameter `format (...)`
-block a `dynamictext` does, and `DESCRIBE PAGE` emits it, so describe → exec
-keeps the binding.
+block a `dynamictext` does, and `DESCRIBE PAGE` emits both the template and its
+companion — for the Image and for every other pluggable widget — so describe →
+exec keeps the binding. Before ako/mxcli#575 the generic describe path read
+attribute references and primitives only, so a TreeNode's `headerCaption` and a
+Timeline's `title` were missing from its output altogether.
 
 Two shorter spellings remain:
 

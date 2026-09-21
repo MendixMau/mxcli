@@ -776,6 +776,13 @@ type rawExplicitProp struct {
 	// String property holding "30" or "true" still has to come back quoted.
 	// Empty when the widget's schema is not in the document (ledger #104).
 	ValueType string
+	// Params holds a text-template property's `{N}` bindings, emitted as the
+	// `<Key>Params` companion. The generic extractor read AttributeRef and
+	// PrimitiveValue only, so EVERY text-template property of every widget
+	// without a dedicated extractor — a TreeNode's headerCaption, a Timeline's
+	// title/description — was dropped from DESCRIBE whether it was bound or
+	// literal (ako/mxcli#575).
+	Params []string
 }
 
 // rawDesignProp represents a parsed design property from BSON.
