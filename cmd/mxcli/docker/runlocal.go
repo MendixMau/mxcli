@@ -182,21 +182,6 @@ func (o *LocalRunOptions) applyDefaults() {
 	if o.PollInterval == 0 {
 		o.PollInterval = time.Second
 	}
-	if o.DB.Type == "" {
-		o.DB.Type = "PostgreSQL"
-	}
-	if o.DB.Host == "" {
-		o.DB.Host = "127.0.0.1:5432"
-	}
-	if o.DB.User == "" {
-		o.DB.User = "mendix"
-	}
-	if o.DB.Password == "" {
-		o.DB.Password = "mendix"
-	}
-	if o.DB.Name == "" {
-		o.DB.Name = deriveDBName(o.ProjectPath)
-	}
 	if o.ScreenshotPath == "" {
 		o.ScreenshotPath = filepath.Join(filepath.Dir(o.ProjectPath), ".mxcli", "run-local.png")
 	}
@@ -212,6 +197,47 @@ func (o *LocalRunOptions) applyDefaults() {
 	if o.Stderr == nil {
 		o.Stderr = os.Stderr
 	}
+}
+
+// applyDatabaseDefaults validates --db-type and fills the connection settings the
+// chosen database needs. It is separate from applyDefaults because it can fail:
+// a flag combination that cannot work (--db-type hsqldb with --db-host) is a user
+// error, not something to silently normalise away.
+func (o *LocalRunOptions) applyDatabaseDefaults() error {
+	kind, err := NormalizeDBType(o.DB.Type)
+	if err != nil {
+		return err
+	}
+	if o.DB.Name == "" {
+		o.DB.Name = deriveDBName(o.ProjectPath)
+	}
+	if IsFileBasedDBType(kind) {
+		// The built-in database is a file: it has no host or credentials, and
+		// accepting them would imply a connection that never happens.
+		if o.DB.Host != "" || o.DB.User != "" || o.DB.Password != "" {
+			return fmt.Errorf("--db-type hsqldb uses the built-in file database and takes no " +
+				"--db-host, --db-user or --db-password")
+		}
+		if o.EnsureDB {
+			return fmt.Errorf("--ensure-db provisions PostgreSQL; the built-in HSQLDB database " +
+				"needs no provisioning — drop --ensure-db")
+		}
+		o.DB.Type = RuntimeDatabaseType(kind)
+		o.DB.Host, o.DB.User, o.DB.Password = "", "", ""
+		return nil
+	}
+	// PostgreSQL (unchanged behaviour).
+	if o.DB.Host == "" {
+		o.DB.Host = "127.0.0.1:5432"
+	}
+	if o.DB.User == "" {
+		o.DB.User = "mendix"
+	}
+	if o.DB.Password == "" {
+		o.DB.Password = "mendix"
+	}
+	o.DB.Type = RuntimeDatabaseType(kind)
+	return nil
 }
 
 // defaultOtelSpanFilters are the internal runtime spans suppressed under --trace.
@@ -541,6 +567,9 @@ func sourceMTime(projectPath string) time.Time {
 // and hot-apply on every project change until interrupted.
 func RunLocal(opts LocalRunOptions) error {
 	opts.applyDefaults()
+	if err := opts.applyDatabaseDefaults(); err != nil {
+		return err
+	}
 	w, stderr := opts.Stdout, opts.Stderr
 
 	// 0. Refuse fast if the loop's ports are already taken (a stale run/serve/
