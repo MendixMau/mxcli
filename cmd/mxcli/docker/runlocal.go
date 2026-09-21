@@ -639,10 +639,12 @@ func RunLocal(opts LocalRunOptions) error {
 		if err := EnsureDatabase(&opts.DB, w); err != nil {
 			return fmt.Errorf("ensuring database: %w", err)
 		}
-	} else if err := pingTCP(opts.DB.Host, 3*time.Second); err != nil {
-		return fmt.Errorf("database not reachable at %s: %w\n"+
-			"  Pass --ensure-db to provision it, or start Postgres and create the '%s' database (user %q).",
-			opts.DB.Host, err, opts.DB.Name, opts.DB.User)
+	} else if !opts.DB.IsFileBased() {
+		if err := pingTCP(opts.DB.Host, 3*time.Second); err != nil {
+			return fmt.Errorf("database not reachable at %s: %w\n"+
+				"  Pass --ensure-db to provision it, or start Postgres and create the '%s' database (user %q).",
+				opts.DB.Host, err, opts.DB.Name, opts.DB.User)
+		}
 	}
 
 	// Setup-only: prerequisites are ready (mxbuild+runtime cached, database up).

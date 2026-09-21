@@ -42,6 +42,13 @@ type DBConfig struct {
 	Password string
 }
 
+// IsFileBased reports whether this is the runtime's built-in file database, which
+// has no host to reach. It keys on the runtime spelling that applyDatabaseDefaults
+// sets (RuntimeDatabaseType), not the raw --db-type flag.
+func (c DBConfig) IsFileBased() bool {
+	return c.Type == RuntimeDatabaseType(DBTypeHSQLDB)
+}
+
 // LocalRuntimeOptions configures StartLocalRuntime.
 type LocalRuntimeOptions struct {
 	// DeployDir is the deployment directory (the runtime's BasePath). The mxbuild

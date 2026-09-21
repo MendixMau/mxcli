@@ -632,3 +632,15 @@ func TestLocalRunOptions_DatabaseDefaults_UnknownType(t *testing.T) {
 		t.Error("unknown db type: want an error")
 	}
 }
+
+func TestDBConfig_IsFileBased(t *testing.T) {
+	if !(DBConfig{Type: "HSQLDB"}).IsFileBased() {
+		t.Error("HSQLDB should be file-based")
+	}
+	if (DBConfig{Type: "PostgreSQL"}).IsFileBased() {
+		t.Error("PostgreSQL is not file-based")
+	}
+	if (DBConfig{Type: "hsqldb"}).IsFileBased() {
+		t.Error("the check must use the canonical spelling, not the raw flag")
+	}
+}
