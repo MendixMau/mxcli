@@ -1100,7 +1100,19 @@ func (fb *flowBuilder) addRetrieveAction(s *ast.RetrieveStmt) model.ID {
 				// Resolve attribute path - if just a simple name, prefix with entity
 				attrPath := col.Attribute
 				var entityRefSteps []microflows.EntityRefStep
-				if !strings.Contains(attrPath, ".") {
+				if len(col.Associations) > 0 {
+					// The script SPELLS the hops. Take them as written rather than
+					// inferring: inference cannot tell two associations reaching the
+					// same entity apart, and picking the wrong one is a model that
+					// builds cleanly and sorts by the wrong thing
+					// (mendixlabs/mxcli#1152).
+					resolved, finalQN, err := fb.resolveSortAssociationPath(entityQN, col.Associations, col.Attribute)
+					if err != nil {
+						fb.addError("sort by %s: %s", sortColumnText(col), err.Error())
+						continue // Skip this sort column but continue processing others
+					}
+					entityRefSteps, attrPath = resolved, finalQN
+				} else if !strings.Contains(attrPath, ".") {
 					// Qualify with the entity that DECLARES the attribute, which is
 					// not always the one being retrieved. Mendix resolves a sort
 					// reference against the declaring entity, so qualifying an
@@ -1342,6 +1354,140 @@ func (fb *flowBuilder) inferSortEntityRefSteps(sourceEntityQN, attrPath string) 
 		currentQN = entity.GeneralizationRef
 	}
 	return nil
+}
+
+// sortColumnText renders a sort column the way it was authored, for messages.
+func sortColumnText(col ast.SortColumnDef) string {
+	if len(col.Associations) == 0 {
+		return col.Attribute
+	}
+	return strings.Join(append(append([]string{}, col.Associations...), col.Attribute), "/")
+}
+
+// resolveSortAssociationPath turns an authored `Assoc/…/Attribute` sort column
+// into the EntityRefSteps Mendix stores alongside the attribute, plus the
+// attribute's fully-qualified name.
+//
+// This is the spelling that exists because inference cannot be made correct:
+// where two associations reach the same entity — `Order_ShipTo` and
+// `Order_BillTo`, both `Order → Address`, an ordinary shape — the stored hop is
+// not recoverable from the attribute name alone, and DESCRIBE emitted nothing
+// else. Measured on 11.12.3: a microflow sorting by the billing address came
+// back from `describe → exec` sorting by the shipping one, at 0 errors on both
+// sides (mendixlabs/mxcli#1152).
+//
+// Everything here is refused rather than guessed. A hop that does not resolve,
+// one that starts nowhere near the entity in hand, or a final attribute on an
+// entity the last hop does not reach are each an error — a step written with an
+// empty DestinationEntity is the one outcome worse than a refusal, since it
+// makes the project unopenable (System.ArgumentNullException at
+// EntityRefStep.set_DestinationEntityId) rather than merely wrong.
+func (fb *flowBuilder) resolveSortAssociationPath(sourceEntityQN string, hops []string, attrName string) ([]microflows.EntityRefStep, string, error) {
+	if sourceEntityQN == "" {
+		return nil, "", fmt.Errorf("the retrieved entity is unknown, so the association path cannot be resolved")
+	}
+	if fb == nil || fb.backend == nil {
+		return nil, "", fmt.Errorf("no project is open, so the association path cannot be resolved")
+	}
+
+	steps := make([]microflows.EntityRefStep, 0, len(hops))
+	current := sourceEntityQN
+	for _, hop := range hops {
+		assocQN, info := fb.lookupSortHop(current, hop)
+		if info == nil {
+			return nil, "", fmt.Errorf("association '%s' was not found", hop)
+		}
+		var dest string
+		switch {
+		case fb.entityIsSubtypeOf(current, info.parentEntityQN):
+			dest = info.childEntityQN
+		case fb.entityIsSubtypeOf(current, info.childEntityQN):
+			dest = info.parentEntityQN
+		default:
+			return nil, "", fmt.Errorf("association '%s' connects %s and %s, neither of which is %s",
+				assocQN, info.parentEntityQN, info.childEntityQN, current)
+		}
+		if dest == "" {
+			return nil, "", fmt.Errorf("association '%s' has an unresolved end, so the entity it reaches is unknown", assocQN)
+		}
+		steps = append(steps, microflows.EntityRefStep{Association: assocQN, DestinationEntity: dest})
+		current = dest
+	}
+
+	// The final attribute is qualified with the entity that DECLARES it, which
+	// for an inherited attribute is an ancestor of the last hop's destination —
+	// the same rule (and the same CE1613 when broken) as a sort with no hops.
+	if strings.Count(attrName, ".") >= 2 {
+		owner := attrName[:strings.LastIndex(attrName, ".")]
+		if !fb.entityIsSubtypeOf(current, owner) {
+			return nil, "", fmt.Errorf("attribute '%s' does not belong to %s, which is where the association path ends",
+				attrName, current)
+		}
+		return steps, attrName, nil
+	}
+	if declared, ok := fb.resolveAttributeInEntityHierarchy(current, attrName); ok {
+		return steps, declared, nil
+	}
+	return nil, "", fmt.Errorf("entity %s has no attribute '%s'", current, attrName)
+}
+
+// lookupSortHop resolves one segment of a sort column's association path. A
+// qualified segment names its module outright; a bare one is looked for in the
+// modules of the entity in hand and of its ancestors, because an association is
+// stored in the module of the entity that DECLARES it — which for an inherited
+// one is not the module of the entity being sorted (mendixlabs/mxcli#1152).
+func (fb *flowBuilder) lookupSortHop(currentEntityQN, hop string) (string, *assocLookupResult) {
+	if i := strings.LastIndex(hop, "."); i > 0 {
+		if info := fb.lookupAssociation(hop[:i], hop[i+1:]); info != nil {
+			return hop, info
+		}
+		return hop, nil
+	}
+	for _, moduleName := range fb.entityChainModules(currentEntityQN) {
+		if info := fb.lookupAssociation(moduleName, hop); info != nil {
+			return moduleName + "." + hop, info
+		}
+	}
+	return hop, nil
+}
+
+// entityChainModules lists the modules of an entity and of its ancestors,
+// nearest first and without repeats.
+func (fb *flowBuilder) entityChainModules(entityQN string) []string {
+	var out []string
+	seenModule := make(map[string]bool)
+	seenEntity := make(map[string]bool)
+	for currentQN := entityQN; currentQN != ""; {
+		if seenEntity[currentQN] {
+			break
+		}
+		seenEntity[currentQN] = true
+		parts := strings.SplitN(currentQN, ".", 2)
+		if len(parts) != 2 || parts[0] == "" {
+			break
+		}
+		if !seenModule[parts[0]] {
+			seenModule[parts[0]] = true
+			out = append(out, parts[0])
+		}
+		if fb.backend == nil {
+			break
+		}
+		mod, err := fb.backend.GetModuleByName(parts[0])
+		if err != nil || mod == nil {
+			break
+		}
+		dm, err := fb.backend.GetDomainModel(mod.ID)
+		if err != nil || dm == nil {
+			break
+		}
+		entity := dm.FindEntityByName(parts[1])
+		if entity == nil {
+			break
+		}
+		currentQN = entity.GeneralizationRef
+	}
+	return out
 }
 
 func entityQualifiedNameFromAttribute(attrPath string) string {

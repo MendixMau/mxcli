@@ -187,3 +187,74 @@ func TestRetrieveSourceToGen_SortOverAssociationWritesEntityRefSteps(t *testing.
 		t.Errorf("DestinationEntity = %q, want System.Language", got)
 	}
 }
+
+// TestRetrieveSourceFromGen_SortOverAssociationReadsHops guards the READ half of
+// mendixlabs/mxcli#1152. The hop was written and never read back, so DESCRIBE
+// could not emit it even once MDL had a spelling for it — and a describer that
+// drops what the writer stores is how a round trip silently changes a program.
+func TestRetrieveSourceFromGen_SortOverAssociationReadsHops(t *testing.T) {
+	in := &microflows.DatabaseRetrieveSource{
+		EntityQualifiedName: "Sales.Order",
+		Sorting: []*microflows.SortItem{{
+			AttributeQualifiedName: "Sales.Address.City",
+			Direction:              microflows.SortDirectionAscending,
+			EntityRefSteps: []microflows.EntityRefStep{{
+				Association:       "Sales.Order_BillTo",
+				DestinationEntity: "Sales.Address",
+			}},
+		}},
+	}
+
+	raw, err := (&codec.Encoder{}).Encode(retrieveSourceToGen(in))
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	decoded, err := codec.NewDecoder(codec.DefaultRegistry).Decode(raw)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	out, ok := retrieveSourceFromGen(decoded).(*microflows.DatabaseRetrieveSource)
+	if !ok {
+		t.Fatal("round-trip did not yield a DatabaseRetrieveSource")
+	}
+	if len(out.Sorting) != 1 {
+		t.Fatalf("Sorting = %d items, want 1", len(out.Sorting))
+	}
+	got := out.Sorting[0]
+	if got.AttributeQualifiedName != "Sales.Address.City" {
+		t.Errorf("attribute = %q, want Sales.Address.City", got.AttributeQualifiedName)
+	}
+	if len(got.EntityRefSteps) != 1 {
+		t.Fatalf("EntityRefSteps = %+v, want one hop — the association the sort navigates "+
+			"is invisible to DESCRIBE without it", got.EntityRefSteps)
+	}
+	if got.EntityRefSteps[0].Association != "Sales.Order_BillTo" ||
+		got.EntityRefSteps[0].DestinationEntity != "Sales.Address" {
+		t.Errorf("hop = %+v, want Sales.Order_BillTo -> Sales.Address", got.EntityRefSteps[0])
+	}
+}
+
+// CONTROL: an own-entity sort carries a DirectEntityRef or no EntityRef at all,
+// and must read back with no hops. A reader that manufactured an empty hop would
+// make DESCRIBE emit a stray `/`.
+func TestRetrieveSourceFromGen_PlainSortHasNoHops(t *testing.T) {
+	in := &microflows.DatabaseRetrieveSource{
+		EntityQualifiedName: "Sales.Order",
+		Sorting: []*microflows.SortItem{{
+			AttributeQualifiedName: "Sales.Order.OrderNo",
+			Direction:              microflows.SortDirectionAscending,
+		}},
+	}
+	raw, err := (&codec.Encoder{}).Encode(retrieveSourceToGen(in))
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	decoded, err := codec.NewDecoder(codec.DefaultRegistry).Decode(raw)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	out := retrieveSourceFromGen(decoded).(*microflows.DatabaseRetrieveSource)
+	if len(out.Sorting) != 1 || len(out.Sorting[0].EntityRefSteps) != 0 {
+		t.Errorf("got %+v, want one sort item with no hops", out.Sorting)
+	}
+}

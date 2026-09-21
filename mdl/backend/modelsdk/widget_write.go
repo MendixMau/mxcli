@@ -1431,7 +1431,12 @@ func listViewSourceToGen(ds pages.DataSource) (element.Element, error) {
 			item := genPg.NewGridSortItem()
 			assignID(item)
 			item.SetSortDirection(string(s.Direction))
-			if ref := attributeRefToGen(s.AttributePath); ref != nil {
+			// inputAttributeRefToGen, not attributeRefToGen: a sort that navigates
+			// associations needs its hops stored as the AttributeRef's EntityRef,
+			// exactly as an input widget's binding does. Without them the far
+			// entity's attribute does not resolve and mxbuild answers CE7247
+			// (mendixlabs/mxcli#1152). With no steps the two are identical.
+			if ref := inputAttributeRefToGen(s.AttributePath, s.AttributeRefSteps); ref != nil {
 				item.SetAttributeRef(ref)
 			}
 			bar.AddSortItems(item)
@@ -1504,7 +1509,12 @@ func customWidgetDataSourceToGen(ds pages.DataSource) (element.Element, error) {
 			item := genPg.NewGridSortItem()
 			assignID(item)
 			item.SetSortDirection(string(s.Direction))
-			if ref := attributeRefToGen(s.AttributePath); ref != nil {
+			// inputAttributeRefToGen, not attributeRefToGen: a sort that navigates
+			// associations needs its hops stored as the AttributeRef's EntityRef,
+			// exactly as an input widget's binding does. Without them the far
+			// entity's attribute does not resolve and mxbuild answers CE7247
+			// (mendixlabs/mxcli#1152). With no steps the two are identical.
+			if ref := inputAttributeRefToGen(s.AttributePath, s.AttributeRefSteps); ref != nil {
 				item.SetAttributeRef(ref)
 			}
 			bar.AddSortItems(item)
