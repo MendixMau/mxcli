@@ -36,6 +36,9 @@ Requirements:
   - A reachable PostgreSQL (the devcontainer provides one); the database must
     already exist. Defaults: 127.0.0.1:5432, user 'mendix', db from the project
     name. Override with --db-host/--db-name/--db-user/--db-password.
+  - --db-type hsqldb runs against the built-in file database instead of
+    PostgreSQL, so no database server is needed. Its data lives under the
+    project's deployment directory and is meant for local development only.
 
 With --hub, the running app is exposed in a browser at a public URL through an
 mxcli tunnel-hub, without leaving this machine: a tunnel client reverse-tunnels
@@ -147,6 +150,7 @@ Examples:
 		adminPort, _ := cmd.Flags().GetInt("admin-port")
 		servePort, _ := cmd.Flags().GetInt("serve-port")
 		mxbuildPath, _ := cmd.Flags().GetString("mxbuild-path")
+		dbType, _ := cmd.Flags().GetString("db-type")
 		dbHost, _ := cmd.Flags().GetString("db-host")
 		dbName, _ := cmd.Flags().GetString("db-name")
 		dbUser, _ := cmd.Flags().GetString("db-user")
@@ -219,6 +223,7 @@ Examples:
 			TraceService:       traceService,
 			TraceOTLP:          traceOTLP,
 			DB: docker.DBConfig{
+				Type:     dbType,
 				Host:     dbHost,
 				Name:     dbName,
 				User:     dbUser,
@@ -313,6 +318,7 @@ func init() {
 	runCmd.Flags().Int("admin-port", 0, "M2EE admin API port (default 8090)")
 	runCmd.Flags().Int("serve-port", 0, "mxbuild --serve port (default 6543)")
 	runCmd.Flags().String("mxbuild-path", "", "Path to the mxbuild to build with, overriding resolution (Studio Pro's bundled mxbuild on macOS/Windows, the cached CDN download on Linux)")
+	runCmd.Flags().String("db-type", "", "Database type for a local run: postgresql (default) or hsqldb (the runtime's built-in file database — no server, no --db-host/--db-user/--db-password, data under <project>/deployment/data/database/hsqldb/)")
 	runCmd.Flags().String("db-host", "", "Database host:port (IPv6: [::1]:5432; default 127.0.0.1:5432)")
 	runCmd.Flags().String("db-name", "", "Database name (default derived from the project name)")
 	runCmd.Flags().String("db-user", "", "Database user (default mendix)")
