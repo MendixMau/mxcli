@@ -359,7 +359,7 @@ func TestDBConfig_IsFileBased(t *testing.T) {
 		t.Error("PostgreSQL is not file-based")
 	}
 	if (DBConfig{Type: "hsqldb"}).IsFileBased() {
-		t.Error("the check must use the canonical spelling, not the raw flag")
+		t.Error("the check must use the runtime spelling set by applyDatabaseDefaults, not the raw flag")
 	}
 }
 ```
@@ -375,10 +375,10 @@ In `cmd/mxcli/docker/localboot.go`, immediately after the `DBConfig` struct, add
 
 ```go
 // IsFileBased reports whether this is the runtime's built-in file database, which
-// has no host to reach. It keys on the canonical spelling set by
+// has no host to reach. It keys on the runtime spelling set by
 // applyDatabaseDefaults.
 func (c DBConfig) IsFileBased() bool {
-	return IsFileBasedDBType(c.Type)
+	return c.Type == RuntimeDatabaseType(DBTypeHSQLDB)
 }
 ```
 
@@ -677,12 +677,40 @@ Expected: compiles (no `undefined`).
 Run: `go test -tags integration -run TestRunLocal_HSQLDBNeedsNoDatabaseServer -count=1 -v ./cmd/mxcli/docker/`
 Expected: PASS (or SKIP with a clear reason when mxbuild/runtime are absent). If it fails because the HSQLDB files are not under `data/database/hsqldb/`, record the actual directory the runtime logged and update the assertion — that is the one empirical fact this test exists to pin.
 
+The directory assertion was empirically confirmed: the files land at
+`deployment/data/database/hsqldb/<name>/app.properties` and `app.script`. The
+Gradle bin directory must be on `PATH` (e.g. `/c/Program Files/Mendix/gradle-8.5/bin`)
+with `MENDIX_GRADLE_HOME` at the Gradle root, or `mxbuild serve` cannot build.
+
 - [ ] **Step 4: Commit**
 
 ```bash
 git add cmd/mxcli/docker/runlocal_hsqldb_integration_test.go
 git commit -m "test: prove run --local boots on the built-in database with no server"
 ```
+
+---
+
+### Task 6b: Create the schema when the database does not exist yet
+
+**Files:**
+- Modify: `cmd/mxcli/docker/runtime_controller.go` (`needsDBUpdate`)
+- Test: `cmd/mxcli/docker/runtime_controller_test.go` (`TestNeedsDBUpdate`)
+
+The integration test proved that a **fresh** HSQLDB database does not boot: Mendix's
+HSQLDB URL carries `ifexists=true`, so it never creates the file, and `start`
+answers M2EE result 2 ("The database to be used does not exist."). `needsDBUpdate`
+only recognised result 3.
+
+- [ ] Add test cases `{"result2", &M2EEResponse{Result: 2}, true}` and
+  `{"no-existing-db-message", &M2EEResponse{Message: "The database to be used does not exist."}, true}`.
+- [ ] In `needsDBUpdate`, return true for `resp.Result == 2 || resp.Result == 3`, and
+  match the lower-cased message `"database to be used does not exist"` as well as
+  `"database has to be updated"`.
+- [ ] In `Start`, track that the schema step ran and report
+  `start failed after creating or updating the database schema: %s` if the second
+  start still fails.
+- [ ] Commit: `fix: create the schema when the database does not exist yet`.
 
 ---
 

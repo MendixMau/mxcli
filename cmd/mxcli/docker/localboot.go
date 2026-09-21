@@ -33,7 +33,9 @@ import (
 // already resolved, to <deployDir>/model/config.json — readDeploymentConstants
 // lifts them from there.
 
-// DBConfig is the external Postgres the standalone runtime connects to.
+// DBConfig is the database the standalone runtime connects to: either an external
+// Postgres (Host/User/Password set) or the runtime's built-in file database
+// (Type "HSQLDB", Host/User/Password empty — see applyDatabaseDefaults).
 type DBConfig struct {
 	Type     string // e.g. "PostgreSQL"
 	Host     string // "host:port", e.g. "127.0.0.1:5432"

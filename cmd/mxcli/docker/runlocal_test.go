@@ -641,6 +641,6 @@ func TestDBConfig_IsFileBased(t *testing.T) {
 		t.Error("PostgreSQL is not file-based")
 	}
 	if (DBConfig{Type: "hsqldb"}).IsFileBased() {
-		t.Error("the check must use the canonical spelling, not the raw flag")
+		t.Error("the check must use the runtime spelling set by applyDatabaseDefaults, not the raw flag")
 	}
 }
