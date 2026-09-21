@@ -802,15 +802,15 @@ func execCreateViewEntity(ctx *ExecContext, s *ast.CreateViewEntityStmt) error {
 		location = model.Point{X: 100 + len(dm.Entities)*150, Y: 100}
 	}
 
-	// Create or update ViewEntitySourceDocument (separate document for OQL query)
+	// Create or update ViewEntitySourceDocument (separate document for OQL query).
+	// Written IN PLACE: this used to delete the stored document and insert a fresh
+	// one every time, which replaced the unit under a new GUID on every run and
+	// made `exec` report `Unchanged view entity` for a statement that had just
+	// rewritten the OQL — an insert is not a counted write, so the elision check
+	// saw only the (genuinely unchanged) domain-model unit (ako/mxcli#583).
+	// Duplicate documents, which the delete existed to clear, are still removed.
 	sourceDocRef := s.Name.Module + "." + s.Name.Name
-	// Always delete any existing ViewEntitySourceDocument before creating a new one.
-	// This prevents duplicate OQL documents from accumulating (e.g., from re-running
-	// scripts or after a previous DROP that didn't clean up properly).
-	if err := ctx.Backend.DeleteViewEntitySourceDocumentByName(s.Name.Module, s.Name.Name); err != nil {
-		return mdlerrors.NewBackend("delete existing ViewEntitySourceDocument", err)
-	}
-	_, err = ctx.Backend.CreateViewEntitySourceDocument(
+	_, err = ctx.Backend.WriteViewEntitySourceDocument(
 		module.ID,
 		s.Name.Module,
 		s.Name.Name,
@@ -818,7 +818,7 @@ func execCreateViewEntity(ctx *ExecContext, s *ast.CreateViewEntityStmt) error {
 		s.Documentation,
 	)
 	if err != nil {
-		return mdlerrors.NewBackend("create ViewEntitySourceDocument", err)
+		return mdlerrors.NewBackend("write ViewEntitySourceDocument", err)
 	}
 
 	// Create view attributes with OqlViewValue references.
