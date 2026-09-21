@@ -331,6 +331,16 @@ func sameStringSet(a, b []string) bool {
 	return true
 }
 
+// isAuditMemberRef reports whether a member reference names one of the two audit
+// ASSOCIATIONS Mendix maintains from an entity's own flags.
+//
+// Exactly these two, not every System.* reference: an entity specialising a
+// System entity legitimately inherits that module's real associations, and those
+// are preserved by the foreign-module branch.
+func isAuditMemberRef(ref string) bool {
+	return ref == "System.owner" || ref == "System.changedBy"
+}
+
 // ReconcileMemberAccesses brings every populated access rule in a domain model
 // into sync with its entity's current members: it adds a MemberAccess for each
 // attribute, each FROM-side association (regular + cross), and each implicit
@@ -480,25 +490,27 @@ func (b *Backend) ReconcileMemberAccesses(unitID model.ID, moduleName string) (i
 			}
 		}
 
-		// Implicit system associations from NoGeneralization flags.
-		var sysRefs []string
-		sysSet := map[string]bool{}
-		// Audit DATE members (createdDate/changedDate) are stored as flags too, but
-		// they are attributes rather than associations. Mendix has no MemberAccess
-		// for them at all: an entity storing them checks clean with no entry, and
-		// mxbuild rejects a rule that carries one with CE0066 "Entity access is out
-		// of date" (verified on 11.12.1). So they are neither added here nor
-		// preserved — the executor refuses to author one (issuetracker #20).
-		if ng, ok := ent.Generalization().(*genDm.NoGeneralization); ok {
-			if ng.HasOwner() {
-				sysRefs = append(sysRefs, "System.owner")
-				sysSet["System.owner"] = true
-			}
-			if ng.HasChangedBy() {
-				sysRefs = append(sysRefs, "System.changedBy")
-				sysSet["System.changedBy"] = true
-			}
-		}
+		// NO MemberAccess is written for an audit member, of either kind.
+		//
+		// The DATE members (createdDate/changedDate) were measured first: an entity
+		// storing them checks clean with no entry, and mxbuild rejects a rule that
+		// carries one with CE0066 (issuetracker #20, verified on 11.12.1).
+		//
+		// System.owner and System.changedBy were assumed to be the other case,
+		// because they are associations rather than attributes — Mendix does add
+		// them implicitly, so an entry for them looked required by symmetry. It is
+		// not. Measured on mxbuild 11.14.0, one entity, one rule, one variable:
+		//
+		//	AutoOwner     + MemberAccess System.owner       CE0066
+		//	AutoOwner     + no entry                        0 errors
+		//	AutoChangedBy + MemberAccess System.changedBy   CE0066
+		//	AutoChangedBy + no entry                        0 errors
+		//
+		// So all four audit members follow one rule: they are members Mendix
+		// manages, and naming one in an access rule makes the rule out of date
+		// (ako/mxcli#554). Nothing is added here, and a stored entry is removed
+		// below rather than preserved — `update security` is the documented repair
+		// for CE0066, so it has to be able to undo this.
 
 		for _, re := range ent.AccessRulesItems() {
 			rule, ok := re.(*genDm.AccessRule)
@@ -516,7 +528,6 @@ func (b *Backend) ReconcileMemberAccesses(unitID model.ID, moduleName string) (i
 
 			covAttr := map[string]bool{}
 			covAssoc := map[string]bool{}
-			covSys := map[string]bool{}
 			changed := false
 
 			// Walk existing entries back-to-front: drop stale, downgrade calc.
@@ -557,8 +568,13 @@ func (b *Backend) ReconcileMemberAccesses(unitID model.ID, moduleName string) (i
 					}
 				case assocRef != "":
 					switch {
-					case sysSet[assocRef]:
-						covSys[assocRef] = true
+					case isAuditMemberRef(assocRef):
+						// An audit member Mendix manages itself. Removed rather than
+						// preserved by the foreign-module branch below, which would
+						// otherwise keep it forever on the grounds that System is not
+						// loaded here (ako/mxcli#554).
+						rule.RemoveMemberAccesses(i)
+						changed = true
 					case assocSet[assocRef]:
 						covAssoc[assocRef] = true
 					case !assocRefBelongsTo(assocRef, moduleName):
@@ -594,12 +610,6 @@ func (b *Backend) ReconcileMemberAccesses(unitID model.ID, moduleName string) (i
 			for _, qn := range assocQNs {
 				if !covAssoc[qn] {
 					rule.AddMemberAccesses(newMemberAccess(defRights, qn, false))
-					changed = true
-				}
-			}
-			for _, ref := range sysRefs {
-				if !covSys[ref] {
-					rule.AddMemberAccesses(newMemberAccess(defRights, ref, false))
 					changed = true
 				}
 			}

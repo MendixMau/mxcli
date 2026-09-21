@@ -186,7 +186,9 @@ func validateWidgetTreeIn(widgets []*ast.WidgetV3, registry *WidgetRegistry, loc
 		out = append(out, validateDatasourceXPathAssociationEmpty(w, locationPrefix)...)
 		out = append(out, validateComboBoxAssociation(w, locationPrefix)...)
 		// A show_page argument naming anything but the context object is dropped.
-		out = append(out, validateShowPageArguments(w, argCtx, locationPrefix)...)
+		// The widget's OWN action is judged in the context IT establishes, not the
+		// one it sits in — a list widget's onClick is row-scoped (ako/mxcli#552).
+		out = append(out, validateShowPageArguments(w, argContextForOwnAction(w, argCtx), locationPrefix)...)
 		// Unknown-property warning applies only to built-in widgets; pluggable
 		// widgets get the stricter def.json check (MDL-WIDGET01) above, and
 		// object-list items are validated by the object-list engine.
@@ -667,6 +669,10 @@ var staticWidgetKnownProps = func() map[string]bool {
 		"ImageUrl", "LabelPosition", "PageSize", "Pagination", "PagingPosition",
 		"PhoneColumns", "ReadOnlyStyle", "Resizable", "Responsive", "ShowPagingButtons",
 		"Size", "Sortable", "TabletColumns", "WidthUnit", "WrapText", "Name",
+		// input-widget properties describe page emits (ako/mxcli#550): a text
+		// box's password flag and its Forms$WidgetValidation. Leaving them out
+		// makes the describe -> create round trip warn about its own output.
+		"Password", "Validation", "ValidationMessage",
 		// button icon-collection reference (issue #602)
 		"Icon",
 		// staticimage's image-collection reference, Module.Collection.Image

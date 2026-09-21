@@ -541,21 +541,15 @@ func execGrantEntityAccess(ctx *ExecContext, s *ast.GrantEntityAccessStmt) error
 			entityQN, strings.Join(unknown, ", "))
 	}
 
-	// Add MemberAccess entries for system associations (owner, changedBy).
-	// When an entity has HasOwner/HasChangedBy, Mendix implicitly adds
-	// System.owner/System.changedBy associations that require MemberAccess.
-	if entity.HasOwner {
-		memberAccesses = append(memberAccesses, types.EntityMemberAccess{
-			AssociationRef: "System.owner",
-			AccessRights:   defaultMemberAccess,
-		})
-	}
-	if entity.HasChangedBy {
-		memberAccesses = append(memberAccesses, types.EntityMemberAccess{
-			AssociationRef: "System.changedBy",
-			AccessRights:   defaultMemberAccess,
-		})
-	}
+	// No MemberAccess is written for System.owner / System.changedBy. They are
+	// implicit associations Mendix maintains from the entity's own flags, and
+	// naming one in a rule makes the rule out of date: mxbuild 11.14.0 reports
+	// CE0066 with the entry and 0 errors without it, measured one member at a
+	// time (ako/mxcli#554). The audit DATE members were already handled this way;
+	// these two were assumed to be the other case because they are associations.
+	// Both writers have to agree, so the same rule lives in
+	// ReconcileMemberAccesses — a GRANT that added the entry would be undone by
+	// the next reconcile, and vice versa.
 
 	// A constraint too long to read on one line is broken at its boolean joints;
 	// one that already fits comes back unchanged (upstream #979). It is formatted

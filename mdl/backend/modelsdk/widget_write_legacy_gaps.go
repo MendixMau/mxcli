@@ -97,11 +97,16 @@ func dropDownToGen(dd *pages.DropDown) (element.Element, error) {
 
 // staticImageToGen builds a Forms$StaticImageViewer.
 //
-// Deprecated in the Mendix 11 React client (CE0582) — `image` routes to the
-// pluggable widget instead — but `staticimage` is still a keyword the executor
-// dispatches, so the writer has to answer for it. Unlike `statictext` the TYPE
-// exists: the project loads, and CE0582 is Mendix's own advice rather than a
-// defect, so refusing it would be over-reach.
+// Not supported by the React client — which Mendix added in 10.7 and which is the
+// only client on 11 — so mxbuild reports CE0582 wherever that client is enabled,
+// and `image` routes to the pluggable widget instead.
+//
+// `staticimage` is still a keyword the executor dispatches, so the writer has to
+// answer for it. Unlike `statictext` the TYPE exists: the project loads, and
+// CE0582 is Mendix's own advice rather than a defect, so refusing it would be
+// over-reach. `mxcli lint` reports the widget as MPR012 instead, which is where
+// a deprecation belongs — a `check` warning would fire on every legitimate
+// describe -> exec of a legacy page.
 func staticImageToGen(img *pages.StaticImage) (element.Element, error) {
 	g := genPg.NewStaticImageViewer()
 	applyWidgetBase(g, &img.BaseWidget)

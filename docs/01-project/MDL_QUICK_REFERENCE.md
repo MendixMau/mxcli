@@ -1379,6 +1379,8 @@ MDL uses explicit property declarations for pages:
 |---------|-----------|---------|
 | Page properties | `(key: value, ...)` | `(title: 'Edit', layout: Atlas_Core.Atlas_Default)` |
 | Pop-up dimensions | `PopupWidth: n, PopupHeight: n, PopupResizable: bool` | `(Layout: Atlas_Core.PopupLayout, PopupWidth: 800, PopupHeight: 480, PopupResizable: true)` — case-sensitive; default 600×600 |
+| Pop-up close button | `PopupCloseAction: <widgetName>` | `(Layout: Atlas_Core.PopupLayout, PopupCloseAction: cancelButton1)` — names a widget on this page. Not carried from the stored document on a rewrite: the statement rebuilds the widget tree, so a carried name could dangle |
+| DataView read-only style | `ReadOnlyStyle: Inherit\|Control\|Text` | `dataview dv (datasource: $O, ReadOnlyStyle: Text)` — a DataView's own, distinct from a checkbox's. **Control** is Studio Pro's default here, not Inherit |
 | Page CSS class / style | `Class: 'css-class', Style: 'css: rule'` | `(Title: 'Home', Class: 'container-fluid bg-light', Style: 'min-height: 100vh')` — the page's Appearance |
 | Page variables | `variables: { $name: type = 'expr' }` | `variables: { $show: boolean = 'true' }` |
 | Repeated widget entries | `<container> <name> ( … )` **in the widget body** | A repeatable property (FileUploader `allowedFileFormats`, HTML Element `attributes`, a chart's `series`) is a block, never a property value. `attributes: [(attributeName: 'x')]` is **MDL-WIDGET27** — it used to check clean, exec, and vanish from storage. `describe widget <name> -p app.mpr` lists the container keywords |
@@ -1388,6 +1390,8 @@ MDL uses explicit property declarations for pages:
 | Widget name | Required after type | `textbox txtName (...)` |
 | Attribute binding | `attribute: AttrName` | `textbox txt (label: 'Name', attribute: Name)` |
 | Attribute over an association | `attribute: Assoc/Attr` (bare association name, multi-hop OK) | `textbox txt (label: 'Rule', attribute: RuleAction_BusinessRule/Name)` — works on textbox, textarea, datepicker, dropdown, checkbox and radiobuttons, the same as on a data grid column |
+| Password field | `Password: true` on a textbox | `textbox tbPw (attribute: Secret, Password: true)` — omitted when false. Without it a describe → exec round trip turns a password field into a plaintext one |
+| Widget validation | `Validation: '<expression>'`, `ValidationMessage: '<text>'` | `Validation: 'length(toString($value)) > 0'` — a Mendix expression over `$value`, QUOTED not bracketed (`[...]` is the XPath spelling and parses as an array) |
 | Variable binding | `datasource: $Var` | `dataview dv (datasource: $Product) { ... }` |
 | Action binding | `action: type` | `actionbutton btn (caption: 'Save', action: save_changes)` — the forms are a closed set (`mxcli syntax page.action`); anything else is **MDL-WIDGET28** |
 | No action | `action: nothing` | `actionbutton btn (caption: 'Decorative', action: nothing)` — an explicitly inert control. Write it deliberately: an action keyword **short its argument** (`action: open_link` with no URL) is now an error rather than a widget silently written with no action at all |

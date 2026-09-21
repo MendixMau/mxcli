@@ -68,6 +68,7 @@ func (pb *pageBuilder) buildPageV3(s *ast.CreatePageStmtV3) (*pages.Page, error)
 	if s.PopupResizable != nil {
 		page.PopupResizable = *s.PopupResizable
 	}
+	page.PopupCloseAction = s.PopupCloseAction
 
 	// Set title
 	if s.Title != "" {
