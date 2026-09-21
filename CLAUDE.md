@@ -335,10 +335,24 @@ is stored ([ADR-0008](docs/13-decisions/0008-identity-and-idempotence.md)). The
 comparison is on a canonical form — every element `$ID` replaced by its index in a
 containment walk — because a rebuild mints a fresh random `$ID` per sub-element,
 so comparing bytes would skip nothing. The policy lives in `modelsdk/canon`
-(`Reconcile`) and is called at the single write choke point of **both** engines:
-`modelsdk/mpr/writer_core.go` (`updateUnit` *and* `WriteTransaction.WriteUnit` —
-`codec.Store` reaches storage through the latter). There is one engine, so that is
-the whole list.
+(`Reconcile`) and is called at every write choke point in
+`modelsdk/mpr/writer_core.go`: `updateUnit`, `WriteTransaction.WriteUnit`
+(`codec.Store` reaches storage through this one) and — since ako/mxcli#556 —
+`insertUnit`, for the case below.
+
+**A delete followed by an insert is a write path too**, and it is the one that
+hides. Several `create or modify` handlers are implemented as delete + create
+under the preserved unit ID rather than as an update, and an insert has nothing
+stored to reconcile against, so the rebuild's fresh `$ID`s went straight to disk:
+`create or modify rest client` rewrote 9 element `$ID`s in a 1,128-byte unit on
+every run, forever. `deleteUnit` now remembers what it removed and `insertUnit`
+reconciles a re-insert against it (`carryIdentityFromRemovedUnit`). That carry
+cannot *elide* — the row and the file are already gone — so a no-op recreate also
+restores `_Transaction.LastTransactionID`, which both the delete and the insert
+bumped; without it the `.mpr` still showed as modified after every `.mxunit` had
+gone quiet. Prefer an in-place update where the handler can do one: the REST
+client's own fix is to call `UpdateConsumedRestService` and keep delete+create
+only for a folder move, which lives in the unit's row rather than its contents.
 
 When something *has* changed, `Reconcile` still does not let the rebuild's fresh
 `$ID`s reach disk: `canon.TransplantIDs` matches the incoming document against the
