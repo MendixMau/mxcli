@@ -711,16 +711,18 @@ func (rt *LocalRuntime) Log() string { return rt.log.String() }
 
 // alive reports whether the runtime process is still running.
 //
-// Signal(0) is only a correct liveness test BECAUSE watchExit reaps: it succeeds
-// on an unreaped zombie — measured, proc state `Z`, err nil — and returns
-// "process already finished" once Wait has run. Before the reaper existed this
-// function reported a runtime that had terminated itself hours earlier as alive
-// (mxcli-formula1 FINDINGS §60). Removing watchExit silently breaks this line.
+// Signal(0) is only a correct liveness test on POSIX, and even there only
+// BECAUSE watchExit reaps: it succeeds on an unreaped zombie — measured, proc
+// state `Z`, err nil — and returns "process already finished" once Wait has run.
+// Before the reaper existed this function reported a runtime that had terminated
+// itself hours earlier as alive (mxcli-formula1 FINDINGS §60). Removing watchExit
+// silently breaks that on POSIX. On Windows Signal(0) is not supported at all, so
+// processAlive uses WaitForSingleObject instead (see procgroup_windows.go).
 func (rt *LocalRuntime) alive() bool {
 	if rt.cmd == nil || rt.cmd.Process == nil {
 		return false
 	}
-	return rt.cmd.Process.Signal(syscall.Signal(0)) == nil
+	return processAlive(rt.cmd.Process)
 }
 
 // Stop shuts the runtime down gracefully via the admin API, then terminates the
