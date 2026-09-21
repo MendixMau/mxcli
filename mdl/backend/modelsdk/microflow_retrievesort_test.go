@@ -92,3 +92,98 @@ func TestRetrieveSourceToGen_SortByRoundTrip(t *testing.T) {
 		t.Errorf("sort[1] = {%q, %q}, want {SortBug.Ticket.Name, Ascending}", out.Sorting[1].AttributeQualifiedName, out.Sorting[1].Direction)
 	}
 }
+
+// TestRetrieveSourceToGen_SortOverAssociationWritesEntityRefSteps guards the
+// BSON a sort over an association produces. The attribute's qualified name names
+// the FAR entity, so on its own it is a reference Mendix cannot resolve against
+// the retrieved entity — the hop has to be stored beside it, as an
+// AttributeRef.EntityRef (DomainModels$IndirectEntityRef) of EntityRefSteps.
+//
+// This is the write half of mendixlabs/mxcli#1152, where the executor could not derive
+// the hop and refused the statement outright; a fix that derived it but did not
+// persist it would leave the same dangling reference in the document.
+func TestRetrieveSourceToGen_SortOverAssociationWritesEntityRefSteps(t *testing.T) {
+	in := &microflows.DatabaseRetrieveSource{
+		EntityQualifiedName: "Administration.Account",
+		Sorting: []*microflows.SortItem{{
+			AttributeQualifiedName: "System.Language.Code",
+			Direction:              microflows.SortDirectionAscending,
+			EntityRefSteps: []microflows.EntityRefStep{{
+				Association:       "System.User_Language",
+				DestinationEntity: "System.Language",
+			}},
+		}},
+	}
+
+	el := retrieveSourceToGen(in)
+	if el == nil {
+		t.Fatal("retrieveSourceToGen returned nil")
+	}
+	raw, err := (&codec.Encoder{}).Encode(el)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+
+	sortings, ok := bson.Raw(raw).Lookup("NewSortings").DocumentOK()
+	if !ok {
+		t.Fatal("no NewSortings envelope")
+	}
+	arr, ok := sortings.Lookup("Sortings").ArrayOK()
+	if !ok {
+		t.Fatal("no Sortings array")
+	}
+	vals, err := arr.Values()
+	if err != nil {
+		t.Fatalf("Sortings values: %v", err)
+	}
+	var item bson.Raw
+	for _, v := range vals {
+		// The first entry is the typed-array marker, not a document.
+		if d, ok := v.DocumentOK(); ok {
+			item = d
+			break
+		}
+	}
+	if item == nil {
+		t.Fatal("Sortings array carries no sort item")
+	}
+	ref, ok := item.Lookup("AttributeRef").DocumentOK()
+	if !ok {
+		t.Fatal("sort item has no AttributeRef")
+	}
+	if got := ref.Lookup("Attribute").StringValue(); got != "System.Language.Code" {
+		t.Errorf("Attribute = %q, want System.Language.Code", got)
+	}
+	entityRef, ok := ref.Lookup("EntityRef").DocumentOK()
+	if !ok {
+		t.Fatal("AttributeRef has no EntityRef — the association hop was dropped, " +
+			"leaving a sort attribute that does not resolve against the retrieved entity")
+	}
+	if got := entityRef.Lookup("$Type").StringValue(); got != "DomainModels$IndirectEntityRef" {
+		t.Errorf("EntityRef $Type = %q, want DomainModels$IndirectEntityRef", got)
+	}
+	steps, ok := entityRef.Lookup("Steps").ArrayOK()
+	if !ok {
+		t.Fatal("EntityRef has no Steps array")
+	}
+	stepVals, err := steps.Values()
+	if err != nil {
+		t.Fatalf("Steps values: %v", err)
+	}
+	var step bson.Raw
+	for _, v := range stepVals {
+		if d, ok := v.DocumentOK(); ok {
+			step = d
+			break
+		}
+	}
+	if step == nil {
+		t.Fatal("Steps array carries no step")
+	}
+	if got := step.Lookup("Association").StringValue(); got != "System.User_Language" {
+		t.Errorf("Association = %q, want System.User_Language", got)
+	}
+	if got := step.Lookup("DestinationEntity").StringValue(); got != "System.Language" {
+		t.Errorf("DestinationEntity = %q, want System.Language", got)
+	}
+}

@@ -1247,42 +1247,99 @@ func retrieveXPathConstraint(expr ast.Expression) string {
 	return visitor.FormatXPathConstraint("[" + xpath + "]")
 }
 
+// inferSortEntityRefSteps finds the one association hop that reaches the entity
+// DECLARING the sort attribute, for a `sort by Module.Entity.Attribute` whose
+// entity is neither the retrieved one nor an ancestor of it.
+//
+// Mendix stores such a sort as an AttributeRef whose AttributeQualifiedName
+// names the far entity plus an EntityRef carrying one EntityRefStep per hop.
+// DESCRIBE emits only the attribute's qualified name — MDL has no spelling for
+// the hop — so replaying a described retrieve has to re-derive the step, and
+// the whole round trip rests on that derivation.
+//
+// The association is not necessarily declared on the retrieved entity, nor in
+// its module. `Administration.Account` reaches `System.Language` through
+// `System.User_Language`, which is declared on the ANCESTOR `System.User` and
+// stored in the SYSTEM module's domain model. Searching only the retrieved
+// entity's own module for associations whose parent is the retrieved entity
+// itself found nothing, so a retrieve `mxcli describe` had just emitted was
+// refused by `exec` with "does not belong to entity" while `mxcli check` passed
+// — mendixlabs/mxcli#1152. Same shape as the inherited-attribute defect
+// (CapTrackV2 §13): the resolver that walks the generalization chain existed,
+// and this path did not call it.
+//
+// So the walk is over the generalization chain, and each ancestor is looked up
+// in ITS OWN module — which is also where the association's qualified name
+// comes from. Qualifying with the retrieved entity's module is what the
+// same-module case made look right, and it is wrong exactly in the case that
+// was broken.
+//
+// The destination end is matched with entityIsSubtypeOf rather than by equality,
+// because an association may point at a SPECIALIZATION of the entity that
+// declares the attribute; Mendix stores the declaring entity in the path either
+// way.
+//
+// Limitation, stated because the round trip depends on it: where several
+// associations reach the same entity, MDL cannot say which one was stored, and
+// the nearest entity's first association wins. The order is deterministic (both
+// the chain walk and dm.Associations are ordered), so a replay is stable — but
+// a model with two hops to one entity can still round-trip to the other one.
+// Spelling the hop would need grammar, and is a language change, not a fix.
 func (fb *flowBuilder) inferSortEntityRefSteps(sourceEntityQN, attrPath string) []microflows.EntityRefStep {
 	attrEntityQN := entityQualifiedNameFromAttribute(attrPath)
 	if attrEntityQN == "" || attrEntityQN == sourceEntityQN {
 		return nil
 	}
-	parts := strings.SplitN(sourceEntityQN, ".", 2)
-	if len(parts) != 2 || parts[0] == "" {
+	if fb == nil || fb.backend == nil {
 		return nil
 	}
-	if fb.backend == nil {
-		return nil
-	}
-	mod, err := fb.backend.GetModuleByName(parts[0])
-	if err != nil || mod == nil {
-		return nil
-	}
-	dm, err := fb.backend.GetDomainModel(mod.ID)
-	if err != nil || dm == nil {
-		return nil
-	}
-	entityNames := make(map[model.ID]string, len(dm.Entities))
-	for _, e := range dm.Entities {
-		entityNames[e.ID] = parts[0] + "." + e.Name
-	}
-	for _, assoc := range dm.Associations {
-		parentQN := entityNames[assoc.ParentID]
-		childQN := entityNames[assoc.ChildID]
-		if parentQN == sourceEntityQN && childQN == attrEntityQN {
-			return []microflows.EntityRefStep{{Association: parts[0] + "." + assoc.Name, DestinationEntity: childQN}}
+	seen := make(map[string]bool)
+	for currentQN := sourceEntityQN; currentQN != ""; {
+		if seen[currentQN] {
+			return nil
 		}
-	}
-	for _, assoc := range dm.CrossAssociations {
-		parentQN := entityNames[assoc.ParentID]
-		if parentQN == sourceEntityQN && assoc.ChildRef == attrEntityQN {
-			return []microflows.EntityRefStep{{Association: parts[0] + "." + assoc.Name, DestinationEntity: assoc.ChildRef}}
+		seen[currentQN] = true
+
+		parts := strings.SplitN(currentQN, ".", 2)
+		if len(parts) != 2 || parts[0] == "" {
+			return nil
 		}
+		moduleName := parts[0]
+		mod, err := fb.backend.GetModuleByName(moduleName)
+		if err != nil || mod == nil {
+			return nil
+		}
+		dm, err := fb.backend.GetDomainModel(mod.ID)
+		if err != nil || dm == nil {
+			return nil
+		}
+		entityNames := make(map[model.ID]string, len(dm.Entities))
+		for _, e := range dm.Entities {
+			entityNames[e.ID] = moduleName + "." + e.Name
+		}
+		for _, assoc := range dm.Associations {
+			if entityNames[assoc.ParentID] != currentQN {
+				continue
+			}
+			childQN := entityNames[assoc.ChildID]
+			if childQN != "" && fb.entityIsSubtypeOf(childQN, attrEntityQN) {
+				return []microflows.EntityRefStep{{Association: moduleName + "." + assoc.Name, DestinationEntity: childQN}}
+			}
+		}
+		for _, assoc := range dm.CrossAssociations {
+			if entityNames[assoc.ParentID] != currentQN {
+				continue
+			}
+			if assoc.ChildRef != "" && fb.entityIsSubtypeOf(assoc.ChildRef, attrEntityQN) {
+				return []microflows.EntityRefStep{{Association: moduleName + "." + assoc.Name, DestinationEntity: assoc.ChildRef}}
+			}
+		}
+
+		entity := dm.FindEntityByName(parts[1])
+		if entity == nil {
+			return nil
+		}
+		currentQN = entity.GeneralizationRef
 	}
 	return nil
 }

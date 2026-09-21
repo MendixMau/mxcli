@@ -510,7 +510,8 @@ it is for pages.
 | Commit | `commit $entity [without events] [refresh];` | **Omitted = with events**, matching Studio Pro's default. `without events` is the deviation and the only form that changes the stored value; `with events` still parses and means the default |
 | Delete | `delete $entity [refresh];` | |
 | Rollback | `rollback $entity [refresh];` | Reverts uncommitted changes |
-| Retrieve (DB) | `retrieve $Var from Module.Entity [where condition];` | Database XPath retrieve |
+| Retrieve (DB) | `retrieve $Var from Module.Entity [where condition] [sort by Attr asc\|desc, ...] [limit n [offset n]];` | Database XPath retrieve. `limit 1` with no `offset` binds a single **object**, not a one-element list (MDL-RETRIEVE01) |
+| Retrieve (DB), sorted | `sort by Attr asc` / `sort by Module.Other.Attr asc` | A bare name is qualified with the entity **declaring** it, which may be an ancestor. A qualified name may also be an attribute of an entity reached by **one association hop** — mxcli derives the hop (walking the generalization chain, across modules: `Administration.Account` reaches `System.Language.Code` through `System.User_Language`) and stores it as the `EntityRef` Mendix needs; without it the build is CE7247. Where several associations reach the same entity MDL cannot say which, and the nearest one wins (mendixlabs/mxcli#1152) |
 | Retrieve (Assoc) | `retrieve $list from $Parent/Module.AssocName;` | Retrieve by association |
 | Add to list | `add expression to $list;` | Also accepts existing `add $item to $list;` form |
 | Aggregate a list | `$Total = sum($list.Attr);` / `$Total = sum($list, expression);` | `count` (list only), `sum`, `average`, `minimum`, `maximum` — attribute or expression over `$currentObject` |
