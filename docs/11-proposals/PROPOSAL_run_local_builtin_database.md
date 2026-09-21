@@ -73,23 +73,17 @@ does **not** set `DatabaseJdbcUrl`, so the runtime's own path rule applies.
 The `pingTCP` check is skipped for HSQLDB (there is no host:port). For PostgreSQL
 it is unchanged.
 
-### Where the data lands — and the risk
+### Where the data lands
 
 By the runtime's own rule the files go to
-`<project>/deployment/data/database/hsqldb/<name>.*`.
+`<project>/deployment/data/database/hsqldb/<name>.*`. mxcli keeps that default
+(least surprise, matches Studio Pro) and documents it; no `DatabaseJdbcUrl` is
+set and no `--db-path` flag is added.
 
-**This must be verified before the design is final:** `deployment/` is a build
-output. If `mxbuild`'s `Deploy` target (or the cold build) clears
-`deployment/data`, data would be lost between runs. The implementation will
-measure this directly: boot once, write a row, restart, read it back.
-
-- If the data survives, keep the Mendix default (least surprise, matches Studio
-  Pro).
-- If it does not, pin the location with `DatabaseJdbcUrl` to a path outside the
-  build output, under the project's `.mxcli/` state directory, and document it.
-
-A `--db-path` override is **out of scope** unless the measurement shows the
-default is unsafe, in which case the pinned path is the fix rather than a flag.
+Accepted consequence: `deployment/` is a build output, so the database lives with
+the rest of the local run artifacts. This is fine for the feature's purpose — a
+local, disposable dev/demo database — and is stated in the docs. Anyone who needs
+durable data uses a real database.
 
 ## Testing
 
@@ -105,9 +99,8 @@ Integration (Linux, reuses the existing `make test-integration` mxbuild + runtim
 cache):
 
 - boot a blank project with `run --local --db-type hsqldb`; assert HTTP 200;
-- assert the HSQLDB files exist;
-- restart and assert the data written before the restart is still there
-  (persistence, and the answer to the `deployment/` risk above).
+- assert the HSQLDB files exist under
+  `<project>/deployment/data/database/hsqldb/`.
 
 Windows: the package must compile and the unit tests must pass (the existing
 `windows-process-regression` job pattern); a full Windows boot integration is
