@@ -158,7 +158,7 @@ func (e *annotationEmitter) labelFor(id model.ID) (label string, first bool) {
 // exactly as before. Only a note that is shared, or that has been moved or
 // resized on the canvas, pays for the longer form — so this fix does not churn
 // the output of every microflow that has a note in it.
-func (e *annotationEmitter) lines(target model.ID, activityPos model.Point, indentStr string) []string {
+func (e *annotationEmitter) lines(target model.ID, activityPos model.Point, targetHeight int, indentStr string) []string {
 	if e == nil {
 		return nil
 	}
@@ -178,7 +178,7 @@ func (e *annotationEmitter) lines(target model.ID, activityPos model.Point, inde
 			continue
 		}
 
-		defPos, defSize := defaultAnnotationGeometry(activityPos, i)
+		defPos, defSize := defaultAnnotationGeometry(activityPos, i, targetHeight)
 		var params []string
 		if note.Position != defPos {
 			params = append(params, fmt.Sprintf("position: (%d, %d)", note.Position.X, note.Position.Y))
@@ -802,7 +802,7 @@ func emitObjectAnnotations(
 	}
 
 	// @annotation (attached Annotation objects)
-	*lines = append(*lines, annotationsByTarget.lines(currentID, pos, indentStr)...)
+	*lines = append(*lines, annotationsByTarget.lines(currentID, pos, objectHeight(obj), indentStr)...)
 }
 
 // emitActivityStatement appends the formatted activity statement (with error handling)
@@ -2319,7 +2319,7 @@ func collectErrorHandlerStatements(
 	// note and the read path drops it, which is the same round-trip loss #1077
 	// is about, one nesting level down.
 	notes := func(obj microflows.MicroflowObject, indentStr string) {
-		statements = append(statements, annotationsByTarget.lines(obj.GetID(), obj.GetPosition(), indentStr)...)
+		statements = append(statements, annotationsByTarget.lines(obj.GetID(), obj.GetPosition(), objectHeight(obj), indentStr)...)
 	}
 	splitMergeMap := findErrorHandlerSplitMergePoints(ctx, activityMap, flowsByOrigin)
 
