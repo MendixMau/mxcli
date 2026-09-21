@@ -374,6 +374,7 @@ create or modify translations in Administration for nl_NL (
 			"database type", "constant override", "language",
 			"add language", "remove language", "enable language", "translations",
 			"optimistic locking", "concurrency", "lost update",
+			"workflow group", "workflow groups", "add group", "task assignment",
 		},
 		Syntax: `ALTER SETTINGS MODEL <key> = <value>;
 ALTER SETTINGS CONFIGURATION '<name>' <key> = <value>, ...;
@@ -385,6 +386,9 @@ ALTER SETTINGS LANGUAGE ADD OR MODIFY '<code>' [(...)];
 ALTER SETTINGS LANGUAGE MODIFY '<code>' (CheckCompleteness: true, ...);
 ALTER SETTINGS LANGUAGE REMOVE '<code>';
 ALTER SETTINGS WORKFLOWS UserEntity = '<qualifiedName>';
+ALTER SETTINGS WORKFLOWS ADD [OR MODIFY] GROUP '<name>' [(Description: '<text>')];
+ALTER SETTINGS WORKFLOWS MODIFY GROUP '<name>' (Description: '<text>');
+ALTER SETTINGS WORKFLOWS REMOVE GROUP '<name>';
 CREATE [OR MODIFY] CONFIGURATION '<name>' [<key> = <value>, ...];
 DROP CONFIGURATION '<name>';`,
 		Example: `ALTER SETTINGS MODEL AfterStartupMicroflow = 'Module.MF_Startup';
@@ -435,6 +439,29 @@ ALTER SETTINGS LANGUAGE REMOVE 'de_DE';
 -- language that still carries translations is refused with the count, because
 -- removing it would strip work the statement does not name. Say it on purpose
 -- with: create or replace translations for <code> ( );
+
+-- WORKFLOW GROUPS are the named buckets under App Settings > Workflows > Groups
+-- that a user task's group targeting selects from. Mendix 11.2+ (the metamodel
+-- floor for Settings$WorkflowGroup — the release notes' "GA in 11.6" is a
+-- different question from whether the document loads).
+ALTER SETTINGS WORKFLOWS ADD GROUP 'Approvers' (Description: 'Primary approval group');
+ALTER SETTINGS WORKFLOWS ADD GROUP 'Reviewers';
+ALTER SETTINGS WORKFLOWS MODIFY GROUP 'Reviewers' (Description: 'Second-line review');
+ALTER SETTINGS WORKFLOWS REMOVE GROUP 'Reviewers';
+SHOW WORKFLOW GROUPS;
+
+-- Description is the ONLY option: a Settings$WorkflowGroup stores Name and
+-- Description and nothing else, so there is no identifier to set and the NAME is
+-- the group's identity — which is what MODIFY and REMOVE address, and why adding
+-- a second group differing only in case is refused. ADD OR MODIFY is the upsert
+-- and what DESCRIBE SETTINGS emits.
+--
+-- Nothing in the model references a group: a user task targets groups through a
+-- microflow or an XPath returning System.WorkflowGroup objects. The coupling is
+-- at RUNTIME, where Mendix materialises one System.WorkflowGroup row per entry,
+-- keyed on the group's element id — so MODIFY edits the row in place and REMOVE
+-- stops it being maintained, while user tasks already assigned to it keep their
+-- association.
 
 -- DatabaseType must be a Mendix database type:
 --   Db2, Hsqldb, MySql, Oracle, PostgreSql, SapHana, SqlServer
