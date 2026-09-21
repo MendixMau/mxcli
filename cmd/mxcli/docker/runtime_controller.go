@@ -203,17 +203,29 @@ func (c *RuntimeController) ApplyBuild(build *BuildResult, restart func() error)
 	return action, nil
 }
 
-// needsDBUpdate reports whether a start response indicates the database schema
-// must be updated before the runtime can serve (result 3 / "database has to be
-// updated" / a synchronizationreason in the feedback).
+// needsDBUpdate reports whether a start response indicates the database must be
+// created or updated before the runtime can serve.
+//
+// Two results mean that, and both need the same response (execute_ddl_commands
+// then start again):
+//
+//   - result 3, "the database has to be updated" — the schema is out of date.
+//   - result 2, "the database to be used does not exist" — there is no schema at
+//     all. This is the normal first boot of the built-in HSQLDB database, whose
+//     JDBC URL carries ifexists=true and therefore never creates the file.
+//
+// The synchronizationreason feedback is a third signal the runtime sometimes
+// sends instead of the message.
 func needsDBUpdate(resp *M2EEResponse) bool {
 	if resp == nil {
 		return false
 	}
-	if resp.Result == 3 {
+	if resp.Result == 2 || resp.Result == 3 {
 		return true
 	}
-	if strings.Contains(strings.ToLower(resp.Message), "database has to be updated") {
+	lower := strings.ToLower(resp.Message)
+	if strings.Contains(lower, "database has to be updated") ||
+		strings.Contains(lower, "database to be used does not exist") {
 		return true
 	}
 	if fb := resp.Feedback(); fb != nil {
