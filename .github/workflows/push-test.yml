@@ -51,6 +51,42 @@ jobs:
             exit 1
           fi
 
+  # The Windows process helpers (cmd/mxcli/docker/procgroup_windows.go) cannot be
+  # exercised by the ubuntu job: Signal(0) succeeds on Linux and there is no
+  # process tree to reap. `mxcli run --local` hung forever on Windows at
+  # "Starting mxbuild --serve..." because alive() asked Signal(0) (unsupported on
+  # Windows, so a live mxbuild read as dead) and Stop() killed only the wrapper,
+  # leaving mxbuild's Deno web-ext worker holding the stdout pipe so cmd.Wait()
+  # blocked. This job runs the Windows-only regression tests on a real Windows
+  # runner so neither half can come back.
+  windows-process-regression:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.6'
+      - name: Test the Windows process helpers
+        shell: bash
+        # Scoped with -run: the rest of the docker package's tests assert POSIX
+        # file modes and shell out to `sh`, so the full package does not pass on
+        # Windows (tracked in #897). The test binary is still COMPILED for this
+        # platform, so a Windows build break in the package is caught too.
+        #
+        # -run can pass vacuously if the tests are renamed or deleted, so assert
+        # that the expected number actually ran.
+        run: |
+          out=$(go test -v -count=1 -run 'TestProcessAlive|TestKillProcessGroup|TestServeServer_AliveTracksProcess|TestLocalRuntime_AliveTracksProcess' ./cmd/mxcli/docker/)
+          echo "$out"
+          n=$(printf '%s\n' "$out" | grep -c '^--- PASS: Test' || true)
+          echo "windows process tests executed: $n"
+          if [ "$n" -lt 5 ]; then
+            echo "FAIL: expected at least 5 Windows process tests to run, -run matched $n."
+            echo "      procgroup_windows_test.go must keep its processAlive / tree-kill /"
+            echo "      alive() tests, or the Windows local-boot regression is unguarded."
+            exit 1
+          fi
+
   build-and-test:
     runs-on: ubuntu-latest
     steps:

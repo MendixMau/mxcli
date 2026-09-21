@@ -385,12 +385,16 @@ func (s *ServeServer) Build(req BuildRequest) (*BuildResult, error) {
 	return &res, nil
 }
 
-// alive reports whether the serve process is still running (Linux: signal 0).
+// alive reports whether the serve process is still running.
+//
+// Delegates to processAlive: Signal(0) is a correct liveness test on POSIX but
+// returns EWINDOWS on Windows, where it made waitReady() treat a just-started
+// mxbuild as dead.
 func (s *ServeServer) alive() bool {
 	if s.cmd == nil || s.cmd.Process == nil {
 		return false
 	}
-	return s.cmd.Process.Signal(syscall.Signal(0)) == nil
+	return processAlive(s.cmd.Process)
 }
 
 // Log returns the captured mxbuild --serve output (for diagnostics).
