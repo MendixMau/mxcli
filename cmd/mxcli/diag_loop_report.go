@@ -183,10 +183,10 @@ func analyzeLoop(records []logRecord) loopReport {
 	stats := map[string]*verbStats{}
 
 	for _, inv := range invs {
-		// The report never counts itself. `diag` does not write session records
-		// today (it never builds a logged executor), but a report whose own
-		// numbers depend on that staying true would drift silently the moment it
-		// changed — so this filters rather than assumes.
+		// The report never counts itself. Since ako/mxcli#617 every command is
+		// recorded from PersistentPreRun, which excludes `diag` for this reason;
+		// the filter stays as the second guard, because a report whose numbers
+		// depend on one exclusion staying in place would drift silently.
 		if inv.Verb == "diag" || strings.HasPrefix(inv.Verb, "diag ") {
 			continue
 		}
@@ -331,7 +331,8 @@ func renderLoopReport(rep loopReport, w *os.File) {
 	fmt.Fprintln(w, "    agent's other calls are not here at all. This counts mxcli processes.")
 	fmt.Fprintln(w, "  - output size. Nothing records how many bytes a command printed, which")
 	fmt.Fprintln(w, "    is the other half of the bill.")
-	fmt.Fprintln(w, "  - reloads vs restarts. `run --local` does not write session records.")
+	fmt.Fprintln(w, "  - reloads vs restarts. A long-running `run --local` is one invocation")
+	fmt.Fprintln(w, "    however many times it hot-applies a change.")
 }
 
 var diagLoopReportCmd = &cobra.Command{
