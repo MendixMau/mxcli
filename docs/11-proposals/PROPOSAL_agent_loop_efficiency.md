@@ -84,9 +84,9 @@ Four of those steps are already avoidable with today's binary:
   lists `check` and `exec` as two consecutive gates, so the generated CLAUDE.md
   in **every** mxcli project teaches the two-call form. One wasted call per
   change, in every session, by construction.
-- **The 35 s restart is opt-in slowness.** `run --local --watch` hot-reloads a
-  behavioural change in ~2 s, and `mxcli test --attach` skips the boot entirely
-  by driving an app already up.
+- **The 35 s restart is NOT avoidable on Mendix 11.14** — see the section below.
+  On 11.13 and earlier, `run --local --watch` hot-reloads a behavioural change
+  in ~3 s, so the restart is opt-in slowness there and forced here.
 - **Logging in by hand is solved.** Playwright storage state is captured and
   reused (`screenshot --load-storage`); see `PROPOSAL_playwright_session_reuse.md`.
 - **The screenshot is usually the wrong instrument.** See lever 3.
@@ -108,6 +108,77 @@ five. This is what turns 5–8 calls into 1, and on the failure path into 2.
 Nothing here is new capability. Every stage exists; `apply` is the composition,
 and the composition is what the agent is currently doing by hand, one tool call
 at a time, paying the full conversation for each.
+
+### The 35 s restart is blocked by mxbuild on 11.14, not by our defaults
+
+An earlier draft of this proposal called the restart-per-change "opt-in
+slowness". That is wrong on the version a new project most likely lands on, and
+the correction matters because it changes what is actionable.
+
+**On Mendix 11.14 the first build in an `mxbuild --serve` process succeeds and
+every subsequent build in that process fails.** The first build does not leave
+the deployment in a state its own incremental build can continue from: the
+bundler config (`web/rollup.config.mjs` / `web/rspack.config.mjs`) and the
+per-document client (`web/pages/`, `web/layouts/`) are both absent, and which
+one the build dies on is only how far it gets before it needs one.
+
+This is measured in `cmd/mxcli/docker/webclient_legacy_paths.go`, against
+mxbuild 11.14.0 driven **directly over its HTTP API with mxcli removed from the
+picture** — the same `/build` request POSTed twice with the model untouched:
+
+```text
+build 1   Success
+build 2   Failure — ERR_MODULE_NOT_FOUND for web/rollup.config.mjs,
+                    imported from mxbuild's own tools/node/rollup-runner.mjs
+```
+
+Three controls place it in mxbuild rather than here: a one-shot
+`mxbuild --target=deploy` run twice into the same directory succeeds both times
+(so it is the serve process's state, not the 11.14 deployment shape); flipping
+to Rspack gives an identical failure naming the other config (so it is not the
+bundler choice); and 11.13.0 hot-reloads normally — measured, build #2 applied
+via reload in 3.4 s. Restoring the deleted config rescues only the
+model-unchanged case, which is the case nobody needs. `rm -rf deployment/` costs
+a cold build and changes nothing.
+
+mxcli cannot fix this from outside, and does not pretend to: it recognises the
+failure **by its own shape** rather than by version, so a fixed mxbuild goes
+quiet on its own. The docs say plainly that `--watch` is not usable on 11.14.
+
+Three consequences for this proposal:
+
+1. **The cost report's 35 s-per-change was very likely forced, not chosen.** The
+   project that first reported this "routed around it with a restart per
+   change", which is exactly the pattern in the session log.
+2. **It does not weaken lever 1.** Wall time and call count are separate axes.
+   The mxbuild defect taxes *time*; the 228 M bill is *calls*. `mxcli apply`
+   collapses 5–8 calls into 1 whether the build underneath it is warm or cold —
+   so on 11.14 it is the only lever left on that axis, and therefore more
+   important, not less.
+3. **`mxcli test --attach` is probably blocked too, and this is unmeasured.**
+   `--attach` must rebuild to pick up its test microflows, and it rebuilds
+   through the attached app's own serve process (`runner_attach.go`) — whose
+   first build happened at boot. That makes the attach rebuild a *second* serve
+   build, which is precisely the failing one. This is read off the code, not
+   measured; it needs one run on 11.14 to confirm or kill. If it holds, the warm
+   *test* loop is blocked on 11.14 as well, and the skills that recommend
+   `--attach` need the same version caveat `--watch` already carries.
+
+**The version default makes this worse than it needs to be.** `bootstrap-app`
+chooses the newest version on the CDN when the environment has nothing cached —
+11.14.0 at the time of writing — so a freshly bootstrapped project lands on
+exactly the version where the warm loop does not work, without anyone choosing
+it. Until mxbuild is fixed, the default should prefer the newest version whose
+warm loop is known to work (11.13.0), and say in one line why. A user who asks
+for 11.14 still gets it, with the caveat.
+
+**This is also a standing strategic risk worth recording.** `--serve`, `--host`
+and `--port` appear in `mxbuild --help` but not in the reference guide at
+docs.mendix.com/refguide/mxbuild/, which documents only the four `--target`
+modes. The entire warm loop is built on an undocumented interface carrying no
+compatibility promise. That argues for (a) reporting this defect to Mendix
+rather than only routing around it, and (b) keeping the cold-build path a
+first-class supported mode rather than a fallback.
 
 **Also: fix the gate list.** `projectGates` should teach `exec` (check folded in)
 rather than `check` then `exec`, and should name `apply` once it exists. The
@@ -212,6 +283,7 @@ places once already, and a loop regression is exactly as invisible.
 |---|---|---|---|
 | 1 | `diag loop-report` + benchmark harness (lever 6) | S | none directly — makes the rest falsifiable |
 | 2 | Fix `projectGates` to teach `exec`, not `check`+`exec` (lever 1) | XS | ~1 call per change, every project, immediately |
+| 2b | Measure `test --attach` on 11.14; pin the bootstrap default off 11.14 | XS | removes a forced 35 s/change from new projects |
 | 3 | Terse/delta output for `exec` and the noisy listings (lever 2) | M | linear cut on S, compounds with 4 |
 | 4 | `mxcli apply` (lever 1) | M | the 5–8 → 1–2 collapse; the main event |
 | 5 | Text-first verification rule in the skills (lever 3) | S | removes recurring image input |
@@ -225,6 +297,9 @@ immediately after it. Item 4 is the one that changes the shape of the loop.
 
 - Mendix builds. A model change must be compiled to be trusted, and that is
   seconds of wall time and at least one tool call, per change, forever.
+- The 11.14 serve-rebuild defect. It is mxbuild's, the controls are conclusive,
+  and nothing mxcli does from outside repairs it. It should be reported upstream;
+  meanwhile the version default is the only lever we hold.
 - Scope. The reported sessions did not build the same thing.
 - MDL not being in training data (`PROPOSAL_llm_mdl_assistance.md` owns that).
   Every MDL statement the agent gets wrong on the first try is a full loop
