@@ -91,23 +91,84 @@ Four of those steps are already avoidable with today's binary:
   reused (`screenshot --load-storage`); see `PROPOSAL_playwright_session_reuse.md`.
 - **The screenshot is usually the wrong instrument.** See lever 3.
 
-### Proposal: one gate command
+### First: the agent can already chain this, and mostly should
+
+The obvious objection to a new command is that `&&` exists:
 
 ```bash
-mxcli apply changes.mdl -p app.mpr [--verify tests/admin.spec.ts] [--no-build]
+mxcli exec changes.mdl -p app.mpr && mxcli docker check -p app.mpr
 ```
 
-One call that runs: semantic check → exec → mxbuild verify → reload the running
-app (or restart if the serve build says `restartRequired`) → run the named
-Playwright verifications → print **one compact verdict**.
+That is **one tool call**, needs nothing built, and captures most of lever 1's
+value today. It works because the commands are exit-code-honest — `exec` exits
+non-zero if any statement failed, and `docker check` propagates `mx check`'s
+status through `cmd.Run()` rather than printing errors and exiting 0. Worth
+stating explicitly, because a chain built on a command that reports failure only
+in stdout would pass silently, and that is the failure mode that would make
+chaining unsafe. It is not present here.
 
-The verdict is the whole point. On success it is two lines. On failure it is the
-first failing stage and only that stage's diagnostics — not the output of all
-five. This is what turns 5–8 calls into 1, and on the failure path into 2.
+So the call-count win does **not** require a new command. What `&&` does not
+give is the *token* win: it concatenates the stdout of every stage that ran, so
+a five-stage chain puts five stages of output into the conversation forever —
+the opposite of the compact verdict this proposal wants. The agent can paper
+over that with per-invocation `tail`/`grep`, but then it is writing fragile
+filters that encode each command's output shape, and getting them wrong is
+silent.
 
-Nothing here is new capability. Every stage exists; `apply` is the composition,
-and the composition is what the agent is currently doing by hand, one tool call
-at a time, paying the full conversation for each.
+**That reorders the proposal.** Lever 2 (output discipline) is the more
+fundamental of the two, not the junior partner: with terse, delta-shaped output
+from each command, `&&` chaining gets nearly all of `apply`'s value at zero new
+surface area — and the improvement lands on every *other* invocation too, not
+just the ones inside the chain.
+
+### So what, if anything, is left for a command?
+
+Two things, and both are weaker than the first draft claimed:
+
+- **The reload/restart decision.** Mapping the serve build's `restartRequired`
+  to reload-vs-restart is not expressible in `&&`. But when `run --local --watch`
+  works it already does this in the background, and the agent orchestrates
+  nothing; when it does not (11.14, below) the answer is a restart, which *is*
+  `&&`-able. So this is thin.
+- **Consistency.** An agent composing the chain fresh each session composes it
+  differently, and sometimes wrongly — the cost report is the evidence, having
+  run the redundant `check`, restarted when it need not have, and logged in by
+  hand. But that is cured by **stating the chain**, not by shipping a wrapper
+  around it.
+
+**Revised recommendation: publish the one-liner, do not build the command.** Put
+the canonical chain in `projectGates` and the skills, fix the outputs it
+concatenates, and build `mxcli apply` only if `diag loop-report` (lever 6) shows
+agents still composing it wrong after that. This is strictly cheaper, ships
+sooner, and does not add a surface that has to stay in sync with the commands
+underneath it.
+
+### The chain is tiered, not fixed — most changes stop at the first gate
+
+The first draft put `--verify <playwright>` in the default chain. That is a
+mistake of the same kind the cost report is complaining about: **an always-on
+gate chain trains maximal verification.** If a browser run is in the default
+path, every change pays browser cost, and the report's "I tested every admin
+flow ... most of those checks included screenshots" stops being a choice the
+agent made and becomes a property of the tool. Hard-wiring it would
+institutionalise the expensive failure mode.
+
+Verification tier is a **per-change decision**, and the routing rule already
+exists in `.claude/skills/verify-in-runtime.md` — a table from symptom to
+cheapest sufficient proof, with explicit counter-examples where the browser
+would be waste. The chain should express those tiers and stop at the first one
+that is sufficient:
+
+| What changed | Sufficient gate | Cost |
+|---|---|---|
+| any MDL edit | `mxcli exec` (check folded in) | ~2 s, no build |
+| structure a build can reject (pages, widgets, settings) | `+ docker check` / the serve build | ~25 s |
+| microflow *behaviour* | `+ mxcli test` — no browser | ~2 s warm |
+| what the app **renders or looks like** | `+` browser, once | expensive, rare |
+
+Most changes stop at row 1 or 2. The browser row is the rare one, and it is the
+only row that pays image input. Making the tier explicit is itself a lever: it
+converts "verify everything, to be safe" into a decision with a stated default.
 
 ### The 35 s restart is blocked by mxbuild on 11.14, not by our defaults
 
@@ -284,14 +345,19 @@ places once already, and a loop regression is exactly as invisible.
 | 1 | `diag loop-report` + benchmark harness (lever 6) | S | none directly — makes the rest falsifiable |
 | 2 | Fix `projectGates` to teach `exec`, not `check`+`exec` (lever 1) | XS | ~1 call per change, every project, immediately |
 | 2b | Measure `test --attach` on 11.14; pin the bootstrap default off 11.14 | XS | removes a forced 35 s/change from new projects |
-| 3 | Terse/delta output for `exec` and the noisy listings (lever 2) | M | linear cut on S, compounds with 4 |
-| 4 | `mxcli apply` (lever 1) | M | the 5–8 → 1–2 collapse; the main event |
-| 5 | Text-first verification rule in the skills (lever 3) | S | removes recurring image input |
+| 3 | Publish the canonical `&&` chain in `projectGates` + skills (lever 1) | XS | the 5–8 → 1–2 collapse, with nothing built |
+| 4 | Terse/delta output for `exec` and the noisy listings (lever 2) | M | the token half of the chain win; helps every call |
+| 5 | Tiered verification rule in the skills (lever 3) | S | stops the default path at the cheapest sufficient gate |
 | 6 | Subagent trigger in the skills (lever 4) | XS | caps the worst tail |
 | 7 | Workarounds → diagnostics and skills (lever 5) | M, ongoing | compounds across all future sessions |
 
-Item 1 first is deliberate. Items 2, 5 and 6 are nearly free and can ship
-immediately after it. Item 4 is the one that changes the shape of the loop.
+Item 1 first is deliberate. Items 2, 3, 5 and 6 are all XS-to-S and can ship
+immediately after it — item 3 is now the one that changes the shape of the loop,
+and it is a documentation change. Item 4 is the only substantial build, and it
+is what makes item 3 pay in tokens rather than only in call count.
+
+`mxcli apply` is deliberately **not** in this table. It is contingent on item 1
+showing that the published chain is still being composed wrong.
 
 ## What this does not fix
 
