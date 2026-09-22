@@ -44,26 +44,61 @@ contents table. See
 
 ### Unit Types
 
-A document's type is its BSON `$Type`, not a column on `Unit`:
+A document's type is its BSON `$Type`, not a column on `Unit`.
+
+These are **storage names**, and for the page family they differ from the
+names the TypeScript SDK uses: a page is stored as `Forms$Page`, never
+`Pages$Page` -- "Form" was the original term for "Page". Using the SDK
+spelling to select documents matches nothing, which is a wrong answer rather
+than an error. See [Storage Names](../../docs-site/src/internals/storage-names.md).
+
+The set below is measured: it is every distinct `$Type` in a blank Mendix
+11.6.6 app (369 units) unioned with a 9.24.30 app (20 units).
 
 | `$Type` | Document Type |
 |---------|---------------|
+| `Constants$Constant` | Constant |
+| `CustomIcons$CustomIconCollection` | Custom icon collection |
 | `DomainModels$DomainModel` | Domain model (entities, associations) |
-| `DomainModels$ViewEntitySourceDocument` | OQL query for VIEW entities |
-| `microflows$microflow` | Microflow definition |
-| `microflows$nanoflow` | Nanoflow definition |
-| `pages$page` | Page definition |
-| `pages$layout` | Layout definition |
-| `pages$snippet` | Snippet definition |
-| `pages$BuildingBlock` | Building block definition |
-| `enumerations$enumeration` | Enumeration definition |
-| `JavaActions$JavaAction` | Java action definition |
-| `security$ProjectSecurity` | Project security settings |
-| `security$ModuleSecurity` | Module security settings |
-| `navigation$NavigationDocument` | Navigation profile |
-| `settings$ProjectSettings` | Project settings |
+| `Enumerations$Enumeration` | Enumeration |
+| `ExportMappings$ExportMapping` | Export mapping |
+| `Forms$BuildingBlock` | Building block |
+| `Forms$Layout` | Layout |
+| `Forms$Page` | Page |
+| `Forms$PageTemplate` | Page template |
+| `Forms$Snippet` | Snippet |
+| `Images$ImageCollection` | Image collection |
+| `ImportMappings$ImportMapping` | Import mapping |
+| `JavaActions$JavaAction` | Java action |
+| `JavaScriptActions$JavaScriptAction` | JavaScript action |
+| `JsonStructures$JsonStructure` | JSON structure |
+| `Menus$MenuDocument` | Menu document |
+| `Microflows$Microflow` | Microflow |
+| `Microflows$Nanoflow` | Nanoflow |
+| `Navigation$NavigationDocument` | Navigation profile |
+| `Projects$Folder` | Folder |
+| `Projects$ModuleImpl` | Module |
+| `Projects$ModuleSettings` | Per-module settings |
+| `Projects$Project` | Project root |
+| `Projects$ProjectConversion` | Version-conversion record |
+| `Security$ModuleSecurity` | Module security settings |
+| `Security$ProjectSecurity` | Project security settings |
+| `Settings$ProjectSettings` | Project settings |
+| `Texts$SystemTextCollection` | System text collection |
+
+A project with no instance of a document type simply has no unit of it, so
+these are named from mxcli's own readers and writers rather than measured
+above:
+
+| `$Type` | Document Type |
+|---------|---------------|
 | `BusinessEvents$BusinessEventService` | Business event service |
-| `CustomWidgets$customwidget` | Custom widget definition |
+| `CustomBlobDocuments$CustomBlobDocument` | Custom blob document |
+| `DomainModels$ViewEntitySourceDocument` | OQL query for VIEW entities |
+| `Microflows$Rule` | Rule (a rule is a flow, so it is in the Microflows namespace) |
+| `Queues$Queue` | Task queue |
+| `RegularExpressions$RegularExpression` | Regular expression |
+| `ScheduledEvents$ScheduledEvent` | Scheduled event |
 
 ---
 

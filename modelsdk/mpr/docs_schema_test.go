@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"go.mongodb.org/mongo-driver/v2/bson"
 	_ "modernc.org/sqlite"
 )
 
@@ -329,5 +330,169 @@ func TestMPRVersionDetectionRestsOnContentsColumn(t *testing.T) {
 	defer r2.Close()
 	if r2.Version() != MPRVersionV2 {
 		t.Errorf("v2 fixture detected as %v, want %v", r2.Version(), MPRVersionV2)
+	}
+}
+
+// --- Unit types -------------------------------------------------------------
+//
+// The same pages map a document's BSON $Type to a document kind. Those were
+// wrong in the same way and for the same reason: several rows named the
+// TypeScript SDK's qualified name instead of the storage name Mendix actually
+// writes — `Pages$Page` for what every real unit calls `Forms$Page` — and one
+// page lowercased half the table, which matters because $Type is
+// case-sensitive. Selecting on either spelling matches zero units: a wrong
+// answer rather than an error, the same failure mode as the UnitContents
+// detection recipe above.
+
+// realUnitTypes returns every distinct $Type across both fixtures. The v1
+// fixture's units are Unit.Contents blobs; the v2 fixture's are .mxunit files.
+func realUnitTypes(t *testing.T) map[string]bool {
+	t.Helper()
+	types := map[string]bool{}
+
+	add := func(raw []byte) {
+		if v, err := bson.Raw(raw).LookupErr("$Type"); err == nil {
+			if s, ok := v.StringValueOK(); ok && s != "" {
+				types[s] = true
+			}
+		}
+	}
+
+	db, err := sql.Open("sqlite", fmt.Sprintf("file:%s?mode=ro", v1Fixture))
+	if err != nil {
+		t.Fatalf("open v1 fixture: %v", err)
+	}
+	rows, err := db.Query(`SELECT Contents FROM Unit`)
+	if err != nil {
+		db.Close()
+		t.Fatalf("read v1 contents: %v", err)
+	}
+	for rows.Next() {
+		var blob []byte
+		if err := rows.Scan(&blob); err != nil {
+			t.Fatalf("scan v1 contents: %v", err)
+		}
+		add(blob)
+	}
+	rows.Close()
+	db.Close()
+
+	v2Dir := filepath.Join(repoRoot, "testdata", "expr-checker", "mprcontents")
+	err = filepath.Walk(v2Dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".mxunit") {
+			return err
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		add(b)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", v2Dir, err)
+	}
+
+	if len(types) < 20 {
+		t.Fatalf("only %d distinct $Type values across both fixtures — the fixtures are not being read", len(types))
+	}
+	return types
+}
+
+var docTypeName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*\$[A-Za-z][A-Za-z0-9]*$`)
+
+// unitTypeTables collects the first column of every markdown table under a
+// heading naming unit types, across both pages that print one.
+func unitTypeTables(t *testing.T) map[string][]string {
+	t.Helper()
+	pages := []string{
+		filepath.Join(repoRoot, "docs-site", "src", "internals", "mpr-format.md"),
+		filepath.Join(repoRoot, "docs", "05-mdl-specification", "10-bson-mapping.md"),
+	}
+	out := map[string][]string{}
+	for _, page := range pages {
+		b, err := os.ReadFile(page)
+		if err != nil {
+			t.Fatalf("read %s: %v", page, err)
+		}
+		rel, _ := filepath.Rel(repoRoot, page)
+		lines := strings.Split(string(b), "\n")
+		start := -1
+		for i, l := range lines {
+			if strings.HasPrefix(l, "#") && strings.Contains(l, "Unit Types") {
+				start = i
+				break
+			}
+		}
+		if start < 0 {
+			t.Errorf("%s no longer has a Unit Types heading; this test is asserting nothing about it", rel)
+			continue
+		}
+		var found []string
+		for _, l := range lines[start+1:] {
+			trimmed := strings.TrimSpace(l)
+			if strings.HasPrefix(trimmed, "#") {
+				break // next heading — stop, but keep every table until then
+			}
+			if !strings.HasPrefix(trimmed, "|") {
+				continue
+			}
+			cells := strings.Split(strings.Trim(trimmed, "|"), "|")
+			name := strings.Trim(strings.TrimSpace(cells[0]), "`")
+			if docTypeName.MatchString(name) {
+				found = append(found, name)
+			}
+		}
+		if len(found) == 0 {
+			t.Errorf("%s prints no $Type rows under Unit Types", rel)
+		}
+		out[rel] = found
+	}
+	return out
+}
+
+// TestDocumentedUnitTypesUseStorageNames holds every documented $Type to the
+// spelling real units carry.
+//
+// The check is deliberately keyed on the LOCAL name (the part after the `$`),
+// case-insensitively, because the fixtures cannot prove a type absent — a
+// blank project simply has no business-event service, so demanding that every
+// documented type appear would fail on rows that are perfectly correct. But
+// when a fixture DOES have a type with the same local name, the documented
+// row must match it exactly: that catches `Pages$Page` against `Forms$Page`
+// and every lowercased spelling, with no false positives on legitimately
+// absent types.
+//
+// The limit is worth stating: a documented type whose local name appears
+// nowhere in the fixtures is not checked at all. `CustomWidgets$customwidget`
+// was one such row and had to be removed by hand — it is a widget element
+// inside a page's tree (`CustomWidgets$CustomWidget`), never a unit.
+func TestDocumentedUnitTypesUseStorageNames(t *testing.T) {
+	real := realUnitTypes(t)
+
+	byLocal := map[string][]string{}
+	for full := range real {
+		local := strings.ToLower(full[strings.Index(full, "$")+1:])
+		byLocal[local] = append(byLocal[local], full)
+	}
+	for k := range byLocal {
+		sort.Strings(byLocal[k])
+	}
+
+	for page, documented := range unitTypeTables(t) {
+		for _, d := range documented {
+			local := strings.ToLower(d[strings.Index(d, "$")+1:])
+			candidates, known := byLocal[local]
+			if !known {
+				continue // no unit of this kind in either fixture — unprovable here
+			}
+			if real[d] {
+				continue
+			}
+			t.Errorf("%s documents $Type %q; real units spell it %s.\n"+
+				"$Type is the storage name and is case-sensitive — selecting on the SDK's "+
+				"qualified name matches zero units.",
+				page, d, strings.Join(candidates, " or "))
+		}
 	}
 }
