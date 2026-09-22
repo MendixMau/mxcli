@@ -24,9 +24,11 @@ the `LeaveRequest` being reviewed). User tasks render a page bound to
 
 ## Syntax — CREATE WORKFLOW
 
-The header options are **order-sensitive** (parameter → display → description →
-export level → overview page → due date → event handlers), and the body **must**
-close with `END WORKFLOW`.
+The header options may be written in **any order** — each at most once — and the
+body **must** close with `END WORKFLOW`. (They used to be order-sensitive, in
+exactly the sequence below; a clause written out of place failed with
+`mismatched input 'DISPLAY' expecting {ON, BEGIN, EXPORT, DUE, OVERVIEW}`, which
+named neither the clause nor the rule. See `ako/mxcli#586`.)
 
 ```sql
 create workflow Module.ApprovalFlow
@@ -42,6 +44,22 @@ begin
   -- activities here, each terminated with ;
 end workflow;
 ```
+
+**Clause order does not matter, but repetition is refused.** A workflow's header
+clauses and a user task's clauses are a **set**: any order, each **at most
+once**. Writing one twice is reported by name —
+
+```
+line 5:2: duplicate DISPLAY clause on workflow Module.ApprovalFlow
+          (already given on line 4) — each clause may appear at most once, in any order
+```
+
+Three clauses are list-valued and accumulate instead: the header's
+`on workflow event(s)` handlers, and a task's `outcomes` and `boundary event`.
+The two `targeting` spellings count as **one** clause — a user task stores one
+user source — so `targeting microflow …` and `targeting xpath …` on the same
+task is a duplicate, not two clauses. It used to be accepted, with the one
+written **last** silently winning.
 
 **Two gotchas that trip up first attempts:**
 
@@ -419,10 +437,9 @@ values. The full list and the System **entities** are in `system-module`.
   An outcome left **empty** does not stop anything — it rejoins the main flow.
   `comment '…'` sets the End's caption, as on every workflow activity.
 
-- **A multi-user task says who must respond and how their outcomes decide**,
-  in this clause order before `outcomes`:
-  `participants all | <n> | <n> percent`, then `decide by …`, then
-  `await all users`. The rules (`decide by`):
+- **A multi-user task says who must respond and how their outcomes decide**:
+  `participants all | <n> | <n> percent`, `decide by …` and `await all users`,
+  in any order (see the clause-order note below). The rules (`decide by`):
   `consensus fallback '<outcome>'`, `majority more than half fallback '…'`,
   `majority most chosen fallback '…'`, `threshold <n> percent|votes fallback '…'`,
   `veto '<outcome>'`, `microflow Module.Decide`. Omitted means all participants,
