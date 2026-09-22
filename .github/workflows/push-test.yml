@@ -39,11 +39,24 @@ jobs:
         #
         # -run can pass vacuously if the tests are renamed or deleted, so assert that
         # the expected number actually ran.
+        #
+        # `tee` rather than a command substitution: the runner's shell is
+        # `bash -e -o pipefail`, so capturing into `out=$(go test ...)` aborts the
+        # step AT THE ASSIGNMENT when go test fails, and the `echo "$out"` below
+        # never runs. The log then holds nothing but "Process completed with exit
+        # code 1" — no test name, no failure message, no way to tell a real break
+        # from a flake. Write the output as it is produced, then judge it.
         run: |
-          out=$(go test -v -count=1 -run 'Unsupported' ./cmd/mxcli/docker/... ./cmd/mxcli/tunnelhub/...)
-          echo "$out"
-          n=$(printf '%s\n' "$out" | grep -c '^--- PASS: Test.*Unsupported' || true)
+          set +e
+          go test -v -count=1 -run 'Unsupported' ./cmd/mxcli/docker/... ./cmd/mxcli/tunnelhub/... 2>&1 | tee go-test-output.txt
+          status=${PIPESTATUS[0]}
+          set -e
+          n=$(grep -c '^--- PASS: Test.*Unsupported' go-test-output.txt || true)
           echo "seam tests executed: $n"
+          if [ "$status" -ne 0 ]; then
+            echo "FAIL: go test exited $status. Its output is above."
+            exit "$status"
+          fi
           if [ "$n" -lt 4 ]; then
             echo "FAIL: expected at least 4 tunnel-seam tests to run, -run matched $n."
             echo "      The !linux stubs in cmd/mxcli/docker and cmd/mxcli/tunnelhub"
@@ -75,11 +88,23 @@ jobs:
         #
         # -run can pass vacuously if the tests are renamed or deleted, so assert
         # that the expected number actually ran.
+        #
+        # `tee` rather than a command substitution — see the tunnel-seam job above.
+        # This job is where it bit: a run of these tests failed with the log holding
+        # only "Process completed with exit code 1", so the failing test could not be
+        # named and the leftover `ping` in the runner's orphan-process cleanup was
+        # the only evidence of WHICH test had tripped (ako/mxcli#594).
         run: |
-          out=$(go test -v -count=1 -run 'TestProcessAlive|TestKillProcessGroup|TestServeServer_AliveTracksProcess|TestLocalRuntime_AliveTracksProcess' ./cmd/mxcli/docker/)
-          echo "$out"
-          n=$(printf '%s\n' "$out" | grep -c '^--- PASS: Test' || true)
+          set +e
+          go test -v -count=1 -run 'TestProcessAlive|TestKillProcessGroup|TestServeServer_AliveTracksProcess|TestLocalRuntime_AliveTracksProcess' ./cmd/mxcli/docker/ 2>&1 | tee go-test-output.txt
+          status=${PIPESTATUS[0]}
+          set -e
+          n=$(grep -c '^--- PASS: Test' go-test-output.txt || true)
           echo "windows process tests executed: $n"
+          if [ "$status" -ne 0 ]; then
+            echo "FAIL: go test exited $status. Its output is above."
+            exit "$status"
+          fi
           if [ "$n" -lt 5 ]; then
             echo "FAIL: expected at least 5 Windows process tests to run, -run matched $n."
             echo "      procgroup_windows_test.go must keep its processAlive / tree-kill /"
