@@ -30,6 +30,25 @@ func init() {
 		// Widgets nested in a Widgets list use the typed-array marker 2 when present.
 		codec.RegisterListMarker(t, 2)
 	}
+	// An AttributeRef always carries EntityRef: it is null for a plain binding
+	// and an IndirectEntityRef when the attribute is reached over associations.
+	// Measured 338 of 338 across the 67 pages of ako/TestApp at 11.14.0 (313
+	// null, 25 navigated). mxcli only ever set it on the navigated branch, so a
+	// rewrite dropped the key from every plain one (ako/mxcli#541). The default
+	// applies only when the field was not otherwise set, so it cannot flatten a
+	// navigated ref.
+	codec.RegisterTypeDefaults("DomainModels$AttributeRef", codec.TypeDefaults{
+		NullFields: []string{"EntityRef"},
+	})
+	// A PageVariable names its source in exactly one of four fields and Studio
+	// Pro writes all six keys regardless. mxcli sets whichever one carries the
+	// value, leaving the rest at Go's zero value, never marked dirty, and so
+	// omitted. Registering them here covers all three construction sites and
+	// any future one, which setting every field at each site would not.
+	codec.RegisterTypeDefaults("Forms$PageVariable", codec.TypeDefaults{
+		EmptyStringFields: []string{"LocalVariable", "PageParameter", "SnippetParameter", "SubKey", "Widget"},
+		FalseFields:       []string{"UseAllPages"},
+	})
 	// A ClientTemplate's Parameters list is always emitted with marker 2, even empty
 	// (unusual — most empty lists are marker 3).
 	codec.RegisterTypeDefaults("Forms$ClientTemplate", codec.TypeDefaults{
@@ -125,15 +144,23 @@ func init() {
 	})
 	// A microflow data source's settings carry an always-emitted (empty) parameter
 	// mapping list and null progress/confirmation slots.
+	//
+	// Both mapping lists are always emitted. The markers are measured, not
+	// assumed: across ako/TestApp's 67 pages at 11.14.0, ParameterMappings
+	// carries marker 2 on 220 of 220 lists in every parent type (empty or
+	// populated), and OutputMappings is present on 91 of 91 MicroflowSettings
+	// with marker 3 and no items. MandatoryLists emits the encoder's default 3,
+	// so ParameterMappings needs the explicit marker (ako/mxcli#550).
 	codec.RegisterTypeDefaults("Forms$MicroflowSettings", codec.TypeDefaults{
-		MandatoryLists: []string{"ParameterMappings"},
-		NullFields:     []string{"ProgressMessage", "ConfirmationInfo"},
+		MandatoryLists:       []string{"OutputMappings"},
+		MandatoryListMarkers: map[string]int32{"ParameterMappings": 2},
+		NullFields:           []string{"ProgressMessage", "ConfirmationInfo"},
 	})
 	// A nanoflow client action carries its (possibly empty) parameter-mapping
 	// list directly and nulls its progress/confirmation slots. Bug 2.
 	codec.RegisterTypeDefaults("Forms$CallNanoflowClientAction", codec.TypeDefaults{
-		MandatoryLists: []string{"ParameterMappings"},
-		NullFields:     []string{"ProgressMessage", "ConfirmationInfo"},
+		MandatoryListMarkers: map[string]int32{"ParameterMappings": 2},
+		NullFields:           []string{"ProgressMessage", "ConfirmationInfo"},
 	})
 	// TextBox: many null slots when unbound (attribute ref, screen-reader label,
 	// source variable, label template, visibility/editability/native settings).
@@ -212,8 +239,14 @@ func init() {
 		NullFields: []string{"ConditionalVisibilitySettings"},
 	})
 	codec.RegisterListMarker("Forms$SnippetCallWidget", 2)
+	// The three parameter-mapping child types. MandatoryListMarkers covers an
+	// EMPTY list; a populated one takes its marker from the child type, and all
+	// three measured 2 (ako/mxcli#550).
+	codec.RegisterListMarker("Forms$MicroflowParameterMapping", 2)
+	codec.RegisterListMarker("Forms$PageParameterMapping", 2)
+	codec.RegisterListMarker("Forms$SnippetParameterMapping", 2)
 	codec.RegisterTypeDefaults("Forms$SnippetCall", codec.TypeDefaults{
-		MandatoryLists: []string{"ParameterMappings"},
+		MandatoryListMarkers: map[string]int32{"ParameterMappings": 2},
 	})
 	// ListView: null visibility; always emits its Templates list; marker 2.
 	codec.RegisterTypeDefaults("Forms$ListView", codec.TypeDefaults{
@@ -346,7 +379,14 @@ func widgetToGen(w pages.Widget) (element.Element, error) {
 		}
 		g.SetDataSource(ds)
 		g.SetEditability(editability(x.ReadOnly))
-		g.SetReadOnlyStyle("Control")
+		// Control is the DataView default, measured 47 of 56 across ako/TestApp's
+		// 67 pages with not one Inherit — so it is NOT the "Inherit" every other
+		// input widget uses. An authored or carried value wins (ako/mxcli#550).
+		if x.ReadOnlyStyle != "" {
+			g.SetReadOnlyStyle(x.ReadOnlyStyle)
+		} else {
+			g.SetReadOnlyStyle("Control")
+		}
 		g.SetShowFooter(x.ShowFooter)
 		// Always emit LabelWidth. It carries Studio Pro's "Form orientation" radio,
 		// which has no BSON field of its own — so writing it only when an explicit
@@ -412,7 +452,7 @@ func widgetToGen(w pages.Widget) (element.Element, error) {
 		g.SetReadOnlyStyle("Inherit")
 		g.SetSubmitBehaviour("OnEndEditing")
 		g.SetSubmitOnInputDelay(300)
-		g.SetValidation(widgetValidationToGen())
+		g.SetValidation(widgetValidationToGenWith(x.ValidationExpression, x.ValidationMessage))
 		return g, nil
 
 	case *pages.ActionButton:
@@ -1226,10 +1266,23 @@ func attributeRefWithStepsToGen(attrQN string, steps []pages.AttributeRefStep) e
 
 // widgetValidationToGen builds the default empty Forms$WidgetValidation.
 func widgetValidationToGen() element.Element {
+	return widgetValidationToGenWith("", "")
+}
+
+// widgetValidationToGenWith builds a Forms$WidgetValidation carrying the widget's
+// own validation: the expression Mendix evaluates over $value, and the message
+// shown when it fails.
+//
+// The element is written either way — Studio Pro stores it on every input widget,
+// empty or not — so the empty form here is the same document the unconditional
+// default used to produce. What changed is that an authored expression is no
+// longer overwritten by it: a rewrite used to blank the validation on every text
+// box it touched, with mx check at 0 errors (ako/mxcli#550).
+func widgetValidationToGenWith(expression, message string) element.Element {
 	v := genPg.NewWidgetValidation()
 	assignID(v)
-	v.SetExpression("")
-	v.SetMessage(genTexts.NewText())
+	v.SetExpression(expression)
+	v.SetMessage(captionToGen(textFromString(message)))
 	return v
 }
 
@@ -1378,7 +1431,12 @@ func listViewSourceToGen(ds pages.DataSource) (element.Element, error) {
 			item := genPg.NewGridSortItem()
 			assignID(item)
 			item.SetSortDirection(string(s.Direction))
-			if ref := attributeRefToGen(s.AttributePath); ref != nil {
+			// inputAttributeRefToGen, not attributeRefToGen: a sort that navigates
+			// associations needs its hops stored as the AttributeRef's EntityRef,
+			// exactly as an input widget's binding does. Without them the far
+			// entity's attribute does not resolve and mxbuild answers CE7247
+			// (mendixlabs/mxcli#1152). With no steps the two are identical.
+			if ref := inputAttributeRefToGen(s.AttributePath, s.AttributeRefSteps); ref != nil {
 				item.SetAttributeRef(ref)
 			}
 			bar.AddSortItems(item)
@@ -1451,7 +1509,12 @@ func customWidgetDataSourceToGen(ds pages.DataSource) (element.Element, error) {
 			item := genPg.NewGridSortItem()
 			assignID(item)
 			item.SetSortDirection(string(s.Direction))
-			if ref := attributeRefToGen(s.AttributePath); ref != nil {
+			// inputAttributeRefToGen, not attributeRefToGen: a sort that navigates
+			// associations needs its hops stored as the AttributeRef's EntityRef,
+			// exactly as an input widget's binding does. Without them the far
+			// entity's attribute does not resolve and mxbuild answers CE7247
+			// (mendixlabs/mxcli#1152). With no steps the two are identical.
+			if ref := inputAttributeRefToGen(s.AttributePath, s.AttributeRefSteps); ref != nil {
 				item.SetAttributeRef(ref)
 			}
 			bar.AddSortItems(item)
@@ -1626,25 +1689,43 @@ func clientActionToGen(a pages.ClientAction) (element.Element, error) {
 	switch x := a.(type) {
 	case nil, *pages.NoClientAction:
 		return noActionGen(), nil
+	// The four simple actions below were the only ones that did not write
+	// DisabledDuringExecution. Studio Pro stores it true on all 39 of them
+	// across the 67 pages of ako/TestApp at 11.14.0 (CancelChanges 16, ClosePage
+	// 10, SaveChanges 8, Delete 5), so its absence was a round-trip loss rather
+	// than a default (ako/mxcli#541). The seven other cases in this switch
+	// already set it.
+	//
+	// Other types carrying the property are NOT unanimous — Forms$NoAction
+	// stores false on 83 of ~7,300 and Forms$MicroflowAction on 5 of 81 — but
+	// those are stored values mxcli overwrites, a carry problem that predates
+	// this change and is tracked separately.
 	case *pages.SaveChangesClientAction:
 		g := genPg.NewSaveChangesClientAction()
 		assignID(g)
 		g.SetClosePage(x.ClosePage)
-		g.SetSyncAutomatically(true)
+		g.SetDisabledDuringExecution(true)
+		// false, not true: all eight Studio Pro SaveChanges actions in that
+		// same sweep store false. Writing true turned a describe → exec of any
+		// page with a Save button into a change nobody asked for.
+		g.SetSyncAutomatically(false)
 		return g, nil
 	case *pages.CancelChangesClientAction:
 		g := genPg.NewCancelChangesClientAction()
 		assignID(g)
 		g.SetClosePage(x.ClosePage)
+		g.SetDisabledDuringExecution(true)
 		return g, nil
 	case *pages.ClosePageClientAction:
 		g := genPg.NewClosePageClientAction()
 		assignID(g)
+		g.SetDisabledDuringExecution(true)
 		return g, nil
 	case *pages.DeleteClientAction:
 		g := genPg.NewDeleteClientAction()
 		assignID(g)
 		g.SetClosePage(x.ClosePage)
+		g.SetDisabledDuringExecution(true)
 		return g, nil
 	case *pages.PageClientAction:
 		// show_page → Forms$FormAction with a Forms$FormSettings (PageSettings).

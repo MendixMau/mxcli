@@ -136,6 +136,35 @@ func appendConditionalProps(props []string, w rawWidget) []string {
 // not reveal the CREATE-path loss reported in ako/mxcli-maintenance-2 — both
 // sides printed nothing, so the documents compared equal while the model was
 // wrong.
+// appendInputValidationProps emits the input-widget properties a round trip used
+// to drop: the password flag and the per-widget validation (ako/mxcli#550).
+//
+// Both are emitted only when set. `Password: false` is every ordinary text box,
+// and an empty validation is what Studio Pro stores on a widget that has none,
+// so emitting either would put a clause in the user's script that they never
+// wrote — the "invents" shape in docs-wiki/bug-patterns/describe-round-trip-gaps.md.
+//
+// The message rides with the expression rather than standing alone: Mendix has
+// nowhere to show a message for a validation that never fails.
+func appendInputValidationProps(props []string, w rawWidget) []string {
+	if w.IsPassword {
+		props = append(props, "Password: true")
+	}
+	if w.ValidationExpression != "" {
+		// Quoted, not bracketed. `[...]` is the XPath-constraint spelling and the
+		// grammar parses it as an ARRAY of expressions (propertyValueV3), so a
+		// bracketed expression comes back to the builder as []any and
+		// GetStringProp yields "" — the round trip looked right in the emitter's
+		// own test and still lost the value on a real page. mdlQuote doubles any
+		// embedded quote, which a Mendix expression over $value may well carry.
+		props = append(props, fmt.Sprintf("Validation: %s", mdlQuote(w.ValidationExpression)))
+		if w.ValidationMessage != "" {
+			props = append(props, fmt.Sprintf("ValidationMessage: %s", mdlQuote(w.ValidationMessage)))
+		}
+	}
+	return props
+}
+
 func appendAppearanceProps(props []string, w rawWidget) []string {
 	// Only when it deviates from Mendix's default, so unchanged widgets keep a
 	// quiet round-trip. Empty means the widget type has no editability at all.
@@ -472,6 +501,12 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 		if hasFooter := dataViewHasFooterBlock(w); hasFooter != w.ShowFooter {
 			props = append(props, fmt.Sprintf("ShowFooter: %t", w.ShowFooter))
 		}
+		// A DataView has its own ReadOnlyStyle, distinct from a CheckBox's and
+		// wired nowhere until ako/mxcli#550. Inherit is Studio Pro's default, so
+		// only the other two are emitted.
+		if w.ReadOnlyStyle != "" && w.ReadOnlyStyle != "Inherit" {
+			props = append(props, fmt.Sprintf("ReadOnlyStyle: %s", w.ReadOnlyStyle))
+		}
 		props = appendAppearanceProps(props, w)
 		formatWidgetProps(ctx.Output, prefix, header, props, " {\n")
 		outputDataContainerContext(ctx.Output, prefix+"  ", w.Name, w.EntityContext, false)
@@ -495,6 +530,7 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 		if w.OnChange != "" {
 			props = append(props, fmt.Sprintf("OnChange: %s", w.OnChange))
 		}
+		props = appendInputValidationProps(props, w)
 		props = appendAppearanceProps(props, w)
 		formatWidgetProps(ctx.Output, prefix, header, props, "\n")
 
@@ -691,6 +727,12 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 			props = appendWidgetDataSources(props, w)
 			for _, ep := range w.ExplicitProperties {
 				props = append(props, fmt.Sprintf("%s: %s", ep.Key, explicitPropValue(ep)))
+				// A `{1}` re-executed without its parameter is CE0720, so the
+				// companion travels with the text it belongs to (#575).
+				if len(ep.Params) > 0 {
+					props = append(props, fmt.Sprintf("%sParams: [%s]",
+						ep.Key, strings.Join(formatParametersV3(ep.Params), ", ")))
+				}
 			}
 			// onClick action (ledger #67 — reported on CustomChart)
 			if w.OnClick != "" {
@@ -1887,9 +1929,17 @@ func describeImageWidgetProps(w rawWidget) []string {
 	}
 	if w.ImageUrl != "" {
 		props = append(props, fmt.Sprintf("ImageUrl: %s", mdlQuote(w.ImageUrl)))
+		if len(w.ImageUrlParams) > 0 {
+			props = append(props, fmt.Sprintf("ImageUrlParams: [%s]",
+				strings.Join(formatParametersV3(w.ImageUrlParams), ", ")))
+		}
 	}
 	if w.AlternativeText != "" {
 		props = append(props, fmt.Sprintf("AlternativeText: %s", mdlQuote(w.AlternativeText)))
+		if len(w.AlternativeTextParams) > 0 {
+			props = append(props, fmt.Sprintf("AlternativeTextParams: [%s]",
+				strings.Join(formatParametersV3(w.AlternativeTextParams), ", ")))
+		}
 	}
 	if w.WidthUnit != "" && w.WidthUnit != "auto" {
 		props = append(props, fmt.Sprintf("WidthUnit: %s", w.WidthUnit))

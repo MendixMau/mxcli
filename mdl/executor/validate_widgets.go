@@ -176,6 +176,8 @@ func validateWidgetTreeIn(widgets []*ast.WidgetV3, registry *WidgetRegistry, loc
 		// #928: contentparams with no `{N}` placeholder to consume them.
 		if lookupWidgetDef(w, registry) != nil {
 			out = append(out, validatePluggableContentParams(w, locationPrefix)...)
+			// #575: the same drop, per text-template property.
+			out = append(out, validatePluggableTemplateParams(w, locationPrefix)...)
 		}
 		out = append(out, validateWidgetVisibility(w, registry, locationPrefix)...)
 		// An IMAGE with nothing to show — the default source needs an image
@@ -186,7 +188,9 @@ func validateWidgetTreeIn(widgets []*ast.WidgetV3, registry *WidgetRegistry, loc
 		out = append(out, validateDatasourceXPathAssociationEmpty(w, locationPrefix)...)
 		out = append(out, validateComboBoxAssociation(w, locationPrefix)...)
 		// A show_page argument naming anything but the context object is dropped.
-		out = append(out, validateShowPageArguments(w, argCtx, locationPrefix)...)
+		// The widget's OWN action is judged in the context IT establishes, not the
+		// one it sits in — a list widget's onClick is row-scoped (ako/mxcli#552).
+		out = append(out, validateShowPageArguments(w, argContextForOwnAction(w, argCtx), locationPrefix)...)
 		// Unknown-property warning applies only to built-in widgets; pluggable
 		// widgets get the stricter def.json check (MDL-WIDGET01) above, and
 		// object-list items are validated by the object-list engine.
@@ -667,6 +671,10 @@ var staticWidgetKnownProps = func() map[string]bool {
 		"ImageUrl", "LabelPosition", "PageSize", "Pagination", "PagingPosition",
 		"PhoneColumns", "ReadOnlyStyle", "Resizable", "Responsive", "ShowPagingButtons",
 		"Size", "Sortable", "TabletColumns", "WidthUnit", "WrapText", "Name",
+		// input-widget properties describe page emits (ako/mxcli#550): a text
+		// box's password flag and its Forms$WidgetValidation. Leaving them out
+		// makes the describe -> create round trip warn about its own output.
+		"Password", "Validation", "ValidationMessage",
 		// button icon-collection reference (issue #602)
 		"Icon",
 		// staticimage's image-collection reference, Module.Collection.Image
@@ -1261,6 +1269,30 @@ func addMappingNames(add func(string), m PropertyMapping) {
 	}
 }
 
+// addTemplateParamsNames records the `<Name>Params` companion of a text-template
+// property. A `{1}`-style template needs its parameters bound beside it, and the
+// companion's name is the widget's own property name — so it cannot have a token
+// of its own, and the validator has to derive it from the definition the same way
+// the engine does.
+//
+// Scoped to texttemplate mappings on purpose: a blanket "anything ending in
+// Params" would take MDL-WIDGET01's job away from a typo (#575).
+func addTemplateParamsNames(add func(string), m PropertyMapping) {
+	if m.Operation != "texttemplate" {
+		return
+	}
+	for _, n := range []string{m.PropertyKey, m.Source} {
+		if n != "" {
+			add(n + "Params")
+		}
+	}
+	for _, a := range m.MdlAliases {
+		if a != "" {
+			add(a + "Params")
+		}
+	}
+}
+
 // readsFixedASTSlot reports whether an operation's value is resolved from a
 // dedicated AST accessor rather than from a property looked up by name.
 //
@@ -1403,6 +1435,7 @@ func allowedWidgetProperties(def *WidgetDefinition) (map[string]bool, []string) 
 
 	for _, m := range def.PropertyMappings {
 		addMappingNames(add, m)
+		addTemplateParamsNames(add, m)
 	}
 	for _, m := range def.ChildSlots {
 		add(m.PropertyKey)
@@ -1413,6 +1446,7 @@ func allowedWidgetProperties(def *WidgetDefinition) (map[string]bool, []string) 
 	for _, mode := range def.Modes {
 		for _, m := range mode.PropertyMappings {
 			addMappingNames(add, m)
+			addTemplateParamsNames(add, m)
 		}
 		for _, m := range mode.ChildSlots {
 			add(m.PropertyKey)

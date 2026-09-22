@@ -50,6 +50,16 @@ func (pb *pageBuilder) buildDataViewV3(w *ast.WidgetV3) (*pages.DataView, error)
 	// silently discarded (mendixlabs/mxcli#813). An explicit value is the author's
 	// statement and wins over the footer block, in both directions: it can show an
 	// empty footer, or hide one whose widgets are still declared.
+	// A DataView's own Inherit/Control/Text. The property parsed and
+	// `mxcli check` accepted it — staticWidgetKnownProps is a union across widget
+	// types, so it draws no MDL-WIDGET07 warning — and every layer below dropped
+	// it (ako/mxcli#550, the same shape as #490's checkbox).
+	dvStyle, err := readOnlyStyleValue(w.GetStringProp("ReadOnlyStyle"), "dataview", w.Name)
+	if err != nil {
+		return nil, err
+	}
+	dv.ReadOnlyStyle = dvStyle
+
 	showFooterSet := false
 	if raw, ok := lookupPropCI(w, "ShowFooter"); ok {
 		v, err := propBool(raw)
@@ -447,6 +457,22 @@ func (pb *pageBuilder) buildTextBoxV3(w *ast.WidgetV3) (*pages.TextBox, error) {
 		tb.AttributePath, tb.AttributeRefSteps = pb.resolveInputAttribute(attr)
 	}
 
+	// Forms$TextBox.IsPasswordBox. The writer always carried it; nothing parsed
+	// it, so a describe → exec round trip turned a password field into a
+	// plaintext one (ako/mxcli#550).
+	if raw, ok := lookupPropCI(w, "Password"); ok {
+		v, err := propBool(raw)
+		if err != nil {
+			return nil, mdlerrors.NewBackend("textbox Password", err)
+		}
+		tb.IsPassword = v
+	}
+	// Forms$WidgetValidation. Both fields are optional and empty means "not
+	// authored", which leaves the writer emitting the empty validation Studio
+	// Pro stores on a widget that has none.
+	tb.ValidationExpression = w.GetStringProp("Validation")
+	tb.ValidationMessage = w.GetStringProp("ValidationMessage")
+
 	// Handle Label
 	if label := w.GetLabel(); label != "" {
 		tb.Label = label
@@ -599,7 +625,7 @@ func (pb *pageBuilder) buildCheckBoxV3(w *ast.WidgetV3) (*pages.CheckBox, error)
 	// omitted property stays empty and the writer keeps the stored default —
 	// what decides whether a read-only check box renders as "Yes"/"No" text or
 	// as the checkbox glyph (ako/mxcli#490).
-	style, err := readOnlyStyleValue(w.GetStringProp("ReadOnlyStyle"), w.Name)
+	style, err := readOnlyStyleValue(w.GetStringProp("ReadOnlyStyle"), "checkbox", w.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -623,7 +649,10 @@ func (pb *pageBuilder) buildCheckBoxV3(w *ast.WidgetV3) (*pages.CheckBox, error)
 // PagesReadOnlyStyle): an unknown one is a property Studio Pro cannot resolve,
 // and mxbuild tolerates it — so the build stays green and the project does not
 // open. Empty in, empty out: unset keeps the stored default.
-func readOnlyStyleValue(raw, widgetName string) (string, error) {
+// kind names the widget in the refusal below. It is a parameter because a
+// DataView has its own ReadOnlyStyle as well (ako/mxcli#550), and an error
+// naming the wrong widget type sends the reader to the wrong line.
+func readOnlyStyleValue(raw, kind, widgetName string) (string, error) {
 	if raw == "" {
 		return "", nil
 	}
@@ -633,8 +662,8 @@ func readOnlyStyleValue(raw, widgetName string) (string, error) {
 		}
 	}
 	return "", mdlerrors.NewValidationf(
-		"checkbox %q: ReadOnlyStyle %q is not a Mendix read-only style — use Inherit, Control or Text",
-		widgetName, raw)
+		"%s %q: ReadOnlyStyle %q is not a Mendix read-only style — use Inherit, Control or Text",
+		kind, widgetName, raw)
 }
 
 // buildRadioButtonsV3 creates RadioButtons from V3 syntax.

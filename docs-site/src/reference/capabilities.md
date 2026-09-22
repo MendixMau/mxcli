@@ -142,7 +142,6 @@ Everything mxcli can do, organized by use case.
 |---|---|---|
 | Design properties (Atlas v3) | Requires Mendix 11.0+ | Use CSS classes on 10.x |
 | REST query parameters | Requires Mendix 11.0+ | Build query string manually on 10.x |
-| Pluggable widget ImageUrl mode | Cannot set imageUrl from MDL | Configure in Studio Pro |
 | Concurrent editing | Not supported | Close Studio Pro before mxcli writes |
 | Widget template drift | CE0463 on version mismatch | MPK augmentation handles most cases |
 | Marketplace module update | Existing modules are reported, not updated in place | Update via Studio Pro (preserves local edits and entity IDs) |

@@ -421,7 +421,10 @@ func annotationFlowToGen(af *microflows.AnnotationFlow, major int) element.Eleme
 	g.SetID(element.ID(af.ID))
 	g.SetOriginID(element.ID(af.OriginID))
 	g.SetDestinationID(element.ID(af.DestinationID))
-	g.SetOriginConnectionIndex(0)
+	// A note sits ABOVE the element it documents, so its line leaves the note's
+	// bottom edge and enters the element's top. Both indexes were 0 (top), which
+	// drew the line out of the top of the note and back down around it.
+	g.SetOriginConnectionIndex(2)
 	g.SetDestinationConnectionIndex(0)
 	if major <= 9 {
 		g.SetOriginBezierVector("0;0")

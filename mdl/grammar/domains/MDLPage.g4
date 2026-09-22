@@ -73,8 +73,20 @@ variableDeclaration
     : VARIABLE COLON dataType EQUALS STRING_LITERAL     // $varName: Boolean = 'expression'
     ;
 
+// A sort column. The name may navigate associations, one `/` per hop, with the
+// final segment naming the attribute:
+//
+//   sort by Name asc
+//   sort by Sales.Order.Name asc
+//   sort by Sales.Order_BillTo/Sales.Address.City asc
+//
+// Mendix stores the hops as the AttributeRef's EntityRef, and without a spelling
+// for them `describe` had to drop them and `exec` had to guess — which silently
+// picked the wrong association wherever two reach the same entity
+// (mendixlabs/mxcli#1152). `qualifiedName SLASH qualifiedName` is the same shape
+// MDLCatalog.g4 uses for `Association/Entity`.
 sortColumn
-    : (qualifiedName | IDENTIFIER) (ASC | DESC)?
+    : (qualifiedName (SLASH qualifiedName)* | IDENTIFIER) (ASC | DESC)?
     ;
 
 // One attribute of a List View's search bar. No direction — unlike a sort

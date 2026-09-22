@@ -93,7 +93,7 @@ Modifies an existing entity without full replacement.
 | Rename attribute | `alter entity Module.Name rename attribute OldName to NewName;` | Also rewrites stored references (microflow members, page widgets, validation/access rules) and XPath constraints. Microflow expressions are free text and are **not** rewritten |
 | Add index | `alter entity Module.Name add index [if not exists] [name] [on] (Col1 [asc\|desc], ...);` | `on` is optional (SQL-like). **Without `if not exists`, re-running is an error** — a second identical index fails the build with CE0072 |
 | Document an association | `/** What it links. */`<br>`create association Mod.C_P from Mod.C to Mod.P;`<br>or `... to Mod.P comment 'What it links.';` | Both spellings work on create; the doc comment wins when both are present. `comment` survives here — and only here among the CREATE statements — because it is an association's **only inline** spelling |
-| Create if absent | `create entity if not exists Module.Name (...);`<br>`create association if not exists Module.Assoc from ... to ...;` | Skips when it already exists, leaving the stored definition untouched. Unlike `create or modify`, which rebuilds the element from the statement and drops any attribute the statement omits |
+| Create if absent | `create entity if not exists Module.Name (...);`<br>`create association if not exists Module.Assoc from ... to ...;` | Skips when it already exists, leaving the stored definition untouched. Unlike `create or modify`, which rebuilds the element from the statement and drops any attribute the statement omits — `mxcli check … -p app.mpr --references` warns about that as **MDL087**, naming the members the script removes without restating them |
 | Add index (SQL form) | `create index IdxName on Module.Name (Col1 [asc\|desc], ...);` | Same effect as `alter entity … add index`. The index name is accepted and discarded — a Mendix index is identified by its columns |
 | Drop index | `alter entity Module.Name drop index [if exists] (Col1 [asc\|desc], ...);` | Selected by its columns — a Mendix index stores no name, so the columns are its identity, and they are what `describe entity` prints. The legacy positional form `drop index idx1` still works but shifts when an earlier index is dropped |
 | Add event handler | `alter entity Module.Name add event handler on before commit call Mod.MF($currentObject) [raise error];` | `($currentObject)` or `()`, RAISE ERROR only on BEFORE |
@@ -510,7 +510,8 @@ it is for pages.
 | Commit | `commit $entity [without events] [refresh];` | **Omitted = with events**, matching Studio Pro's default. `without events` is the deviation and the only form that changes the stored value; `with events` still parses and means the default |
 | Delete | `delete $entity [refresh];` | |
 | Rollback | `rollback $entity [refresh];` | Reverts uncommitted changes |
-| Retrieve (DB) | `retrieve $Var from Module.Entity [where condition];` | Database XPath retrieve |
+| Retrieve (DB) | `retrieve $Var from Module.Entity [where condition] [sort by Attr asc\|desc, ...] [limit n [offset n]];` | Database XPath retrieve. `limit 1` with no `offset` binds a single **object**, not a one-element list (MDL-RETRIEVE01) |
+| Retrieve (DB), sorted | `sort by Attr asc` / `sort by Module.Other.Attr asc` / `sort by Module.Assoc/Module.Other.Attr asc` | A bare name is qualified with the entity **declaring** it, which may be an ancestor. A sort may also navigate associations — one `/` per hop, the last segment is the attribute — and mxcli stores the hops as the `EntityRef` Mendix needs; without them the build is **CE7247**. **Name the hop when more than one association reaches the same entity**: a bare `Module.Other.Attr` is resolved by inference, which walks the generalization chain across modules (`Administration.Account` reaches `System.Language.Code` through `System.User_Language`) but cannot tell `Order_ShipTo` from `Order_BillTo` — measured, a sort on the billing address round-tripped into one on the shipping address at 0 errors both sides (mendixlabs/mxcli#1152). The same spelling works in a page datasource's `sort by` |
 | Retrieve (Assoc) | `retrieve $list from $Parent/Module.AssocName;` | Retrieve by association |
 | Add to list | `add expression to $list;` | Also accepts existing `add $item to $list;` form |
 | Aggregate a list | `$Total = sum($list.Attr);` / `$Total = sum($list, expression);` | `count` (list only), `sum`, `average`, `minimum`, `maximum` — attribute or expression over `$currentObject` |
@@ -672,8 +673,25 @@ Nested folders use `/` separator: `'Parent/Child/Grandchild'`. Missing folders a
 | Create workflow | `create [or modify] workflow Module.Name [folder 'path'] parameter $Ctx: Module.Entity [on workflow events (<type>, ...) microflow Mod.MF [as '<text>']] [on any workflow event microflow Mod.MF [as '<text>']] begin ... end workflow;` | See activity types and event handlers below |
 | Drop workflow | `drop workflow Module.Name;` | |
 
+The **overview page** must accept a `System.Workflow` parameter — the build
+fails `CE7410 "The selected page … should accept a parameter of type
+'Workflow'"` otherwise (measured on mxbuild 11.6.6). It is stored under the
+`AdminPage` key: Mendix deleted the `overviewPage` property in 9.11.0 and
+introduced `adminPage` in the same release.
+
+**Clause order does not matter.** A workflow's header clauses and a user task's
+clauses are a **set**: write them in any order, each **at most once**. A clause
+written twice is reported by name (`duplicate PAGE clause on user task Review
+(already given on line 12)`). The exceptions are the list-valued ones, which
+accumulate: the header's `on workflow event(s)` handlers, and a task's
+`outcomes` and `boundary event`. The two `targeting` spellings are **one**
+clause — a task stores one user source — so writing both is refused rather than
+letting the second silently win. Before `ako/mxcli#586` the order below was
+mandatory and a misplaced clause failed with a token error
+(`mismatched input 'ON' expecting ';'`) that named neither the clause nor the rule.
+
 **Workflow Activity Types:**
-- `[multi] user task <name> '<caption>' [page Mod.Page] [targeting [users|groups] microflow Mod.MF] [targeting [users|groups] xpath '<expr>'] [on created microflow Mod.MF] [participants all|<n>|<n> percent] [decide by <rule>] [await all users] [outcomes '<out>' { } ...];`
+- `[multi] user task <name> '<caption>' [page Mod.Page] [targeting [users|groups] microflow Mod.MF] [targeting [users|groups] xpath '<expr>'] [on created microflow Mod.MF] [entity Mod.Entity] [due date '<expr>'] [description '<text>'] [participants all|<n>|<n> percent] [decide by <rule>] [await all users] [outcomes '<out>' { } ...] [boundary event …];`
   - **Multi-user only:** `decide by consensus|majority more than half|majority most chosen|threshold <n> percent|votes fallback '<outcome>'`, `decide by veto '<outcome>'`, `decide by microflow Mod.MF`. A fallback is required for consensus, majority and threshold (CE1866), a veto needs its outcome (CE1867), and a decision microflow returns String (CE5012) — all `MDL-WF13` / check. Omitted: all participants, consensus on the first outcome, not waiting.
   - The **task page** must take a `System.WorkflowUserTask` parameter — none at all is CE7410, none of that type is CE7412; extra parameters are allowed.
   - A **targeting microflow** takes exactly `System.Workflow` + the context entity (or a generalization of it), in either order — anything else is CE6677. Users targeting returns a list of `System.User`, groups a list of `System.WorkflowGroup`.
@@ -948,7 +966,12 @@ still flagged rather than guessed at.
 | Enable or modify (upsert) | `alter settings LANGUAGE add or modify 'de_DE' (CheckCompleteness: true);` | What `describe settings` emits, so a described project replays onto itself or onto one that already has the language |
 | Modify a language | `alter settings LANGUAGE modify 'de_DE' (CheckCompleteness: true);` | Changes only the options it names. `CheckCompleteness` turns on error reporting for texts with no translation in that language (the default language is always checked regardless) |
 | Disable a language | `alter settings LANGUAGE remove 'de_DE';` | The **default** language is refused (every missing translation falls back on it). Translations are NOT deleted — they stay in the model and stop being built; the run reports how many |
-| Alter workflows | `alter settings workflows key = value;` | UserEntity, DefaultTaskParallelism |
+| Alter workflows | `alter settings workflows key = value;` | UserEntity, DefaultTaskParallelism, WorkflowEngineParallelism |
+| Add a workflow group | `alter settings workflows add group 'Approvers' [(Description: 'Primary approval group')];` | The buckets under App Settings > Workflows > Groups that a user task's group targeting selects from. Mendix **11.2+**. `Description` is the only option — a `Settings$WorkflowGroup` stores Name and Description and nothing else, so the **name is the identity** and a second group differing only in case is refused |
+| Add or modify (upsert) | `alter settings workflows add or modify group 'Approvers' (Description: '...');` | What `describe settings` emits, so a described project replays onto itself |
+| Modify a workflow group | `alter settings workflows modify group 'Approvers' (Description: '...');` | Changes only the options it names, and keeps the group's element id — which is the **runtime's identity** for it (Mendix materialises one `System.WorkflowGroup` row per entry, keyed on that id), so an edit updates the row instead of replacing it |
+| Remove a workflow group | `alter settings workflows remove group 'Approvers';` | Nothing in the model references a group (a user task targets groups through a microflow or an XPath returning `System.WorkflowGroup` objects), so there is nothing to dangle — the coupling is at runtime |
+| List workflow groups | `show workflow groups;` | Reads the settings directly; no catalog refresh needed |
 | List languages | `show languages;` | ⚠️ languages that have TRANSLATIONS, not enabled ones (a stock app reports 8 while 1 is enabled). For the enabled list use `describe settings`. Requires `refresh catalog full` |
 
 ## Business Events
@@ -1061,6 +1084,26 @@ image selected."); `mxcli check` reports it as MDL-WIDGET22. A name that does no
 resolve is reported by `mxcli check --references` rather than by the build
 (CE1613). The other two sources are `ImageType: imageUrl, ImageUrl: '…'` and
 `ImageType: icon`.
+
+### Binding a pluggable widget's text-template property
+
+A text-template property (`ImageUrl`, a TreeNode's `headerCaption`, a Timeline's
+`title` / `description`) takes **text**, so a bare value renders the same string
+on every row — with `check`, `exec` and `mx check` all clean. Bind it with the
+property's own `<Name>Params` companion:
+
+```sql
+image cardImage (
+  ImageType: imageUrl,
+  ImageUrl: '{1}',        ImageUrlParams: [{1} = PictureUrl],
+  AlternativeText: '{1}', AlternativeTextParams: [{1} = Name]
+);
+```
+
+The widget-wide `contentparams:` is one list shared by every template on the
+widget, so it remains the convenience form for a widget with a single template;
+`'{AttrName}'` is the shortest form for one attribute with no formatting block.
+Parameters with no `{N}` to fill are reported as MDL-WIDGET21.
 
 ## Icon Collections (read-only)
 
@@ -1379,6 +1422,8 @@ MDL uses explicit property declarations for pages:
 |---------|-----------|---------|
 | Page properties | `(key: value, ...)` | `(title: 'Edit', layout: Atlas_Core.Atlas_Default)` |
 | Pop-up dimensions | `PopupWidth: n, PopupHeight: n, PopupResizable: bool` | `(Layout: Atlas_Core.PopupLayout, PopupWidth: 800, PopupHeight: 480, PopupResizable: true)` — case-sensitive; default 600×600 |
+| Pop-up close button | `PopupCloseAction: <widgetName>` | `(Layout: Atlas_Core.PopupLayout, PopupCloseAction: cancelButton1)` — names a widget on this page. Not carried from the stored document on a rewrite: the statement rebuilds the widget tree, so a carried name could dangle |
+| DataView read-only style | `ReadOnlyStyle: Inherit\|Control\|Text` | `dataview dv (datasource: $O, ReadOnlyStyle: Text)` — a DataView's own, distinct from a checkbox's. **Control** is Studio Pro's default here, not Inherit |
 | Page CSS class / style | `Class: 'css-class', Style: 'css: rule'` | `(Title: 'Home', Class: 'container-fluid bg-light', Style: 'min-height: 100vh')` — the page's Appearance |
 | Page variables | `variables: { $name: type = 'expr' }` | `variables: { $show: boolean = 'true' }` |
 | Repeated widget entries | `<container> <name> ( … )` **in the widget body** | A repeatable property (FileUploader `allowedFileFormats`, HTML Element `attributes`, a chart's `series`) is a block, never a property value. `attributes: [(attributeName: 'x')]` is **MDL-WIDGET27** — it used to check clean, exec, and vanish from storage. `describe widget <name> -p app.mpr` lists the container keywords |
@@ -1388,6 +1433,8 @@ MDL uses explicit property declarations for pages:
 | Widget name | Required after type | `textbox txtName (...)` |
 | Attribute binding | `attribute: AttrName` | `textbox txt (label: 'Name', attribute: Name)` |
 | Attribute over an association | `attribute: Assoc/Attr` (bare association name, multi-hop OK) | `textbox txt (label: 'Rule', attribute: RuleAction_BusinessRule/Name)` — works on textbox, textarea, datepicker, dropdown, checkbox and radiobuttons, the same as on a data grid column |
+| Password field | `Password: true` on a textbox | `textbox tbPw (attribute: Secret, Password: true)` — omitted when false. Without it a describe → exec round trip turns a password field into a plaintext one |
+| Widget validation | `Validation: '<expression>'`, `ValidationMessage: '<text>'` | `Validation: 'length(toString($value)) > 0'` — a Mendix expression over `$value`, QUOTED not bracketed (`[...]` is the XPath spelling and parses as an array) |
 | Variable binding | `datasource: $Var` | `dataview dv (datasource: $Product) { ... }` |
 | Action binding | `action: type` | `actionbutton btn (caption: 'Save', action: save_changes)` — the forms are a closed set (`mxcli syntax page.action`); anything else is **MDL-WIDGET28** |
 | No action | `action: nothing` | `actionbutton btn (caption: 'Decorative', action: nothing)` — an explicitly inert control. Write it deliberately: an action keyword **short its argument** (`action: open_link` with no URL) is now an error rather than a widget silently written with no action at all |

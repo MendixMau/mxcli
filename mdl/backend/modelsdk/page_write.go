@@ -4,7 +4,11 @@ package modelsdkbackend
 
 import (
 	"fmt"
+	"strings"
 
+	"go.mongodb.org/mongo-driver/bson"
+
+	"github.com/mendixlabs/mxcli/mdl/backend/bsonnav"
 	"github.com/mendixlabs/mxcli/mdl/types"
 	"github.com/mendixlabs/mxcli/model"
 	"github.com/mendixlabs/mxcli/modelsdk/codec"
@@ -43,12 +47,7 @@ func (b *Backend) CreatePage(page *pages.Page) error {
 	if page.ID == "" {
 		page.ID = model.ID(mmpr.GenerateID())
 	}
-	g, err := pageToGen(page, b.ProjectVersion())
-	if err != nil {
-		return err
-	}
-	g.SetID(element.ID(page.ID))
-	contents, err := (&codec.Encoder{}).Encode(g)
+	contents, err := encodePage(page, b.ProjectVersion(), nil)
 	if err != nil {
 		return fmt.Errorf("CreatePage: encode: %w", err)
 	}
@@ -75,12 +74,10 @@ func (b *Backend) UpdatePage(page *pages.Page) error {
 	if b.writer == nil {
 		return fmt.Errorf("UpdatePage: not connected for writing")
 	}
-	g, err := pageToGen(page, b.ProjectVersion())
-	if err != nil {
-		return err
-	}
-	g.SetID(element.ID(page.ID))
-	contents, err := (&codec.Encoder{}).Encode(g)
+	pv := b.ProjectVersion()
+	contents, err := encodePage(page, pv, func(g *genPg.Page) {
+		b.carryStoredPageHeader(page.ID, g, pv)
+	})
 	if err != nil {
 		return fmt.Errorf("UpdatePage: encode: %w", err)
 	}
@@ -98,6 +95,82 @@ func (b *Backend) DeletePage(id model.ID) error {
 	return b.writer.DeleteUnit(string(id))
 }
 
+// carryStoredPageHeader copies the three editor-only properties off the stored
+// unit onto a rebuilt page, so a rewrite does not move state nobody asked to
+// change.
+//
+// pageToGen writes Autofocus, CanvasWidth and CanvasHeight as constants, which
+// looked safe and is not: Studio Pro varies all three per page. Across the 67
+// pages of ako/TestApp at 11.14.0 CanvasWidth took SEVEN distinct values (800
+// ×33, 1198 ×20, 1200 ×4, 802 ×2, 900 ×2, 2000, 1800), Autofocus was Off on 9,
+// and CanvasHeight 500 on one. The hardcoded 1200 therefore matched 4 of 67, so
+// `describe page` → `exec` moved the canvas of the other 63 and the unit was
+// rewritten where ADR-0008 would otherwise have elided the write entirely
+// (ako/mxcli#541).
+//
+// Carried rather than spelled in MDL: none of the three has a spelling, none is
+// something a script asks for, and a value nobody asked to change should not
+// change. This is the same reasoning as Microflow.StableId in ADR-0008.
+//
+// A missing or unreadable stored unit leaves the defaults in place rather than
+// failing the write — this is a fidelity improvement on a rewrite, not a
+// precondition for one, and CreatePage has no stored document by definition.
+func (b *Backend) carryStoredPageHeader(id model.ID, g *genPg.Page, pv *types.ProjectVersion) {
+	if b.reader == nil || id == "" {
+		return
+	}
+	raw, err := b.reader.GetRawUnitBytes(string(id))
+	if err != nil {
+		return
+	}
+	var stored bson.D
+	if err := bson.Unmarshal(raw, &stored); err != nil {
+		return
+	}
+	// Carrying a stored value is right — except below the floor, where the key
+	// should not be in the document at all. A pre-#547 mxcli wrote Autofocus into
+	// Mendix 10 projects, so the stored value may itself be the defect; carrying
+	// it would make the rewrite preserve a key that project's metamodel does not
+	// declare. Dropping it is the repair, not data loss: there is no version of
+	// this property the project can express.
+	if v := bsonnav.DGetString(stored, "Autofocus"); v != "" && pageSupportsAutofocus(pv) {
+		g.SetAutofocus(v)
+	}
+	// Read width-agnostically. Studio Pro stores both canvas dimensions as
+	// **int64** (measured on all 67 TestApp pages), so a `.(int32)` assertion —
+	// the natural one, since the gen setter takes int32 — matches nothing and
+	// silently yields zero. That is the bson-numeric-width pattern, and it got
+	// this fix once already: the first version passed its unit test because the
+	// test's own fixture wrote int32, and still moved the canvas of every real
+	// document.
+	//
+	// 0 is not a canvas size Studio Pro stores, so it stands in for "absent";
+	// writing it back would give the editor a zero-width page.
+	if v := bsonInt(bsonnav.DGet(stored, "CanvasWidth")); v > 0 {
+		g.SetCanvasWidth(int32(v))
+	}
+	if v := bsonInt(bsonnav.DGet(stored, "CanvasHeight")); v > 0 {
+		g.SetCanvasHeight(int32(v))
+	}
+}
+
+// bsonInt reads an integer stored at any BSON width, mirroring extractInt in
+// modelsdk/mpr/parser.go. Mendix picks the width per property and Go's type
+// switch is exact, so a narrow assertion fails silently rather than loudly.
+func bsonInt(v any) int64 {
+	switch n := v.(type) {
+	case int32:
+		return int64(n)
+	case int64:
+		return n
+	case int:
+		return int64(n)
+	case float64:
+		return int64(n)
+	}
+	return 0
+}
+
 // popupDimension returns the pop-up width/height for the gen Page (int32).
 // Studio Pro's own default is 0 (auto-size), so 0 is a valid value and is
 // written through verbatim (issue #713); only a stray negative is clamped to 0.
@@ -108,6 +181,84 @@ func popupDimension(n int) int32 {
 	return int32(n)
 }
 
+// Mendix introduced these two Forms$Page properties after the oldest version
+// mxcli supports (mendixmodelsdk, Page.versionInfo). A key the project's
+// metamodel does not declare makes a document Studio Pro cannot open, and
+// mxbuild does not catch it — see codec.Encoder.OmitKeys.
+const (
+	pageAutofocusMajor, pageAutofocusMinor = 11, 1
+	pageVariablesMajor, pageVariablesMinor = 10, 17
+)
+
+// pageSupportsAutofocus / pageSupportsVariables report whether the project's
+// version declares the property. An unreadable version omits, matching the
+// page-parameter guard: an absent optional property is filled in on load, an
+// unknown one is unopenable.
+func pageSupportsAutofocus(pv *types.ProjectVersion) bool {
+	return pv != nil && pv.IsAtLeast(pageAutofocusMajor, pageAutofocusMinor)
+}
+
+func pageSupportsVariables(pv *types.ProjectVersion) bool {
+	return pv != nil && pv.IsAtLeast(pageVariablesMajor, pageVariablesMinor)
+}
+
+// versionLabel renders a project version for an error message, including the
+// case where it could not be read at all.
+func versionLabel(pv *types.ProjectVersion) string {
+	if pv == nil {
+		return "unknown"
+	}
+	if pv.ProductVersion != "" {
+		return pv.ProductVersion
+	}
+	return fmt.Sprintf("%d.%d.%d", pv.MajorVersion, pv.MinorVersion, pv.PatchVersion)
+}
+
+// docEncoder returns an encoder that drops the version-floored keys this project
+// cannot carry. Variables is emitted by the codec's Studio Pro defaults registry
+// rather than by a gen property, so suppressing it is the encoder's job; a gen
+// PartList has no "present but empty" state to leave unset.
+func docEncoder(typeName string, pv *types.ProjectVersion) *codec.Encoder {
+	if pageSupportsVariables(pv) {
+		return &codec.Encoder{}
+	}
+	return &codec.Encoder{OmitKeys: map[string]map[string]bool{
+		typeName: {"Variables": true},
+	}}
+}
+
+// encodePage builds and serializes a Forms$Page for a project of this version.
+// Both CreatePage and UpdatePage go through it, so the version guards cannot be
+// applied on one path and forgotten on the other.
+// carry, when non-nil, runs against the built document before it is encoded —
+// UpdatePage uses it for carryStoredPageHeader. CreatePage passes nil: a new
+// page has no stored document to carry from.
+func encodePage(page *pages.Page, pv *types.ProjectVersion, carry func(*genPg.Page)) ([]byte, error) {
+	// Suppressing the key is right for the empty list Studio Pro always writes.
+	// It is not right for variables the script actually declared: dropping those
+	// would leave a page whose widgets reference names that are no longer there
+	// (CE1151), from a statement that reported success. Refuse instead
+	// (guard-don't-drop, ADR-0005).
+	if len(page.Variables) > 0 && !pageSupportsVariables(pv) {
+		names := make([]string, 0, len(page.Variables))
+		for _, v := range page.Variables {
+			names = append(names, v.Name)
+		}
+		return nil, fmt.Errorf(
+			"page %q declares page variable(s) %s, which Mendix introduced in %d.%d (project is %s)",
+			page.Name, strings.Join(names, ", "), pageVariablesMajor, pageVariablesMinor, versionLabel(pv))
+	}
+	g, err := pageToGen(page, pv)
+	if err != nil {
+		return nil, err
+	}
+	g.SetID(element.ID(page.ID))
+	if carry != nil {
+		carry(g)
+	}
+	return docEncoder("Forms$Page", pv).Encode(g)
+}
+
 // pageToGen builds the full gen Page: header, layout call, the widget tree (under
 // the layout call's form-call arguments), parameters, and variables.
 func pageToGen(page *pages.Page, pv *types.ProjectVersion) (*genPg.Page, error) {
@@ -116,12 +267,23 @@ func pageToGen(page *pages.Page, pv *types.ProjectVersion) (*genPg.Page, error) 
 	out.SetDocumentation(page.Documentation)
 	out.SetExcluded(page.Excluded)
 	out.SetExportLevel("Hidden")
-	out.SetAutofocus("DesktopOnly")
+	if pageSupportsAutofocus(pv) {
+		out.SetAutofocus("DesktopOnly")
+	}
 	out.SetCanvasWidth(1200)
 	out.SetCanvasHeight(600)
 	out.SetMarkAsUsed(page.MarkAsUsed)
 	out.SetUrl(page.URL)
-	out.SetPopupCloseAction("")
+	// Names the widget whose action closes the page as a pop-up. Writing "" here
+	// unconditionally wiped it on every rewrite — set on 9 of ako/TestApp's 67
+	// pages (ako/mxcli#550).
+	//
+	// Deliberately NOT carried from the stored document the way the canvas
+	// properties are: this one names a widget on the page, and a rewrite rebuilds
+	// the widget tree from the statement. Carrying a name the new tree may not
+	// contain would leave a dangling reference. DESCRIBE emits it, so the round
+	// trip is closed by the statement rather than behind it.
+	out.SetPopupCloseAction(page.PopupCloseAction)
 	out.SetPopupWidth(popupDimension(page.PopupWidth))
 	out.SetPopupHeight(popupDimension(page.PopupHeight))
 	out.SetPopupResizable(page.PopupResizable)

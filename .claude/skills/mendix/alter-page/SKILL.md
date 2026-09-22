@@ -127,7 +127,7 @@ set Action = SHOW_PAGE Module.DetailPage on btnEdit
 
 -- Rebind a data-bound widget
 set DataSource = $OrderParam on dvOrder
-set DataSource = DATABASE Module.Order on dgOrders
+set DataSource = microflow Module.MF_Get on dvOrder
 ```
 
 **Prefer `set Action` over `replace` when only the action changes.** `replace`
@@ -198,7 +198,6 @@ from a microflow to a page parameter:
 ```sql
 ALTER PAGE MyModule.OrderPage {
   SET DataSource = $Order ON dvOrder;                       -- page/snippet parameter
-  SET DataSource = database MyModule.Order ON dgOrders;      -- database
   SET DataSource = microflow MyModule.MF_Get ON dvOrder;     -- microflow
   SET DataSource = nanoflow MyModule.NF_Get ON dvOrder;      -- nanoflow
   SET DataSource = selection dgOrders ON dvDetail;           -- listen to widget
@@ -209,9 +208,23 @@ The parameter must exist on the page (or snippet) being altered — its entity i
 read from the container's own parameter list, and an unknown name is refused
 rather than written as an unresolved reference.
 
-`association` sources are **not** supported by SET. Use REPLACE for those, which
-rebuilds the widget through the CREATE PAGE path and handles every datasource
-type; the error message says so.
+`association` and `database` sources are **not** supported by SET. Use REPLACE
+for those, which rebuilds the widget through the CREATE PAGE path and handles
+every datasource type; the error message says so.
+
+A `database` source has no single stored shape — the widget holding it decides
+which element Mendix writes (a list view, a data grid and a pluggable widget
+each store a different one), and SET writes the property directly rather than
+rebuilding the widget, so it has nothing to choose from. This used to be
+accepted and half-applied: the widget was left with a source that DESCRIBE read
+back as absent and mxbuild rejected as **CE7007**, on a page `exec` had just
+reported as altered (mendixlabs/mxcli#1032).
+
+A **data view** is the one case REPLACE does not rescue: it binds to a single
+object, so Mendix gives it no database form at all and the CREATE PAGE path
+refuses one too. Point it at a context parameter, a microflow, a nanoflow or
+`selection <widget>`, and use a list view or a data grid to show a query. The
+refusal says which of the two situations you are in.
 
 ### INSERT - Add Widgets
 

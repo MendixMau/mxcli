@@ -165,9 +165,13 @@ func (b *Builder) applyGenericPageHeaderProp(stmt *ast.CreatePageStmtV3, name st
 			return
 		}
 		stmt.PopupResizable = &bval
+	case "PopupCloseAction":
+		// The value is a widget NAME on this page, so it arrives as a bare
+		// identifier rather than a quoted string; accept either spelling.
+		stmt.PopupCloseAction = strings.Trim(fmt.Sprintf("%v", val), `"'`)
 	default:
 		b.addError(fmt.Errorf("line %d:%d: unknown page property %q "+
-			"(supported: Title, Layout, Url, Folder, Params, Variables, PopupWidth, PopupHeight, PopupResizable, Class, Style)",
+			"(supported: Title, Layout, Url, Folder, Params, Variables, PopupWidth, PopupHeight, PopupResizable, PopupCloseAction, Class, Style)",
 			tok.GetLine(), tok.GetColumn(), name))
 	}
 }
@@ -1381,8 +1385,11 @@ func buildSortColumnAsOrderBy(ctx parser.ISortColumnContext) ast.OrderByItemV3 {
 	scCtx := ctx.(*parser.SortColumnContext)
 	item := ast.OrderByItemV3{Direction: "ASC"}
 
-	if qn := scCtx.QualifiedName(); qn != nil {
-		item.Attribute = getQualifiedNameText(qn)
+	// Several qualifiedNames mean an association path: every segment but the last
+	// is a hop, the last is the attribute (mendixlabs/mxcli#1152).
+	if qns := scCtx.AllQualifiedName(); len(qns) > 0 {
+		item.Associations = sortColumnHops(qns)
+		item.Attribute = getQualifiedNameText(qns[len(qns)-1])
 	} else if id := scCtx.IDENTIFIER(); id != nil {
 		item.Attribute = id.GetText()
 	}

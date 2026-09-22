@@ -84,20 +84,27 @@ func init() {
 		},
 		// Retrieve-by-association was missing here, so it read as unsupported
 		// even though it works and the write-microflows skill documents it.
-		Syntax: "-- From the database\nRETRIEVE $Var FROM Module.Entity\n  [WHERE condition]\n  [SORT BY attr ASC|DESC]\n  [LIMIT n] [OFFSET n];\n\n-- Over an association, from an object you already have\nRETRIEVE $Var FROM $Object/Module.Association;",
+		Syntax: "-- From the database\nRETRIEVE $Var FROM Module.Entity\n  [WHERE condition]\n  [SORT BY attr ASC|DESC]\n  [LIMIT n] [OFFSET n];\n\n-- Sort over an association: one `/` per hop, the last segment is the attribute\nRETRIEVE $Var FROM Module.Entity\n  SORT BY Module.Assoc/Module.Other.Attr ASC;\n\n-- Over an association, from an object you already have\nRETRIEVE $Var FROM $Object/Module.Association;",
 		Example: "-- LIMIT 1 binds a single OBJECT (Mendix's \"First object\" range), not a\n" +
 			"-- one-element list — hence the singular variable name here.\n" +
 			"RETRIEVE $Customer FROM MyModule.Customer\n  WHERE Code = $CustomerCode\n  LIMIT 1;\n\n" +
 			"-- Any other LIMIT is a bounded range, which is a list.\n" +
 			"RETRIEVE $Orders FROM MyModule.Order\n  WHERE Status = 'Pending'\n  SORT BY CreateDate DESC\n  LIMIT 10 OFFSET 0;\n\n" +
 			"-- Follow an association rather than querying the database\nRETRIEVE $Orders FROM $Customer/MyModule.Order_Customer;\nRETRIEVE $Customer FROM $Order/MyModule.Order_Customer;\n\n" +
+			"-- Sort on an attribute of an associated entity. Name the association\n" +
+			"-- when two of them reach the same entity.\n" +
+			"RETRIEVE $Orders FROM MyModule.Order\n  SORT BY MyModule.Order_BillTo/MyModule.Address.City ASC;\n\n" +
 			"-- Notes:\n" +
 			"--   * LIMIT 1 with no OFFSET is the one form that binds an object. HEAD(),\n" +
 			"--     COUNT() or a LOOP over it is CE0097 at build time; mxcli reports it as\n" +
 			"--     MDL-RETRIEVE01 at check time.\n" +
 			"--   * LIMIT 1 OFFSET n is a bounded range, so that one IS a list.\n" +
 			"--   * `import from mapping … limit 1` means the opposite — a one-element\n" +
-			"--     list — and `… first` is its object form.",
+			"--     list — and `… first` is its object form.\n" +
+			"--   * SORT BY may navigate associations. Name the hop when more than one\n" +
+			"--     reaches the same entity — mxcli infers a single hop, but it cannot\n" +
+			"--     tell Order_ShipTo from Order_BillTo, and the wrong one builds\n" +
+			"--     cleanly and sorts by the wrong thing.",
 		SeeAlso: []string{"microflow.object-operations", "xpath"},
 	})
 
@@ -493,6 +500,15 @@ func init() {
 			"pixel offset from its end of the line. (0, 0) at both ends is straight.\n" +
 			"@position on a split belongs to the SPLIT, so its end-if join has its own\n" +
 			"annotation. Container Size is still computed, not authorable.\n\n" +
+			"WITHOUT @position the builder places everything. The main line runs left to\n" +
+			"right and wraps onto a new row past 2880px; the line joining two rows leaves\n" +
+			"the bottom of one and arrives on top of the next. A guard (if … return; end\n" +
+			"if) drops its branch into the lane below and the main line carries straight\n" +
+			"on over it. A CASE of four or more branches leaves the split in three groups\n" +
+			"— top, right, bottom — so its lines do not cross. A statement that carries\n" +
+			"@position is never moved, and starts the row for what follows it. Prefer no\n" +
+			"@position at all to a few: hand-placed statements are not measured against\n" +
+			"what the builder puts around them. (#1154)\n\n" +
 			"@start and @merge position the two nodes that have no statement of their\n" +
 			"own, so each is written on the statement it belongs to. Omit @start and the\n" +
 			"start is placed one spacing unit left of the first activity, on its centre\n" +

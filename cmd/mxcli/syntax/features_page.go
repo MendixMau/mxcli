@@ -12,7 +12,7 @@ func init() {
 			"page", "pages", "form", "UI", "user interface",
 			"widget", "layout", "screen",
 		},
-		Syntax:  "CREATE PAGE Module.Name\n  (\n    Title: 'Page Title',\n    Layout: Module.LayoutName\n    [, Params: { $Param: Module.Entity }]\n    [, Url: 'page-url']\n    [, Folder: 'FolderPath']\n    [, Variables: { $var: Boolean = 'true' }]\n    [, PopupWidth: 800, PopupHeight: 480, PopupResizable: true]\n    [, Class: 'css-class', Style: 'css: rule']\n  )\n  {\n    -- widgets\n  }",
+		Syntax:  "CREATE PAGE Module.Name\n  (\n    Title: 'Page Title',\n    Layout: Module.LayoutName\n    [, Params: { $Param: Module.Entity }]\n    [, Url: 'page-url']\n    [, Folder: 'FolderPath']\n    [, Variables: { $var: Boolean = 'true' }]\n    [, PopupWidth: 800, PopupHeight: 480, PopupResizable: true]\n    [, PopupCloseAction: cancelButton1]\n    [, Class: 'css-class', Style: 'css: rule']\n  )\n  {\n    -- widgets\n  }",
 		Example: "CREATE PAGE MyModule.EditCustomer\n  (\n    Params: { $Customer: MyModule.Customer },\n    Title: 'Edit Customer',\n    Layout: Atlas_Core.PopupLayout,\n    Class: 'container-fluid'\n  )\n  {\n    DATAVIEW dvCustomer (DataSource: $Customer) {\n      TEXTBOX txtName (Label: 'Name', Attribute: Name)\n      FOOTER footer1 {\n        ACTIONBUTTON btnSave (Caption: 'Save', Action: SAVE_CHANGES, ButtonStyle: Primary)\n        ACTIONBUTTON btnCancel (Caption: 'Cancel', Action: CANCEL_CHANGES)\n      }\n    }\n  }",
 		SeeAlso: []string{"page.create", "page.widgets", "page.alter", "snippet"},
 	})
@@ -153,7 +153,14 @@ CREATE PAGE Sales.Detail (Title: 'Detail', Layout: Atlas_Core.Atlas_Default) {
 			"--   entry writes a model mxbuild refuses (\"No image selected.\"); MDL-WIDGET22\n" +
 			"--   reports that at check time, and a name that does not resolve is reported by\n" +
 			"--   `check --references` rather than failing the build with CE1613.\n" +
-			"--   The alternatives are the URL form above, or `ImageType: icon`.\n\n" +
+			"--   The alternatives are the URL form above, or `ImageType: icon`.\n" +
+			"--   A text-template property (ImageUrl, AlternativeText, a pluggable widget's\n" +
+			"--   headerCaption/title/…) takes TEXT, so a bare value renders the same string\n" +
+			"--   on every row. Bind it with the property's own `<Name>Params` companion:\n" +
+			"IMAGE name (ImageType: imageUrl, ImageUrl: '{1}', ImageUrlParams: [{1} = PictureUrl],\n" +
+			"            AlternativeText: '{1}', AlternativeTextParams: [{1} = Name])\n" +
+			"--   The widget-wide `contentparams:` is one list shared by every template on the\n" +
+			"--   widget; `'{AttrName}'` is the shortest form for a single attribute.\n\n" +
 			"-- Any pluggable widget by its id (id FIRST, then the name)\nPLUGGABLEWIDGET 'com.mendix.widget.web.badge.Badge' name (value: 'x')\nCUSTOMWIDGET 'com.mendix.widget.custom.x.X' name (prop: 'x')      -- legacy spelling\n\n" +
 			"-- DYNAMICIMAGE shows the image held by an OBJECT, so it needs the entity that\n" +
 			"-- object belongs to — reachable from the widget's context. Without it mxbuild\n" +
@@ -166,9 +173,11 @@ CREATE PAGE Sales.Detail (Title: 'Detail', Layout: Atlas_Core.Atlas_Default) {
 			"-- so a stored one round-trips through DESCRIBE (mendixlabs/mxcli#1057). Without\n" +
 			"-- it the widget is written with no image and mxbuild reports CE0436:\n" +
 			"STATICIMAGE imgLogo (Image: 'MyModule.Images.logo', Width: 64, Height: 64)\n\n" +
-			"-- Deprecated in the Mendix 11 React client. These are written correctly by\n" +
-			"-- both engines, but mxbuild reports CE0582 (\"not supported in React client\")\n" +
-			"-- on each, so prefer the alternative:\n" +
+			"-- Not supported by the React client — added in Mendix 10.7, and the only\n" +
+			"-- client on 11, so this is not a Mendix 11 rule. These are written correctly,\n" +
+			"-- but mxbuild reports CE0582 (\"not supported in React client\") on each\n" +
+			"-- wherever that client is enabled, and `mxcli lint` reports them as MPR012.\n" +
+			"-- Prefer the alternative:\n" +
 			"--   STATICIMAGE    -> IMAGE\n" +
 			"--   DYNAMICIMAGE   -> IMAGE\n" +
 			"--   DROPDOWN       -> COMBOBOX\n" +
@@ -235,7 +244,7 @@ CREATE PAGE Sales.Detail (Title: 'Detail', Layout: Atlas_Core.Atlas_Default) {
 			"datasource", "data source", "database", "microflow",
 			"selection", "variable", "binding", "binds", "association", "data from context",
 		},
-		Syntax:  "DataSource: $Variable                    -- Parameter/variable binding\nDataSource: DATABASE Module.Entity        -- Database query\nDataSource: DATABASE Module.Entity WHERE [Attr != ''] SORT BY Attr ASC\n                                          --   ...optionally constrained and sorted\nDataSource: DATABASE Module.Entity SEARCH BY Attr, Attr2\n                                          --   LIST VIEW only: the attributes its\n                                          --   search bar filters on. Mirrors SORT BY,\n                                          --   but takes no direction.\nDataSource: MICROFLOW Module.MF           -- Microflow datasource, no parameters\nDataSource: MICROFLOW Module.MF($P)       -- ...one argument per PARAMETER, required:\n                                          --   Mendix does NOT auto-map an object in\n                                          --   scope, not even one of the exact type,\n                                          --   so a missing argument is CE1571\nDataSource: SELECTION widgetName          -- Selection from another widget\nDataSource: $currentObject/Module.Assoc   -- Over an association (\"data from context\")\n                                          --   list widget → to-many collection\n                                          --   nested DATAVIEW → the to-one referenced object\nAttribute: AttributeName                  -- Attribute binding (inputs)",
+		Syntax:  "DataSource: $Variable                    -- Parameter/variable binding\nDataSource: DATABASE Module.Entity        -- Database query\nDataSource: DATABASE Module.Entity WHERE [Attr != ''] SORT BY Attr ASC\n                                          --   ...optionally constrained and sorted\nDataSource: DATABASE Module.Entity SORT BY Module.Assoc/Attr ASC\n                                          --   ...sorted over an association. Name the\n                                          --   hop when two reach the same entity —\n                                          --   the wrong one builds cleanly and sorts\n                                          --   by the wrong thing.\nDataSource: DATABASE Module.Entity SEARCH BY Attr, Attr2\n                                          --   LIST VIEW only: the attributes its\n                                          --   search bar filters on. Mirrors SORT BY,\n                                          --   but takes no direction.\nDataSource: MICROFLOW Module.MF           -- Microflow datasource, no parameters\nDataSource: MICROFLOW Module.MF($P)       -- ...one argument per PARAMETER, required:\n                                          --   Mendix does NOT auto-map an object in\n                                          --   scope, not even one of the exact type,\n                                          --   so a missing argument is CE1571\nDataSource: SELECTION widgetName          -- Selection from another widget\nDataSource: $currentObject/Module.Assoc   -- Over an association (\"data from context\")\n                                          --   list widget → to-many collection\n                                          --   nested DATAVIEW → the to-one referenced object\nAttribute: AttributeName                  -- Attribute binding (inputs)",
 		Example: "-- Database datasource with grid\nDATAGRID grid (DataSource: DATABASE Module.Customer) {\n  COLUMN colName (Attribute: Name, Caption: 'Name')\n}\n\n-- Microflow datasource\nDATAVIEW dv (DataSource: MICROFLOW Module.GetData) {\n  TEXTBOX txtName (Label: 'Name', Attribute: Name)\n}\n\n-- Over an association: a nested DataView shows the referenced (to-one) object\nDATAVIEW dvOrder (DataSource: $Order) {\n  DATAVIEW dvCustomer (DataSource: $currentObject/Order_Customer) {\n    TEXTBOX txtCustName (Label: 'Name', Attribute: Name)\n  }\n}\n\n-- Over an association: a list widget shows the (to-many) collection\nLISTVIEW lvLines (DataSource: $currentObject/Order_OrderLine) {\n  DYNAMICTEXT dtLine (Content: 'Line')\n}",
 		SeeAlso: []string{"page.widgets", "page.create"},
 	})
@@ -275,7 +284,7 @@ CREATE PAGE Sales.Detail (Title: 'Detail', Layout: Atlas_Core.Atlas_Default) {
 			"popup width", "popup height", "popup resizable",
 			"drop template", "insert template", "list view template",
 		},
-		Syntax:  "ALTER PAGE Module.Name {\n  SET property = value ON widgetName;   -- widget property names: any casing\n  SET Action = MICROFLOW Module.MF ON btnSave;   -- any CREATE PAGE action form\n  SET DataSource = $Param ON dvOrder;\n  SET (prop1 = val1, prop2 = val2) ON widgetName;\n  SET Title = 'New Title';  -- page-level (case-sensitive)\n  SET Documentation = 'What this page is for.';\n  SET Class = 'css-class';  -- page-level CSS class / style\n  SET Style = 'css: rule';\n  SET PopupWidth = 800;     -- page-level pop-up dimensions\n  SET PopupHeight = 480;\n  SET PopupResizable = true;\n  INSERT AFTER widgetName { <widgets> };\n  INSERT BEFORE widgetName { <widgets> };\n  INSERT INTO containerName { <widgets> };\n  DROP WIDGET name1, name2;\n  DROP TEMPLATE FOR Module.Specialization IN listViewName;\n  REPLACE widgetName WITH { <widgets> };\n};",
+		Syntax:  "ALTER PAGE Module.Name {\n  SET property = value ON widgetName;   -- widget property names: any casing\n  SET Action = MICROFLOW Module.MF ON btnSave;   -- any CREATE PAGE action form\n  SET DataSource = $Param ON dvOrder;   -- parameter/microflow/nanoflow/selection;\n                                        --   DATABASE and association are REPLACE-only,\n                                        --   and a data view takes no database source\n  SET (prop1 = val1, prop2 = val2) ON widgetName;\n  SET Title = 'New Title';  -- page-level (case-sensitive)\n  SET Documentation = 'What this page is for.';\n  SET Class = 'css-class';  -- page-level CSS class / style\n  SET Style = 'css: rule';\n  SET PopupWidth = 800;     -- page-level pop-up dimensions\n  SET PopupHeight = 480;\n  SET PopupResizable = true;\n  INSERT AFTER widgetName { <widgets> };\n  INSERT BEFORE widgetName { <widgets> };\n  INSERT INTO containerName { <widgets> };\n  DROP WIDGET name1, name2;\n  DROP TEMPLATE FOR Module.Specialization IN listViewName;\n  REPLACE widgetName WITH { <widgets> };\n};",
 		Example: "ALTER PAGE Module.EditPage {\n  SET (Caption = 'Save & Close', ButtonStyle = Success) ON btnSave;\n  INSERT AFTER txtName {\n    TEXTBOX txtMiddleName (Label: 'Middle Name', Attribute: MiddleName)\n  };\n  DROP WIDGET txtUnused;\n};",
 		SeeAlso: []string{"page.create", "page.show", "snippet.alter"},
 	})

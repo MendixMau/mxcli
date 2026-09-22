@@ -381,6 +381,7 @@ func builtinLintRules() []linter.Rule {
 		rules.NewDomainModelSizeRule(),
 		rules.NewValidationFeedbackRule(),
 		rules.NewImageSourceRule(),
+		rules.NewLegacyImageWidgetRule(),
 		rules.NewEmptyContainerRule(),
 		rules.NewGallerySelectionListenerRule(),
 		rules.NewDataViewLayoutGridRule(),

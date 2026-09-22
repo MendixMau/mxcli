@@ -698,10 +698,13 @@ staticimage imgAllSelected (Image: 'MyFirstModule.Images.gallery')
 auto units and a responsive image — which `describe page` also omits, so a
 round trip neither loses them nor invents them.
 
-Mendix 11's React client reports **CE0582** for `staticimage` wherever it
-appears — it is deprecated in favour of the pluggable `image` widget, which
-takes the same `Image:`. mxcli still writes it, because round-tripping a model
-that already contains one is the point; prefer `image` on a new page.
+**CE0582** is reported for `staticimage` wherever it appears, by any app running
+the React client — which Mendix added in **10.7** and which is the only client on
+11, so this is not a Mendix 11 rule. The replacement is the pluggable `image`
+widget, which takes the same `Image:`; Studio Pro offers the conversion from the
+CE0582 error's context menu. mxcli still writes it, because round-tripping a
+model that already contains one is the point — and `mxcli lint` reports it as
+**MPR012** so a new page does not reach for it by accident.
 
 #### `DataSource:` — which object a DYNAMICIMAGE shows
 
@@ -729,8 +732,9 @@ same three-part way as `staticimage`'s `Image:`. `WidthUnit:`/`HeightUnit:`,
 written; leave them out for Mendix's defaults (auto, responsive, full size, no
 enlarge), which `describe page` also omits.
 
-CE0582 applies here too — `dynamicimage` is deprecated alongside `staticimage`,
-and the pluggable `image` widget is the replacement for both.
+CE0582 applies here too — the React client supports neither legacy image widget,
+and the pluggable `image` widget is the replacement for both. `mxcli lint` reports
+either as **MPR012**.
 
 #### Setting Image Source (PLUGGABLEWIDGET syntax)
 
@@ -764,8 +768,8 @@ alter page Mod.Home {
 
 For theme images, use paths relative to `theme/web/` (e.g., `img/logo.svg` → `theme/web/img/logo.svg`).
 
-**A per-row image URL comes from the entity, two ways.** `imageUrl` is a text
-template, so it takes either spelling:
+**A per-row image URL comes from the entity, three ways.** `imageUrl` is a text
+template, so it takes any of these spellings:
 
 ```sql
 -- named placeholder: shortest form for a single attribute
@@ -778,7 +782,22 @@ pluggablewidget 'com.mendix.widget.web.image.Image' cardImage (
   datasource: imageUrl,
   imageUrl: '{1}/{2}', contentparams: [{1} = BaseUrl, {2} = PictureUrl]
 )
+
+-- `<Name>Params`: the property's OWN parameters. `contentparams` is one list
+-- shared by every template on the widget, so it cannot bind `imageUrl` and
+-- `alternativeText` to different attributes; this can (ako/mxcli#575).
+pluggablewidget 'com.mendix.widget.web.image.Image' cardImage (
+  datasource: imageUrl,
+  imageUrl: '{1}',        imageUrlParams: [{1} = PictureUrl],
+  alternativeText: '{1}', alternativeTextParams: [{1} = Name]
+)
 ```
+
+The same companion works on any pluggable widget's text-template property — a
+TreeNode's `headerCaption`, a Timeline's `title` / `description` /
+`timeIndication` — under the property's own name + `Params`. Without it a
+text-template property took literal text only, so it rendered the same string
+on every row with `check`, `exec` and `mx check` all clean.
 
 Every `{N}` must have a matching parameter — Mendix rejects a shortfall with
 `CE0720` ("place holder index N is greater than …, the number of parameter(s)").

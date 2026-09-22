@@ -335,10 +335,24 @@ is stored ([ADR-0008](docs/13-decisions/0008-identity-and-idempotence.md)). The
 comparison is on a canonical form — every element `$ID` replaced by its index in a
 containment walk — because a rebuild mints a fresh random `$ID` per sub-element,
 so comparing bytes would skip nothing. The policy lives in `modelsdk/canon`
-(`Reconcile`) and is called at the single write choke point of **both** engines:
-`modelsdk/mpr/writer_core.go` (`updateUnit` *and* `WriteTransaction.WriteUnit` —
-`codec.Store` reaches storage through the latter). There is one engine, so that is
-the whole list.
+(`Reconcile`) and is called at every write choke point in
+`modelsdk/mpr/writer_core.go`: `updateUnit`, `WriteTransaction.WriteUnit`
+(`codec.Store` reaches storage through this one) and — since ako/mxcli#556 —
+`insertUnit`, for the case below.
+
+**A delete followed by an insert is a write path too**, and it is the one that
+hides. Several `create or modify` handlers are implemented as delete + create
+under the preserved unit ID rather than as an update, and an insert has nothing
+stored to reconcile against, so the rebuild's fresh `$ID`s went straight to disk:
+`create or modify rest client` rewrote 9 element `$ID`s in a 1,128-byte unit on
+every run, forever. `deleteUnit` now remembers what it removed and `insertUnit`
+reconciles a re-insert against it (`carryIdentityFromRemovedUnit`). That carry
+cannot *elide* — the row and the file are already gone — so a no-op recreate also
+restores `_Transaction.LastTransactionID`, which both the delete and the insert
+bumped; without it the `.mpr` still showed as modified after every `.mxunit` had
+gone quiet. Prefer an in-place update where the handler can do one: the REST
+client's own fix is to call `UpdateConsumedRestService` and keep delete+create
+only for a folder move, which lives in the unit's row rather than its contents.
 
 When something *has* changed, `Reconcile` still does not let the rebuild's fresh
 `$ID`s reach disk: `canon.TransplantIDs` matches the incoming document against the
@@ -902,6 +916,7 @@ Full syntax tables for all MDL statements (microflows, pages, security, navigati
 - `sdk/widgets/templates/` - Embedded widget templates for pluggable widgets (ComboBox, DataGrid2, etc.)
 - `sdk/widgets/templates/README.md` - **Critical**: Template extraction requirements (must include both `type` AND `object`)
 - `generated/metamodel/enums.go` - All Mendix enumeration types
+- `modelsdk/meta/system_module.go` - The virtual System module's entities, attributes and associations. String lengths are **measured**, from the System module's domain model inside a built `deployment/model/model.mdp` (a BSON document stream, one `mxbuild --target=deploy` for all 115 at once) — not from the Model SDK, which describes metamodel types and does not contain them. `modelsdk/meta/testdata/system_string_lengths.txt` is the measurement and `TestSystemStringLengths` holds the table to it; a `Length` of 0 is Mendix's "unlimited", never "unmeasured". Measured identical across 10.24.4 and 11.14.0, which is why there is one table and not a per-version registry
 - `mdl/grammar/MDL.g4` - ANTLR4 grammar for MDL syntax (production)
 - `mdl/executor/executor.go` - MDL statement execution logic
 - `reference/mdl-grammar/` - Comprehensive MDL grammar reference

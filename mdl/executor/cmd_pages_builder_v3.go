@@ -68,6 +68,7 @@ func (pb *pageBuilder) buildPageV3(s *ast.CreatePageStmtV3) (*pages.Page, error)
 	if s.PopupResizable != nil {
 		page.PopupResizable = *s.PopupResizable
 	}
+	page.PopupCloseAction = s.PopupCloseAction
 
 	// Set title
 	if s.Title != "" {
@@ -864,13 +865,32 @@ func (pb *pageBuilder) buildDataSourceV3(ds *ast.DataSourceV3) (pages.DataSource
 			if strings.ToLower(ob.Direction) == "desc" {
 				direction = pages.SortDirectionDescending
 			}
+			attrPath := pb.resolveAttributePathForEntity(ob.Attribute, ds.Reference)
+			var steps []pages.AttributeRefStep
+			if len(ob.Associations) > 0 {
+				// A sort that navigates associations. Resolved through the same
+				// walker DataGrid2 columns and dynamictext params use, so the two
+				// cannot disagree about a path that means the same thing in both.
+				// Refused rather than flattened: an attribute of a far entity with
+				// no EntityRef beside it is CE7247 at build time
+				// (mendixlabs/mxcli#1152).
+				path := strings.Join(append(append([]string{}, ob.Associations...), ob.Attribute), "/")
+				finalQN, hops, ok := pb.resolveAssociationAttributePathForEntity(path, ds.Reference)
+				if !ok {
+					return nil, "", mdlerrors.NewValidation(fmt.Sprintf(
+						"sort by %s: the association path could not be resolved from %s",
+						path, ds.Reference))
+				}
+				attrPath, steps = finalQN, hops
+			}
 			sortItem := &pages.GridSort{
 				BaseElement: model.BaseElement{
 					ID:       model.ID(types.GenerateID()),
 					TypeName: "Forms$GridSort",
 				},
-				AttributePath: pb.resolveAttributePathForEntity(ob.Attribute, ds.Reference),
-				Direction:     direction,
+				AttributePath:     attrPath,
+				AttributeRefSteps: steps,
+				Direction:         direction,
 			}
 			dbSource.Sorting = append(dbSource.Sorting, sortItem)
 		}
@@ -1859,6 +1879,18 @@ func (pb *pageBuilder) resolveAttributePathForEntity(attrName string, entityName
 	defer func() { pb.entityContext = oldContext }()
 
 	return pb.resolveAttributePath(attrName)
+}
+
+// resolveAssociationAttributePathForEntity resolves an `Assoc/.../Attr` path
+// against an explicit root entity rather than the builder's current widget
+// context — a datasource's sort is rooted in the datasource's own entity.
+// Mirrors resolveAttributePathForEntity.
+func (pb *pageBuilder) resolveAssociationAttributePathForEntity(path, entityName string) (string, []pages.AttributeRefStep, bool) {
+	oldContext := pb.entityContext
+	pb.entityContext = entityName
+	defer func() { pb.entityContext = oldContext }()
+
+	return pb.resolveAssociationAttributePath(path)
 }
 
 // resolveTemplateAttributePath resolves template parameter values like $widgetName.Attribute
