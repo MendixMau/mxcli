@@ -63,6 +63,11 @@ func ValidateProgram(prog *ast.Program, projectPath string) []linter.Violation {
 		// script passed check AND exec and failed a build later
 		// (mendixlabs/mxcli#1063).
 		violations = append(violations, validateLayoutPlaceholders(stmt)...)
+		// A snippet parameter must be an entity; mxbuild rejects a primitive one
+		// with CE0046 (MDL087). The documented spelling used the primitive form,
+		// so this was reachable straight from `mxcli syntax snippet.create`
+		// (mendixlabs/mxcli#1028).
+		violations = append(violations, validateSnippetParameters(stmt)...)
 		// A microflow's URL / export level / concurrency clauses, against the
 		// same rules the writer applies (MDL-MF01..MF04).
 		violations = append(violations, validateMicroflowDocumentProperties(stmt)...)
