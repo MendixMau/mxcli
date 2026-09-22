@@ -673,6 +673,12 @@ Nested folders use `/` separator: `'Parent/Child/Grandchild'`. Missing folders a
 | Create workflow | `create [or modify] workflow Module.Name [folder 'path'] parameter $Ctx: Module.Entity [on workflow events (<type>, ...) microflow Mod.MF [as '<text>']] [on any workflow event microflow Mod.MF [as '<text>']] begin ... end workflow;` | See activity types and event handlers below |
 | Drop workflow | `drop workflow Module.Name;` | |
 
+The **overview page** must accept a `System.Workflow` parameter — the build
+fails `CE7410 "The selected page … should accept a parameter of type
+'Workflow'"` otherwise (measured on mxbuild 11.6.6). It is stored under the
+`AdminPage` key: Mendix deleted the `overviewPage` property in 9.11.0 and
+introduced `adminPage` in the same release.
+
 **Clause order does not matter.** A workflow's header clauses and a user task's
 clauses are a **set**: write them in any order, each **at most once**. A clause
 written twice is reported by name (`duplicate PAGE clause on user task Review

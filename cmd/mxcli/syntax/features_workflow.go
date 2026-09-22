@@ -48,7 +48,10 @@ func init() {
 			"-- one out of place was a token error naming neither the clause nor the\n" +
 			"-- rule.) The event handlers are the exception and may repeat.\n" +
 			"-- A clause written twice is reported by name, e.g.\n" +
-			"--   duplicate DISPLAY clause on workflow M.W (already given on line 3)",
+			"--   duplicate DISPLAY clause on workflow M.W (already given on line 3)\n\n" +
+			"-- The OVERVIEW PAGE must accept a System.Workflow parameter, or the\n" +
+			"-- build fails CE7410 \"The selected page should accept a parameter of\n" +
+			"-- type 'Workflow'\" (measured on mxbuild 11.6.6).",
 		Example: "CREATE WORKFLOW Module.ApprovalFlow\n  PARAMETER $Context: Module.Request\n  OVERVIEW PAGE Module.WF_Overview\nBEGIN\n  USER TASK ReviewTask 'Review the request'\n    PAGE Module.ReviewPage\n    OUTCOMES 'Approve' { } 'Reject' { };\nEND WORKFLOW;",
 		SeeAlso: []string{"workflow.user-task", "workflow.event-handlers", "workflow.decision", "workflow.drop"},
 	})

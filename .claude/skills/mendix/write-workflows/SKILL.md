@@ -36,7 +36,7 @@ create workflow Module.ApprovalFlow
   display 'Request Approval'                 -- optional human-readable name
   description 'Approves incoming requests'   -- optional
   export level Hidden                        -- optional: Hidden | API (default Hidden)
-  overview page Module.WF_Overview           -- optional admin overview page
+  overview page Module.WF_Overview           -- optional; takes a System.Workflow param
   on workflow events (UserTaskStarted, UserTaskEnded)   -- optional, repeatable
     microflow Module.ACT_AuditTask as 'Task audit'
   on any workflow event microflow Module.ACT_LogEvent   -- every type this Mendix version has
@@ -68,6 +68,11 @@ written **last** silently winning.
   both fail (`expecting VARIABLE`).
 - The body closer is `end workflow`, **not** `end`. `end;` fails (`missing
   WORKFLOW`).
+- The **overview page takes a `System.Workflow` parameter**, not the workflow's
+  context object. Measured on mxbuild 11.6.6: a page without one is
+  `CE7410 "The selected page 'Overview' should accept a parameter of type
+  'Workflow'"`. (The **task** page takes `System.WorkflowUserTask` instead —
+  two different pages, two different parameters.)
 
 **The context is always stored as `WorkflowContext`.** Whatever you name the
 variable in the header, mxcli writes the parameter as `WorkflowContext`, so
