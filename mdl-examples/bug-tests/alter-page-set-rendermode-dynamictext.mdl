@@ -4,7 +4,7 @@
 --
 -- Reported:
 --
---   alter page Portal_UI_Internal.Quote_Comparison { set RenderMode = H2 on compTitle }
+--   alter page MyModule.Comparison_Page { set RenderMode = H2 on compTitle }
 --   -> failed to set RenderMode on compTitle: property "RenderMode" not found
 --      (widget has no pluggable Object)
 --
