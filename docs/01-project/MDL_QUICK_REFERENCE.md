@@ -93,7 +93,7 @@ Modifies an existing entity without full replacement.
 | Rename attribute | `alter entity Module.Name rename attribute OldName to NewName;` | Also rewrites stored references (microflow members, page widgets, validation/access rules) and XPath constraints. Microflow expressions are free text and are **not** rewritten |
 | Add index | `alter entity Module.Name add index [if not exists] [name] [on] (Col1 [asc\|desc], ...);` | `on` is optional (SQL-like). **Without `if not exists`, re-running is an error** — a second identical index fails the build with CE0072 |
 | Document an association | `/** What it links. */`<br>`create association Mod.C_P from Mod.C to Mod.P;`<br>or `... to Mod.P comment 'What it links.';` | Both spellings work on create; the doc comment wins when both are present. `comment` survives here — and only here among the CREATE statements — because it is an association's **only inline** spelling |
-| Create if absent | `create entity if not exists Module.Name (...);`<br>`create association if not exists Module.Assoc from ... to ...;` | Skips when it already exists, leaving the stored definition untouched. Unlike `create or modify`, which rebuilds the element from the statement and drops any attribute the statement omits |
+| Create if absent | `create entity if not exists Module.Name (...);`<br>`create association if not exists Module.Assoc from ... to ...;` | Skips when it already exists, leaving the stored definition untouched. Unlike `create or modify`, which rebuilds the element from the statement and drops any attribute the statement omits — `mxcli check … -p app.mpr --references` warns about that as **MDL087**, naming the members the script removes without restating them |
 | Add index (SQL form) | `create index IdxName on Module.Name (Col1 [asc\|desc], ...);` | Same effect as `alter entity … add index`. The index name is accepted and discarded — a Mendix index is identified by its columns |
 | Drop index | `alter entity Module.Name drop index [if exists] (Col1 [asc\|desc], ...);` | Selected by its columns — a Mendix index stores no name, so the columns are its identity, and they are what `describe entity` prints. The legacy positional form `drop index idx1` still works but shifts when an earlier index is dropped |
 | Add event handler | `alter entity Module.Name add event handler on before commit call Mod.MF($currentObject) [raise error];` | `($currentObject)` or `()`, RAISE ERROR only on BEFORE |
@@ -510,7 +510,8 @@ it is for pages.
 | Commit | `commit $entity [without events] [refresh];` | **Omitted = with events**, matching Studio Pro's default. `without events` is the deviation and the only form that changes the stored value; `with events` still parses and means the default |
 | Delete | `delete $entity [refresh];` | |
 | Rollback | `rollback $entity [refresh];` | Reverts uncommitted changes |
-| Retrieve (DB) | `retrieve $Var from Module.Entity [where condition];` | Database XPath retrieve |
+| Retrieve (DB) | `retrieve $Var from Module.Entity [where condition] [sort by Attr asc\|desc, ...] [limit n [offset n]];` | Database XPath retrieve. `limit 1` with no `offset` binds a single **object**, not a one-element list (MDL-RETRIEVE01) |
+| Retrieve (DB), sorted | `sort by Attr asc` / `sort by Module.Other.Attr asc` / `sort by Module.Assoc/Module.Other.Attr asc` | A bare name is qualified with the entity **declaring** it, which may be an ancestor. A sort may also navigate associations — one `/` per hop, the last segment is the attribute — and mxcli stores the hops as the `EntityRef` Mendix needs; without them the build is **CE7247**. **Name the hop when more than one association reaches the same entity**: a bare `Module.Other.Attr` is resolved by inference, which walks the generalization chain across modules (`Administration.Account` reaches `System.Language.Code` through `System.User_Language`) but cannot tell `Order_ShipTo` from `Order_BillTo` — measured, a sort on the billing address round-tripped into one on the shipping address at 0 errors both sides (mendixlabs/mxcli#1152). The same spelling works in a page datasource's `sort by` |
 | Retrieve (Assoc) | `retrieve $list from $Parent/Module.AssocName;` | Retrieve by association |
 | Add to list | `add expression to $list;` | Also accepts existing `add $item to $list;` form |
 | Aggregate a list | `$Total = sum($list.Attr);` / `$Total = sum($list, expression);` | `count` (list only), `sum`, `average`, `minimum`, `maximum` — attribute or expression over `$currentObject` |
@@ -948,7 +949,12 @@ still flagged rather than guessed at.
 | Enable or modify (upsert) | `alter settings LANGUAGE add or modify 'de_DE' (CheckCompleteness: true);` | What `describe settings` emits, so a described project replays onto itself or onto one that already has the language |
 | Modify a language | `alter settings LANGUAGE modify 'de_DE' (CheckCompleteness: true);` | Changes only the options it names. `CheckCompleteness` turns on error reporting for texts with no translation in that language (the default language is always checked regardless) |
 | Disable a language | `alter settings LANGUAGE remove 'de_DE';` | The **default** language is refused (every missing translation falls back on it). Translations are NOT deleted — they stay in the model and stop being built; the run reports how many |
-| Alter workflows | `alter settings workflows key = value;` | UserEntity, DefaultTaskParallelism |
+| Alter workflows | `alter settings workflows key = value;` | UserEntity, DefaultTaskParallelism, WorkflowEngineParallelism |
+| Add a workflow group | `alter settings workflows add group 'Approvers' [(Description: 'Primary approval group')];` | The buckets under App Settings > Workflows > Groups that a user task's group targeting selects from. Mendix **11.2+**. `Description` is the only option — a `Settings$WorkflowGroup` stores Name and Description and nothing else, so the **name is the identity** and a second group differing only in case is refused |
+| Add or modify (upsert) | `alter settings workflows add or modify group 'Approvers' (Description: '...');` | What `describe settings` emits, so a described project replays onto itself |
+| Modify a workflow group | `alter settings workflows modify group 'Approvers' (Description: '...');` | Changes only the options it names, and keeps the group's element id — which is the **runtime's identity** for it (Mendix materialises one `System.WorkflowGroup` row per entry, keyed on that id), so an edit updates the row instead of replacing it |
+| Remove a workflow group | `alter settings workflows remove group 'Approvers';` | Nothing in the model references a group (a user task targets groups through a microflow or an XPath returning `System.WorkflowGroup` objects), so there is nothing to dangle — the coupling is at runtime |
+| List workflow groups | `show workflow groups;` | Reads the settings directly; no catalog refresh needed |
 | List languages | `show languages;` | ⚠️ languages that have TRANSLATIONS, not enabled ones (a stock app reports 8 while 1 is enabled). For the enabled list use `describe settings`. Requires `refresh catalog full` |
 
 ## Business Events
@@ -1061,6 +1067,26 @@ image selected."); `mxcli check` reports it as MDL-WIDGET22. A name that does no
 resolve is reported by `mxcli check --references` rather than by the build
 (CE1613). The other two sources are `ImageType: imageUrl, ImageUrl: '…'` and
 `ImageType: icon`.
+
+### Binding a pluggable widget's text-template property
+
+A text-template property (`ImageUrl`, a TreeNode's `headerCaption`, a Timeline's
+`title` / `description`) takes **text**, so a bare value renders the same string
+on every row — with `check`, `exec` and `mx check` all clean. Bind it with the
+property's own `<Name>Params` companion:
+
+```sql
+image cardImage (
+  ImageType: imageUrl,
+  ImageUrl: '{1}',        ImageUrlParams: [{1} = PictureUrl],
+  AlternativeText: '{1}', AlternativeTextParams: [{1} = Name]
+);
+```
+
+The widget-wide `contentparams:` is one list shared by every template on the
+widget, so it remains the convenience form for a widget with a single template;
+`'{AttrName}'` is the shortest form for one attribute with no formatting block.
+Parameters with no `{N}` to fill are reported as MDL-WIDGET21.
 
 ## Icon Collections (read-only)
 

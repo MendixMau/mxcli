@@ -768,8 +768,8 @@ alter page Mod.Home {
 
 For theme images, use paths relative to `theme/web/` (e.g., `img/logo.svg` → `theme/web/img/logo.svg`).
 
-**A per-row image URL comes from the entity, two ways.** `imageUrl` is a text
-template, so it takes either spelling:
+**A per-row image URL comes from the entity, three ways.** `imageUrl` is a text
+template, so it takes any of these spellings:
 
 ```sql
 -- named placeholder: shortest form for a single attribute
@@ -782,7 +782,22 @@ pluggablewidget 'com.mendix.widget.web.image.Image' cardImage (
   datasource: imageUrl,
   imageUrl: '{1}/{2}', contentparams: [{1} = BaseUrl, {2} = PictureUrl]
 )
+
+-- `<Name>Params`: the property's OWN parameters. `contentparams` is one list
+-- shared by every template on the widget, so it cannot bind `imageUrl` and
+-- `alternativeText` to different attributes; this can (ako/mxcli#575).
+pluggablewidget 'com.mendix.widget.web.image.Image' cardImage (
+  datasource: imageUrl,
+  imageUrl: '{1}',        imageUrlParams: [{1} = PictureUrl],
+  alternativeText: '{1}', alternativeTextParams: [{1} = Name]
+)
 ```
+
+The same companion works on any pluggable widget's text-template property — a
+TreeNode's `headerCaption`, a Timeline's `title` / `description` /
+`timeIndication` — under the property's own name + `Params`. Without it a
+text-template property took literal text only, so it rendered the same string
+on every row with `check`, `exec` and `mx check` all clean.
 
 Every `{N}` must have a matching parameter — Mendix rejects a shortfall with
 `CE0720` ("place holder index N is greater than …, the number of parameter(s)").
