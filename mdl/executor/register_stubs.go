@@ -522,6 +522,9 @@ func registerAlterPageHandlers(r *Registry) {
 	r.Register(&ast.AlterPageStmt{}, func(ctx *ExecContext, stmt ast.Statement) error {
 		return execAlterPage(ctx, stmt.(*ast.AlterPageStmt))
 	})
+	r.Register(&ast.AlterPagesStylingStmt{}, func(ctx *ExecContext, stmt ast.Statement) error {
+		return execAlterPagesStyling(ctx, stmt.(*ast.AlterPagesStylingStmt))
+	})
 	r.Register(&ast.AlterPagesLayoutStmt{}, func(ctx *ExecContext, stmt ast.Statement) error {
 		return execAlterPagesLayout(ctx, stmt.(*ast.AlterPagesLayoutStmt))
 	})
