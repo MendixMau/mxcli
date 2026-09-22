@@ -241,6 +241,27 @@ column's braces it parses as a column with **no body** followed by a separate
 write with no diagnostic, so `DESCRIBE PAGE` showing a filterless column was the
 only symptom; it is now refused at check and exec time.
 
+**A column over an association is filtered by the associated objects.** The column
+shows a value from the other side (`attribute: Order_Customer/Name`); the filter takes
+the reference, the option list and what an option shows — all three, or it is refused:
+
+```sql
+column colCustomer (attribute: Order_Customer/Name, caption: 'Customer') {
+  dropdownfilter fltCustomer (
+    Association: Sales.Order_Customer,    -- the reference on the grid's entity
+    datasource: database Sales.Customer,  -- the option list
+    CaptionAttribute: Name                -- what each option shows
+  )
+}
+```
+
+A `datefilter` compares one date; `FilterType: between` makes the column a range.
+
+**The grid filters itself — do not build a filter bar beside it.** The shape to avoid is a
+non-persistent filter entity, inputs bound to it, an apply microflow on every change, and
+an XPath on the grid reading that object back: measured on one generated app, three
+microflows and 1,100 characters of XPath against five lines, one filter per column.
+
 ## NewEdit Page Template
 
 Form for creating or editing a single entity. **Requires a page parameter** to receive the object.
