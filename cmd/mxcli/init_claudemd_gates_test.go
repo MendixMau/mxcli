@@ -149,3 +149,48 @@ func TestModellingDefaultsAreStatedEverywhere(t *testing.T) {
 		}
 	}
 }
+
+// The gate list had a completeness rule ("**They are the definition of done,
+// not a menu** — a change is finished when they have all been run") sitting one
+// line below an escalation rule ("each is only worth paying for once the one
+// above is clean"). They contradict each other, and the bolded one wins.
+//
+// Applied to a list containing `docker check` (~25s), `test` (~30s cold) and
+// `run --local`, the bolded reading mandates ~55s of gates and 5+ tool calls per
+// change — and "a change" was never defined, so in practice it became each edit.
+// That is not a hypothetical reading: it is what a session-cost comparison
+// measured (523 model calls vs 123 for the same class of app elsewhere, 5-8 tool
+// calls per change), and the report's own line — "I tested every admin flow ...
+// most of those checks included screenshots" — is this instruction being
+// followed, not an agent being careless. See
+// docs/11-proposals/PROPOSAL_agent_loop_efficiency.md and ako/mxcli#608.
+//
+// The fix is the UNIT, not the list: every gate stays (the three-copy tests
+// above exist because `test` fell off this list once), and what changes is that
+// the gates are done-criteria for a coherent unit of work rather than for each
+// edit. Iterate with `exec`, then run the gates once over the result.
+//
+// This is held in all three places for the same reason the gate list itself is:
+// stated in two of the three, it is guidance that applies when someone remembers.
+func TestGateBatchingUnitIsStatedEverywhere(t *testing.T) {
+	const marker = "not per edit"
+
+	sources := map[string]string{
+		"the generated CLAUDE.md": generateClaudeMD("Demo", "Demo.mpr"),
+		"the bootstrap-app skill": bootstrapSkill(t),
+	}
+	const docPath = "../../docs-site/src/tools/bootstrap-prompt.md"
+	b, err := os.ReadFile(docPath)
+	if err != nil {
+		t.Fatalf("cannot read %s: %v", docPath, err)
+	}
+	sources[docPath] = string(b)
+
+	for name, body := range sources {
+		if !strings.Contains(strings.ToLower(body), marker) {
+			t.Errorf("%s does not say the gates run once per change and %q — without the unit, "+
+				"\"definition of done\" reads as ~55s of gates after every edit, which is the "+
+				"dominant cost in an agent session", name, marker)
+		}
+	}
+}

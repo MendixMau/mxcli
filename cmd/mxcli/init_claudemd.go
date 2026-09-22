@@ -74,7 +74,7 @@ type projectGate struct {
 // it to every generated CLAUDE.md, and requires naming it in the bootstrap
 // skill and docs page too.
 var projectGates = []projectGate{
-	{"check script.mdl -p %s --references", "syntax + references (~2s)", "mxcli check", "check"},
+	{"check script.mdl -p %s", "syntax + references, no apply (~2s)", "mxcli check", "check"},
 	{"exec script.mdl -p %s", "apply", "mxcli exec", "exec"},
 	{"lint -p %s", "rules (~3s)", "mxcli lint", "lint"},
 	{"report -p %s", "scored quality report", "mxcli report", "report"},
@@ -179,6 +179,10 @@ func generateClaudeMD(projectName, mprFile string) string {
 	w("Run them cheapest-first; each is only worth paying for once the one above is clean.\n")
 	w("**They are the definition of done, not a menu** — a change is finished when they have\n")
 	w("all been run and you have said what each one reported.\n\n")
+	w("**Once per change, not per edit.** A change is a coherent unit of work — not a single\n")
+	w("statement and not a file write. Iterate with " + bt + "exec" + bt + " until the script is right, then run\n")
+	w("the gates once over the result. The whole list after every edit costs ~55s a time and\n")
+	w("proves nothing the one run at the end does not.\n\n")
 	w(bt3 + "bash\n")
 	w(renderProjectGates(mprPath))
 	w(bt3 + "\n\n")
