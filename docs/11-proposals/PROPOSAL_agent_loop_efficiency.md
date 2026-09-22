@@ -54,22 +54,63 @@ That arithmetic sets the priority order, and it is not the intuitive one:
    lever 1, so the two compound.
 3. Output tokens (500 k of 228 M) are a rounding error. Do not optimise here.
 
-## What is irreducible, and what is not
+## What is actually asymmetric — and how little of it is irreducible
 
-Part of the 4× is real and will not go away. Vercel's agent writes a `.tsx` file
-and the work is done. A Mendix change is a model mutation that must be
-**validated, applied, built, and rendered** before anyone knows it worked. The
-feedback also notes the two sessions were not scope-equivalent — the mxcli one
-additionally covered login styling, documentation, Docker and password lockout.
+An earlier draft said: "Vercel's agent writes a `.tsx` file and the work is
+done." That is false, and it was doing real damage to this proposal by filing
+the gap under platform tax instead of under work.
 
-So parity is the wrong target. The target is the **gap between the loop we ship
-and the loop mxcli is already capable of**, which is large, because most of the
-fast paths below already exist and the session did not take them.
+A `.tsx` file is not done when written. It needs type-checking, building and
+rendering before anyone knows it worked, exactly like an MDL change. The
+difference is not *whether* verification happens — it is four properties of the
+verification, and **three of the four are things we can move**:
 
-The honest claim: of the reported ~400 extra calls, roughly 250–300 look
-addressable. The rest is Mendix being a compiled platform.
+| | TypeScript / Next | MDL / Mendix |
+|---|---|---|
+| **Cost per verification** | `tsc --noEmit` ~1–3 s; HMR sub-second and **zero tool calls** — the dev server is already running and the browser updates itself | mxbuild ~25 s **and a tool call**; the HMR analogue (`reload_model`) is blocked on 11.14 |
+| **How often it is needed** | low — TypeScript and React are saturated in training data, so first-attempt success is high | higher — MDL is a DSL invented in this repo and appears nowhere in training data |
+| **Error locality** | `file:line:col`, expected vs actual | a CE number naming a *document*, at the far end of a build — and per ako/mxcli#568, `docker check` can report "0 errors" while the build fails |
+| **Does the last tier need a running app?** | no for logic, yes for render — but the browser is already open on the changed component | yes, plus `reload_model`, plus login, plus navigation |
 
----
+Row 2 is the one mxcli can only partly close, and
+`PROPOSAL_llm_mdl_assistance.md` owns it. The other three are engineering, and
+two of them are already in flight:
+
+- **Row 1 is `mxcli check` vs mxbuild.** `check` is the `tsc` of MDL, and
+  `PROPOSAL_check_mxbuild_gap_heuristics.md` is a **standing programme** to close
+  the gap — ~17 rules shipped, each one a construct that used to be found only
+  by a 25 s build and is now found in ~2 s with no build at all. Every rule moved
+  across that line is a direct call-count *and* wall-time win. This is the
+  highest-value structural work in the whole picture and it was already
+  underway; this proposal's contribution is to say why it is a **token** lever
+  and not only a correctness one.
+- **Row 1's other half is the HMR analogue**, which exists (`reload_model`,
+  ~3 s on 11.13) and is blocked by the mxbuild defect below.
+- **Row 3 is diagnostic quality**, which `PROPOSAL_check_diagnostics_catalog.md`
+  owns. It matters here because a vague error costs a *diagnosis*, and a
+  diagnosis is the 40-call tail in lever 4.
+
+### The real target: build once per batch, not once per change
+
+That is what the Vercel agent does. It does not run a production build after
+every file — it leans on a fast, trusted static check and batches the expensive
+gate. mxcli can have the same shape, and the blocker is **trust**, not speed:
+an agent runs the 25 s build after every change precisely because `check`
+passing does not yet mean the build will pass.
+
+So row 1 and row 3 compound. Closing check-vs-build parity does not merely make
+the expensive gate faster — it makes the expensive gate *rarer*, because it
+becomes reasonable to batch. And ako/mxcli#568 is a direct attack on that trust
+from the other side: a check that can say "0 errors" over a build-failing model
+teaches an agent never to believe it.
+
+**What is left that is genuinely irreducible:** the final "does it render
+correctly" tier needs a running app, in both worlds. That is one gate, rarely,
+per the tier table above — not a per-change tax.
+
+The scope caveat still stands and is separate: the two sessions did not build
+the same thing. The mxcli one additionally covered login styling, documentation,
+Docker and password lockout. Some unknown part of the 4× is simply more work.
 
 ## Lever 1 — collapse the per-change round trip (attacks N)
 
@@ -343,6 +384,7 @@ places once already, and a loop regression is exactly as invisible.
 | | Lever | Effort | Expected effect |
 |---|---|---|---|
 | 1 | `diag loop-report` + benchmark harness (lever 6) | S | none directly — makes the rest falsifiable |
+| 1b | Measure the check↔build gap rate: how many builds in a real session caught something `check` did not | S | sizes the batching prize, and feeds the parity programme's queue |
 | 2 | Fix `projectGates` to teach `exec`, not `check`+`exec` (lever 1) | XS | ~1 call per change, every project, immediately |
 | 2b | Measure `test --attach` on 11.14; pin the bootstrap default off 11.14 | XS | removes a forced 35 s/change from new projects |
 | 3 | Publish the canonical `&&` chain in `projectGates` + skills (lever 1) | XS | the 5–8 → 1–2 collapse, with nothing built |
@@ -361,13 +403,20 @@ showing that the published chain is still being composed wrong.
 
 ## What this does not fix
 
-- Mendix builds. A model change must be compiled to be trusted, and that is
-  seconds of wall time and at least one tool call, per change, forever.
+- The last verification tier. "Does it render correctly" needs a running app,
+  and that is true of React too. The tier table keeps it rare rather than
+  per-change.
 - The 11.14 serve-rebuild defect. It is mxbuild's, the controls are conclusive,
   and nothing mxcli does from outside repairs it. It should be reported upstream;
   meanwhile the version default is the only lever we hold.
 - Scope. The reported sessions did not build the same thing.
 - MDL not being in training data (`PROPOSAL_llm_mdl_assistance.md` owns that).
-  Every MDL statement the agent gets wrong on the first try is a full loop
+  It is row 2 of the asymmetry table and the one property here that is not
+  engineering. Every MDL statement wrong on the first try is a full loop
   iteration, so that proposal and this one multiply rather than overlap — a
   first-attempt success rate is a call-count lever in disguise.
+
+Note what has moved OUT of this list since the first draft: "Mendix builds, and
+that is a per-change tax forever." It is not. It is a per-change tax for as long
+as `check` is not trusted enough to batch the build behind it, which is a
+programme already running.
