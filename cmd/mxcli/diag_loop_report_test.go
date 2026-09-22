@@ -3,6 +3,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -79,8 +81,8 @@ func TestUnclosedInvocationsAreCountedSeparately(t *testing.T) {
 	if rep.Unclosed != 1 {
 		t.Errorf("Unclosed = %d, want 1 — the run with no session_end", rep.Unclosed)
 	}
-	if rep.Failed != 1 {
-		t.Errorf("Failed = %d, want 1 — the closed run whose summary reported errors", rep.Failed)
+	if rep.StatementErrors != 1 {
+		t.Errorf("StatementErrors = %d, want 1 — the closed run whose summary reported errors", rep.StatementErrors)
 	}
 	// Wall time counts only the runs that closed: an unclosed run has no knowable
 	// end, and guessing one (say, the next start) would silently inflate the
@@ -165,5 +167,69 @@ func TestParseLogRecordsSkipsUnparseableLines(t *testing.T) {
 	}
 	if rep := analyzeLoop(got); rep.Invocations != 1 {
 		t.Errorf("Invocations = %d, want 1", rep.Invocations)
+	}
+}
+
+// The two error populations are disjoint, and conflating them is the defect
+// this test exists to prevent: the field was called `failed` and read 0 across
+// a real 442-invocation log while runs were exiting non-zero, because a
+// non-zero exit skips the summary record entirely (ako/mxcli#620).
+//
+// A run that exits reaches Unclosed and must NOT reach StatementErrors; a run
+// that finishes while reporting failed statements is the reverse.
+func TestStatementErrorsIsDisjointFromUnclosed(t *testing.T) {
+	// A run that exited: no session_end, so nothing reports its errors.
+	exited := analyzeLoop([]logRecord{
+		startAt(0, "subcommand", "exec", "a.mdl", "-p", "x.mpr"),
+	})
+	if exited.Unclosed != 1 || exited.StatementErrors != 0 {
+		t.Errorf("run that exited: Unclosed=%d StatementErrors=%d, want 1 and 0",
+			exited.Unclosed, exited.StatementErrors)
+	}
+
+	// CONTROL: a run that finished while reporting failed statements is the
+	// other population — it closed, so it is not Unclosed.
+	continued := analyzeLoop([]logRecord{
+		startAt(0, "subcommand", "exec", "a.mdl", "-p", "x.mpr", "--continue-on-error"),
+		endAt(2, 5, 3),
+	})
+	if continued.Unclosed != 0 || continued.StatementErrors != 1 {
+		t.Errorf("run that continued past errors: Unclosed=%d StatementErrors=%d, want 0 and 1",
+			continued.Unclosed, continued.StatementErrors)
+	}
+}
+
+// The JSON key is the interface the finding was read through, so it is asserted
+// literally. `failed` must be gone, not merely renamed in Go.
+func TestJSONKeyNamesWhatItMeasures(t *testing.T) {
+	out, err := json.Marshal(loopReport{StatementErrors: 2, Unclosed: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(out)
+	if !strings.Contains(js, `"runs_with_statement_errors":2`) {
+		t.Errorf("JSON lacks runs_with_statement_errors: %s", js)
+	}
+	if strings.Contains(js, `"failed"`) {
+		t.Errorf("JSON still carries the misleading `failed` key: %s", js)
+	}
+}
+
+// Zero is not printed. A "0" beside a non-zero unclosed count reads as "nothing
+// failed", which is the opposite of what the pair means.
+func TestStatementErrorLineIsPrintedOnlyWhenNonZero(t *testing.T) {
+	var quiet bytes.Buffer
+	renderLoopReport(loopReport{Invocations: 3, Unclosed: 2}, &quiet)
+	if strings.Contains(quiet.String(), "failed statements") {
+		t.Errorf("printed the statement-error line at zero:\n%s", quiet.String())
+	}
+	if !strings.Contains(quiet.String(), "Did not close: 2") {
+		t.Errorf("control failed — the unclosed line is missing:\n%s", quiet.String())
+	}
+
+	var loud bytes.Buffer
+	renderLoopReport(loopReport{Invocations: 3, StatementErrors: 1}, &loud)
+	if !strings.Contains(loud.String(), "Finished with failed statements: 1") {
+		t.Errorf("did not print the statement-error line at 1:\n%s", loud.String())
 	}
 }

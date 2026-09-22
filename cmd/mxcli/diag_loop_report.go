@@ -20,6 +20,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -61,9 +62,10 @@ func (i invocation) Duration() time.Duration { return i.End.Sub(i.Start) }
 type verbStats struct {
 	Verb string `json:"verb"`
 	// Count is invocations of this verb; Unclosed is how many of them wrote no
-	// session_end. Deliberately NOT named Failed: loopReport.Failed means a run
-	// that closed and reported errors, which is a different population, and one
-	// name for two meanings is how a report starts lying.
+	// session_end — the report's only evidence of a non-zero exit. Deliberately
+	// NOT named Failed, and there is no per-verb error field either: the two
+	// populations are disjoint (see loopReport.StatementErrors) and one name for
+	// two meanings is how a report starts lying.
 	Count    int           `json:"count"`
 	Unclosed int           `json:"unclosed"`
 	TotalDur time.Duration `json:"-"`
@@ -73,8 +75,21 @@ type verbStats struct {
 
 // loopReport is the whole analysis, and is what --json emits.
 type loopReport struct {
-	Invocations  int         `json:"invocations"`
-	Failed       int         `json:"failed"`
+	Invocations int `json:"invocations"`
+	// StatementErrors counts runs that CLOSED while their summary reported at
+	// least one failed statement — in practice `exec --continue-on-error`, which
+	// is the only path that keeps going after one. It is NOT the failure count:
+	// a run that exits non-zero exits through os.Exit and writes no summary at
+	// all, so it lands in Unclosed instead.
+	//
+	// It was called `failed` until ako/mxcli#620. Measured against a real
+	// 442-invocation log it read 0 throughout while real non-zero exits were
+	// happening, so anyone reading the JSON alongside `unclosed: 10` drew the
+	// wrong conclusion from a field that was doing its job. Naming it after what
+	// it measures is the fix; making it mean "failed" would take an exit-code
+	// path through all ~250 os.Exit sites.
+	StatementErrors int `json:"runs_with_statement_errors"`
+	// Unclosed is runs with no session_end. See the comment at its increment.
 	Unclosed     int         `json:"unclosed"`
 	WallSeconds  float64     `json:"wall_seconds"`
 	ByVerb       []verbStats `json:"by_verb"`
@@ -209,7 +224,7 @@ func analyzeLoop(records []logRecord) loopReport {
 			continue
 		}
 		if inv.Errors > 0 {
-			rep.Failed++
+			rep.StatementErrors++
 		}
 		d := inv.Duration()
 		s.TotalDur += d
@@ -294,7 +309,7 @@ func readLogLines(dir string) ([]string, error) {
 	return lines, nil
 }
 
-func renderLoopReport(rep loopReport, w *os.File) {
+func renderLoopReport(rep loopReport, w io.Writer) {
 	fmt.Fprintf(w, "mxcli invocations: %d", rep.Invocations)
 	if rep.Span != "" {
 		fmt.Fprintf(w, "   (%s)", rep.Span)
@@ -310,6 +325,14 @@ func renderLoopReport(rep loopReport, w *os.File) {
 		fmt.Fprintf(w, "Did not close: %d (mxcli exits through os.Exit on most failures,\n"+
 			"               which skips the summary record — so these are very likely\n"+
 			"               non-zero exits, but a killed process looks the same)\n", rep.Unclosed)
+	}
+	// Printed only when non-zero. It is near-always zero, and a "0" next to the
+	// unclosed count reads as "nothing failed" — which is the opposite of what
+	// the two numbers together mean.
+	if rep.StatementErrors > 0 {
+		fmt.Fprintf(w, "Finished with failed statements: %d (ran to the end and reported\n"+
+			"               errors — `exec --continue-on-error`. Separate from the\n"+
+			"               unclosed runs above, which exited instead)\n", rep.StatementErrors)
 	}
 
 	fmt.Fprintln(w, "\nBy command, most calls first:")
@@ -338,11 +361,15 @@ func renderLoopReport(rep loopReport, w *os.File) {
 var diagLoopReportCmd = &cobra.Command{
 	Use:   "loop-report",
 	Short: "Report where this project's mxcli calls went, from the session logs",
-	Long: `Summarise the session logs as a per-command call count, wall time and failure count.
+	Long: `Summarise the session logs as a per-command call count, wall time and exit health.
 
 Every mxcli invocation writes a session record naming its argv, so the shape of
 an agent's loop is already on disk. This reports it: which commands were run,
 how often, how long they took, and how many did not exit cleanly.
+
+A run that fails exits through os.Exit and writes no summary record, so it is
+counted as "did not close" rather than as a failure — the report says which it
+is measuring rather than presenting one as the other.
 
 It counts mxcli PROCESSES, not model calls — one shell command can run several.
 Read it to find which command dominates a loop, and re-run it after a change to
