@@ -916,6 +916,7 @@ Full syntax tables for all MDL statements (microflows, pages, security, navigati
 - `sdk/widgets/templates/` - Embedded widget templates for pluggable widgets (ComboBox, DataGrid2, etc.)
 - `sdk/widgets/templates/README.md` - **Critical**: Template extraction requirements (must include both `type` AND `object`)
 - `generated/metamodel/enums.go` - All Mendix enumeration types
+- `modelsdk/meta/system_module.go` - The virtual System module's entities, attributes and associations. String lengths are **measured**, from the System module's domain model inside a built `deployment/model/model.mdp` (a BSON document stream, one `mxbuild --target=deploy` for all 115 at once) — not from the Model SDK, which describes metamodel types and does not contain them. `modelsdk/meta/testdata/system_string_lengths.txt` is the measurement and `TestSystemStringLengths` holds the table to it; a `Length` of 0 is Mendix's "unlimited", never "unmeasured". Measured identical across 10.24.4 and 11.14.0, which is why there is one table and not a per-version registry
 - `mdl/grammar/MDL.g4` - ANTLR4 grammar for MDL syntax (production)
 - `mdl/executor/executor.go` - MDL statement execution logic
 - `reference/mdl-grammar/` - Comprehensive MDL grammar reference
