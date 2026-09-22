@@ -353,6 +353,11 @@ see `migrate-design-prototype`.
 them in context. They are the **definition of done**, not a menu: run them in order,
 stop at the first that fails, and say what each one reported.
 
+Run them **once per change, not per edit** — a change being a coherent unit of work,
+not a single statement and not a file write. Iterate with `exec` until the script is
+right, then run the gates once over the result. The whole list after every edit costs
+~55s and five calls each time and proves nothing the one run at the end does not.
+
 ```bash
 ./mxcli check change.mdl -p <AppName>.mpr --references   # syntax + references (~2s)
 ./mxcli exec change.mdl -p <AppName>.mpr                 # apply

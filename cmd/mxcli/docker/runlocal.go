@@ -102,6 +102,12 @@ type LocalRunOptions struct {
 	// Screenshot, when set, captures a PNG of the app after boot and after each
 	// applied change (requires the Playwright CLI + a browser).
 	Screenshot bool
+
+	// PageCheck prints a text verdict for each target page instead of (or as
+	// well as) capturing a PNG. It answers the question a screenshot is usually
+	// taken to answer at a fraction of the tokens, and reports console errors,
+	// which a picture cannot show. See pagecheck.go and ako/mxcli#614.
+	PageCheck bool
 	// ScreenshotPath is where the PNG is written (default <projectDir>/.mxcli/run-local.png).
 	// With multiple ScreenshotURLs, it is the base name and each page gets a
 	// per-page suffix (run-local-<page>.png).
@@ -953,6 +959,13 @@ func runtimeStoppedError(rt *LocalRuntime) error {
 // maybeScreenshot captures the app (best-effort) when --screenshot is set. A
 // failure is reported but never aborts the loop — the app is still running.
 func maybeScreenshot(opts LocalRunOptions, rt *LocalRuntime) {
+	// The text verdict is printed whenever either flag asks for it: with
+	// --page-check alone it is the whole output, and alongside --screenshot it
+	// means the PNG does not have to be opened to learn whether the page
+	// rendered (ako/mxcli#614).
+	if opts.PageCheck {
+		reportPageChecks(opts, rt)
+	}
 	if !opts.Screenshot {
 		return
 	}
@@ -1383,4 +1396,20 @@ func declaredJarDependencies(reader backend.FullBackend) []JarDependencyRef {
 		}
 	}
 	return out
+}
+
+// reportPageChecks prints one verdict line per target page.
+func reportPageChecks(opts LocalRunOptions, rt *LocalRuntime) {
+	targets := opts.ScreenshotURLs
+	if len(targets) == 0 {
+		targets = []string{""}
+	}
+	for _, t := range targets {
+		sig, err := CheckPage(resolveScreenshotURL(rt.AppURL(), t), opts.screenshotStorage, 4000, 0)
+		if err != nil {
+			fmt.Fprintf(opts.Stderr, "  page check skipped (%s): %v\n", pageLabel(t), err)
+			continue
+		}
+		fmt.Fprint(opts.Stdout, "  "+formatPageVerdict(pageLabel(t), sig))
+	}
 }

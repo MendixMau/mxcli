@@ -182,6 +182,12 @@ menu. The same list is in the `bootstrap-app` skill, and the three are held toge
 by a test, because a gate that is named in two of the three places is a gate that only
 runs when someone remembers to ask for it.
 
+They run **once per change, not per edit**: a change is a coherent unit of work, not a
+single statement and not a file write. Iterate with `exec`, then run the gates once
+over the result. That distinction is held by a test too — without it, "definition of
+done" reads as the whole list after every edit, which is ~55s and five tool calls each
+time, and was the dominant cost in a measured agent session.
+
 ```bash
 ./mxcli check change.mdl -p <AppName>.mpr --references   # syntax + references (~2s)
 ./mxcli exec change.mdl -p <AppName>.mpr                 # apply

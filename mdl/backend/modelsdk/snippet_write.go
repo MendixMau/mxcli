@@ -9,7 +9,6 @@ import (
 	"github.com/mendixlabs/mxcli/model"
 	"github.com/mendixlabs/mxcli/modelsdk/codec"
 	"github.com/mendixlabs/mxcli/modelsdk/element"
-	genDT "github.com/mendixlabs/mxcli/modelsdk/gen/datatypes"
 	genPg "github.com/mendixlabs/mxcli/modelsdk/gen/pages"
 	mmpr "github.com/mendixlabs/mxcli/modelsdk/mpr"
 	"github.com/mendixlabs/mxcli/sdk/pages"
@@ -123,7 +122,13 @@ func snippetToGen(s *pages.Snippet) (*genPg.Snippet, error) {
 	return out, nil
 }
 
-// snippetParameterToGen builds a Forms$SnippetParameter (entity-typed).
+// snippetParameterToGen builds a Forms$SnippetParameter. Its ParameterType is
+// the same polymorphic DataTypes$DataType a page parameter carries, so it goes
+// through the same builder: p.Type holds a primitive's BSON $Type when the
+// parameter is primitive, and is empty for an entity parameter.
+//
+// It used to build a DataTypes$ObjectType unconditionally, so a primitive-typed
+// parameter was written pointing at an entity named "" (mendixlabs/mxcli#1028).
 func snippetParameterToGen(p *pages.SnippetParameter) *genPg.SnippetParameter {
 	gp := genPg.NewSnippetParameter()
 	if p.ID != "" {
@@ -131,9 +136,6 @@ func snippetParameterToGen(p *pages.SnippetParameter) *genPg.SnippetParameter {
 	}
 	assignID(gp)
 	gp.SetName(p.Name)
-	t := genDT.NewObjectType()
-	assignID(t)
-	t.SetEntityQualifiedName(p.EntityName)
-	gp.SetParameterType(t)
+	gp.SetParameterType(paramTypeToGen(p.Type, p.EntityName))
 	return gp
 }

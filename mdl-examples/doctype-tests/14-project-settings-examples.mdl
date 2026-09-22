@@ -206,6 +206,10 @@ alter settings language DefaultLanguageCode = 'en_US';
  */
 alter settings workflows UserEntity = 'System.User';
 
+-- Workflow groups (Settings$WorkflowGroup) are 11.2+ metamodel; mxcli refuses
+-- them on an older project, so Examples 4.3-4.7 are gated. Ungated, they
+-- failed the 10.24 nightly.
+-- @version: 11.2+
 /**
  * Example 4.3: Add a workflow group (App Settings > Workflows > Groups)
  *
@@ -247,6 +251,7 @@ show workflow groups;
  * materialises one System.WorkflowGroup row per entry.
  */
 alter settings workflows remove group 'Reviewers';
+-- @version: any
 
 -- ============================================================================
 -- SUMMARY

@@ -673,8 +673,25 @@ Nested folders use `/` separator: `'Parent/Child/Grandchild'`. Missing folders a
 | Create workflow | `create [or modify] workflow Module.Name [folder 'path'] parameter $Ctx: Module.Entity [on workflow events (<type>, ...) microflow Mod.MF [as '<text>']] [on any workflow event microflow Mod.MF [as '<text>']] begin ... end workflow;` | See activity types and event handlers below |
 | Drop workflow | `drop workflow Module.Name;` | |
 
+The **overview page** must accept a `System.Workflow` parameter — the build
+fails `CE7410 "The selected page … should accept a parameter of type
+'Workflow'"` otherwise (measured on mxbuild 11.6.6). It is stored under the
+`AdminPage` key: Mendix deleted the `overviewPage` property in 9.11.0 and
+introduced `adminPage` in the same release.
+
+**Clause order does not matter.** A workflow's header clauses and a user task's
+clauses are a **set**: write them in any order, each **at most once**. A clause
+written twice is reported by name (`duplicate PAGE clause on user task Review
+(already given on line 12)`). The exceptions are the list-valued ones, which
+accumulate: the header's `on workflow event(s)` handlers, and a task's
+`outcomes` and `boundary event`. The two `targeting` spellings are **one**
+clause — a task stores one user source — so writing both is refused rather than
+letting the second silently win. Before `ako/mxcli#586` the order below was
+mandatory and a misplaced clause failed with a token error
+(`mismatched input 'ON' expecting ';'`) that named neither the clause nor the rule.
+
 **Workflow Activity Types:**
-- `[multi] user task <name> '<caption>' [page Mod.Page] [targeting [users|groups] microflow Mod.MF] [targeting [users|groups] xpath '<expr>'] [on created microflow Mod.MF] [participants all|<n>|<n> percent] [decide by <rule>] [await all users] [outcomes '<out>' { } ...];`
+- `[multi] user task <name> '<caption>' [page Mod.Page] [targeting [users|groups] microflow Mod.MF] [targeting [users|groups] xpath '<expr>'] [on created microflow Mod.MF] [entity Mod.Entity] [due date '<expr>'] [description '<text>'] [participants all|<n>|<n> percent] [decide by <rule>] [await all users] [outcomes '<out>' { } ...] [boundary event …];`
   - **Multi-user only:** `decide by consensus|majority more than half|majority most chosen|threshold <n> percent|votes fallback '<outcome>'`, `decide by veto '<outcome>'`, `decide by microflow Mod.MF`. A fallback is required for consensus, majority and threshold (CE1866), a veto needs its outcome (CE1867), and a decision microflow returns String (CE5012) — all `MDL-WF13` / check. Omitted: all participants, consensus on the first outcome, not waiting.
   - The **task page** must take a `System.WorkflowUserTask` parameter — none at all is CE7410, none of that type is CE7412; extra parameters are allowed.
   - A **targeting microflow** takes exactly `System.Workflow` + the context entity (or a generalization of it), in either order — anything else is CE6677. Users targeting returns a list of `System.User`, groups a list of `System.WorkflowGroup`.
@@ -1453,7 +1470,9 @@ MDL uses explicit property declarations for pages:
 | Drop layout | `drop layout Module.Name;` | Pages still bound to it are named in a warning and the drop proceeds; left dropped they fail **CE1613**, which names the *page* |
 | Declare a placeholder | `placeholder Main` | **No body.** Exactly one must be named `Main` — mxbuild enforces it (**CE0848**/**CE0849**), and names must be unique (**CE0495**). `placeholder X { … }` is the page-side form and declares nothing (MDL083) |
 | Alter layout | `alter layout Module.Name { <alter-page operations> };` | Edits the stored document, so widgets MDL cannot spell survive. Refused for a Marketplace target |
+| Set a design property | `alter page Module.Page { set 'Row size' = 'Small' on lvOrders; };` | An Atlas design property of that widget's **type** — quoted, case-sensitive; `show design properties for <type>` lists them. `on`/`off` for a toggle, where `off` removes the entry. Same document `alter styling` writes. A **multi-select** (`Hide on`) or **compound** (`Spacing`) property needs the inline `DesignProperties: [...]` form, since a `set` assignment carries one value |
 | Repoint one page | `alter page Module.Page { set Layout = Module.Layout [map (Old as New, …)]; };` | Rewrites the layout reference **and** every placeholder binding |
+| Set a design property on every widget of a type | `alter pages [in <module>] set 'Compact' = on, 'Striped' = on where widgettype = datagrid [dry run];` | The house-style sweep. `widgettype` takes the **MDL keyword**, which resolves to exactly one widget id — a `like '%datagrid%'` predicate also matches the data grid's *filter* widgets. Never a widget **name**: a name is unique only within its page. `dry run` previews against a discardable copy. A sweep that matches widgets and writes none of them exits non-zero |
 | Repoint many pages | `alter pages [in <module>] set layout = Module.Layout [map (…)] [where layout = Module.Old];` | The migration form. Marketplace pages are skipped and named. A `where layout` that names no real layout is an error, not a 0-page success |
 
 | Layout element | Syntax | Notes |

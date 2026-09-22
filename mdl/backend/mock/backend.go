@@ -121,6 +121,7 @@ type MockBackend struct {
 	PageLayoutNameFunc     func(id model.ID) (string, error)
 	GetLayoutFunc          func(id model.ID) (*pages.Layout, error)
 	CreateLayoutFunc       func(layout *pages.Layout) error
+	UpdateLayoutFunc       func(layout *pages.Layout) error
 	DeleteLayoutFunc       func(id model.ID) error
 	ListSnippetsFunc       func() ([]*pages.Snippet, error)
 	CreateSnippetFunc      func(snippet *pages.Snippet) error

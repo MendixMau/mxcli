@@ -253,7 +253,20 @@ func (pb *pageBuilder) buildSnippetV3(s *ast.CreateSnippetStmtV3) (*pages.Snippe
 			Name:        param.Name,
 		}
 
-		// Resolve entity type
+		// A snippet parameter must name an entity. A primitive one is refused
+		// rather than resolved as an entity name — the reported symptom was
+		// "entity not found: string", for a type nobody spelled — and rather
+		// than written, which storage would allow and mxbuild would not
+		// (CE0046). Same rule check applies, so a script cannot pass one and
+		// fail the other (mendixlabs/mxcli#1028).
+		if caption := types.SnippetParameterTypeRule(pageParamBSONType(param.Type)); caption != "" {
+			return nil, mdlerrors.NewValidationf(
+				"snippet '%s' declares parameter $%s with the primitive type %s — a snippet "+
+					"parameter must be an entity, and mxbuild rejects a primitive one with "+
+					"CE0046 (\"Invalid data type '%s'.\"). Pass the value on an object, or "+
+					"keep the primitive on the calling page's parameters.",
+				s.Name.String(), param.Name, paramTypeSourceName(param.Type), caption)
+		}
 		if param.EntityType.Name != "" {
 			entityID, err := pb.resolveEntity(param.EntityType)
 			if err != nil {
@@ -262,6 +275,8 @@ func (pb *pageBuilder) buildSnippetV3(s *ast.CreateSnippetStmtV3) (*pages.Snippe
 			entityName := param.EntityType.String()
 			snippetParam.EntityID = entityID
 			snippetParam.EntityName = entityName
+			// Only entity-typed parameters enter paramScope — it maps a name to
+			// an entity ID, and a primitive has none. Same as the page path.
 			pb.paramScope[param.Name] = entityID
 			pb.paramEntityNames[param.Name] = entityName
 		}
@@ -1712,16 +1727,23 @@ func (pb *pageBuilder) getEntityNameByID(entityID model.ID) (string, error) {
 	return "", mdlerrors.NewNotFound("entity", string(entityID))
 }
 
-// pageParamBSONType maps a DataType to the BSON $Type string for primitive page parameters.
-// Returns empty string for entity/enum types (which use DataTypes$ObjectType instead).
+// pageParamBSONType maps a DataType to the BSON $Type string for a primitive
+// page or snippet parameter. Returns empty string for entity/enum types (which
+// use DataTypes$ObjectType instead), which is the signal the callers branch on.
+//
+// Long maps to DataTypes$IntegerType because storage has no LongType: neither
+// generated/metamodel (the 11.6.0 arbiter) nor modelsdk/gen declares one, and
+// Studio Pro's own parameter type is the single "Integer/Long". This used to
+// return "DataTypes$LongType", a $Type Mendix does not have — the CLAUDE.md
+// "never invent a key" case, which on the way to disk was quietly rescued into
+// a String by pageParamTypeToGen's default arm. constant_write.go has carried
+// the same note ("storage has no LongType") all along.
 func pageParamBSONType(dt ast.DataType) string {
 	switch dt.Kind {
 	case ast.TypeString:
 		return "DataTypes$StringType"
-	case ast.TypeInteger:
+	case ast.TypeInteger, ast.TypeLong:
 		return "DataTypes$IntegerType"
-	case ast.TypeLong:
-		return "DataTypes$LongType"
 	case ast.TypeDecimal:
 		return "DataTypes$DecimalType"
 	case ast.TypeBoolean:
