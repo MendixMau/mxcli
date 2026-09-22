@@ -179,70 +179,6 @@ When adding new types, always verify the storage name by:
 
 **IMPORTANT**: When unsure about the correct BSON structure for a new feature, **ask the user to create a working example in Mendix Studio Pro** so you can compare the generated BSON against a known-good reference.
 
-### Pluggable Widget Templates
-
-For pluggable widgets (DataGrid2, ComboBox, Gallery, etc.), templates must include **both** `type` AND `object` fields:
-- `type`: Widget PropertyTypes schema (defines what properties exist)
-- `object`: Default WidgetObject with all property values
-
-**CE0463 "widget definition changed" error**: This error occurs when the Object's property structure doesn't match the Type's PropertyTypes. Always extract templates from Studio Pro-created widgets, not programmatically generated ones. See `sdk/widgets/templates/README.md` for details. For debugging CE0463 and other BSON issues, follow the workflow in `.claude/skills/debug-bson.md`.
-
-### `modelsdk/gen` Binds Some Properties Under the Wrong BSON Key
-
-The storage-name table above is about `$Type`. The **same split exists per
-property**, and `modelsdk/gen` gets it wrong in **102 properties across 65
-types** — the ledger is `modelsdk/gen/keyaudit_test.go`. Mendix's reflection
-data carries two names per property — an SDK `Name` and a BSON `StorageName` —
-and the in-repo generator (`cmd/codegen` → `generated/metamodel`) keeps them
-apart, tag from storage name:
-
-```go
-// generated/metamodel/types.go — correct
-RegularExpression model.QualifiedName `json:"regExIdentifier,omitempty"`
-//   ^ SDK name                                ^ storage name
-```
-
-The generator behind `modelsdk/gen` reads a **different input** — the TypeScript
-SDK's compiled JS, which does not contain storage names at all (measured:
-`regExIdentifier` occurs 0 times in `mendixmodelsdk` 4.114.0) — and patches them
-back via a hand-maintained `PropertyKeyOverrides` table.
-
-**`generated/metamodel` is therefore the arbiter when the two disagree**, with
-one caveat: it is a **snapshot of 11.6.0** (see its header), so it is sound for
-the properties it contains but says nothing about ones introduced later — for
-those, get a real document. It has been right in every case checked that way
-(`RegularExpression.Expression`, `RegExRuleInfo.RegExIdentifier`, `Attribute.GUID`).
-`TestGenPropertyKeysAgainstMetamodel` fails when a NEW mismatch appears (a
-re-vendored gen that dropped an override) or when a listed one is fixed without
-being struck off. Why the generator is not simply brought in-tree, and what it
-would take: [PROPOSAL_codegen_ownership.md](docs/11-proposals/PROPOSAL_codegen_ownership.md).
-
-`cmd/modelsdk-codegen` and `internal/codegen/supplements.json` — named in every
-gen file's `DO NOT EDIT` header — have **never existed in this repo**
-(`git log --all` is empty for both), and `/reference/` is gitignored, so the
-generator's input is absent too. gen is vendored output that cannot be
-regenerated here; see `docs/plans/2026-06-05-adopt-modelsdk-engine.md` §4, where
-"vendor engalar codegen" is still an open Phase-0 item.
-
-So the fix for a wrong key is a **hand-applied override in the `init<Type>`
-function**, commented in the house style (grep `STORAGE-NAME OVERRIDE` for the
-four precedents). Two rules:
-
-1. **Patch both sides.** The encode key (`init<Type>`) and the decode key
-   (`InitFromRaw`) are separate literals. Patching one gives a document that
-   writes one key and reads another — which the entity-rewrite guard then
-   refuses, so the symptom is a puzzling refusal rather than a wrong file.
-2. **`gofmt` the file**, or `TestGeneratedCodeIsFormatted` fails.
-
-Not every wrong key is worth patching — leave the ones nothing writes, and note
-why. `mx check` is a weak signal here either way: it caught the RegEx one
-(CE0135) but tolerates unknown properties in general, and Studio Pro is stricter
-than mxbuild.
-
-### TypeEnumeration vs TypeEntity Ambiguity
-
-The MDL visitor (`buildDataType` in `visitor_helpers.go`) cannot distinguish between entity types and enumeration types for bare qualified names like `Module.EntityName`. Both parse as `ast.TypeEnumeration` with `EnumRef` set. Code that consumes data types must handle `TypeEnumeration` alongside `TypeEntity` and use `EnumRef` as a fallback for the entity name.
-
 ### Mendix Expression String Escaping
 
 When generating Mendix expression strings (e.g., in `expressionToString()`), single quotes within string literals must be escaped by doubling them: `'it''s here'`. Do NOT use backslash escaping (`\'`). This matches Mendix Studio Pro's expression syntax.
@@ -255,51 +191,6 @@ The skills advise **quoting all identifiers** to avoid keyword collisions, but t
 - `CreatedDate` / `ChangedDate` / `Owner` / `ChangedBy` → `MDL020` on persistent entities. Use the `AutoCreatedDate` / `AutoChangedDate` / `AutoOwner` / `AutoChangedBy` pseudo-types for the audit fields, or a different name for an unrelated value.
 
 The reserved-word lists live in `mdl/executor/cmd_enumerations.go` (`mendixReservedWords`, `mendixSystemAttributeNames`). "Always safe to quote" in the skills means *parser*-safe, not *platform*-safe.
-
-### AfterStartupMicroflow Must Return Boolean
-
-A microflow wired as the project's **after-startup** microflow must return `Boolean` — Mendix build fails with **CE0142** on a void (no-return) microflow. A common trip-up: a seed/demo-data microflow wired to after-startup will not build until it ends with a `return true` (Boolean).
-
-`mxcli check` now reports it (**MDL073**), which it could not before: #274 made `ALTER SETTINGS` resolve the qualified names it writes, but the name here *resolves* — the constraint is on the thing it names, not on the reference. The check runs with **no project** when the script creates the microflow itself (the usual shape), and against the stored return type when it does not. A microflow whose return type cannot be established is left alone rather than guessed at. `BeforeShutdownMicroflow` and `HealthCheckMicroflow` are deliberately **not** type-checked — their rules have not been measured here.
-
-### Overlay Writes: Never Invent a Key, Branch on `$Type`
-
-When a write overlays fields onto preserved BSON (`mdl/settingsoverlay`, and any
-future storage that follows ADR-0005 guard-don't-drop), two rules are load-bearing.
-Breaking either produces a document `mx check` accepts and **Studio Pro cannot
-open**: it resolves every stored property against the type's property list and
-throws `System.InvalidOperationException: Sequence contains no matching element`
-at `MprProperty.cs`. mxbuild's deserializer tolerates unknown properties, so the
-build is not a safety net here.
-
-1. **Write only keys the document already carries.** Property names are
-   version-specific — Mendix renamed `JavaVersion` (`"Java21"`) to
-   `JavaMajorVersion` (`"21"`) and `Tracing` to `OpenTelemetry` between 11.6 and
-   11.12. Read the key off the stored document and write back to that same key;
-   when neither is present, write neither (an absent optional property is filled
-   in on load). See `settingsoverlay.JavaVersionKey` (#759).
-2. **A polymorphic child must be dispatched on `$Type` before any field
-   assignment.** Variants can differ in *arity*, not just field values:
-   `Settings$SharedValue` carries a `Value`, while `Settings$PrivateValue` is a
-   bare marker with no properties at all (the value lives on the developer's
-   workstation). Assigning `Value` to whichever node is there corrupts the marker.
-
-The same reasoning bans authoring what the model does not own: mxcli preserves a
-constant override's shared/private choice and refuses statements that would flip
-it, rather than silently converting one to the other.
-
-Enum-valued properties are the sibling trap: validate against
-`generated/metamodel` (e.g. `SettingsDatabaseType` is `Hsqldb`, never `HSQLDB`)
-rather than passing a user string through.
-
-**On a CREATE there is no stored document to read the key off.** Rule 1 then
-becomes: branch on the project's Mendix version and write exactly one spelling —
-never both as a hedge. `mdl/dbconnector` does this for the 11.13 rename of
-`DatabaseQuery.QueryType` (int) to `Type` (string enum), which mxbuild *does*
-catch, as CE5277 on every activity using the query. To learn the target shape
-without guessing, run the new mxbuild's own migration over an old project
-(`mx convert -p -s <project>`) and diff the BSON: Mendix ships a one-time
-conversion per renamed property, so the converted document is authoritative.
 
 ### A `GUID` Is the Database's Identity — Never Mint One for an Existing Element
 
@@ -328,220 +219,53 @@ Consequences for any write path:
    model must not keep the source's — two elements sharing a `GUID` are one entity
    as far as the runtime is concerned.
 
-### Writes Are Conditional, and an `$ID` Is Never Renumbered In Place
-
-Storage does not write a unit whose new content is **semantically equal** to what
-is stored ([ADR-0008](docs/13-decisions/0008-identity-and-idempotence.md)). The
-comparison is on a canonical form — every element `$ID` replaced by its index in a
-containment walk — because a rebuild mints a fresh random `$ID` per sub-element,
-so comparing bytes would skip nothing. The policy lives in `modelsdk/canon`
-(`Reconcile`) and is called at every write choke point in
-`modelsdk/mpr/writer_core.go`: `updateUnit`, `WriteTransaction.WriteUnit`
-(`codec.Store` reaches storage through this one) and — since ako/mxcli#556 —
-`insertUnit`, for the case below.
-
-**A delete followed by an insert is a write path too**, and it is the one that
-hides. Several `create or modify` handlers are implemented as delete + create
-under the preserved unit ID rather than as an update, and an insert has nothing
-stored to reconcile against, so the rebuild's fresh `$ID`s went straight to disk:
-`create or modify rest client` rewrote 9 element `$ID`s in a 1,128-byte unit on
-every run, forever. `deleteUnit` now remembers what it removed and `insertUnit`
-reconciles a re-insert against it (`carryIdentityFromRemovedUnit`). That carry
-cannot *elide* — the row and the file are already gone — so a no-op recreate also
-restores `_Transaction.LastTransactionID`, which both the delete and the insert
-bumped; without it the `.mpr` still showed as modified after every `.mxunit` had
-gone quiet. Prefer an in-place update where the handler can do one: the REST
-client's own fix is to call `UpdateConsumedRestService` and keep delete+create
-only for a folder move, which lives in the unit's row rather than its contents.
-
-**The carry keys on the unit ID, so it does not reach a handler that re-mints
-one** — and three handlers did, in one week: the REST client (#556), the view
-entity's OQL document (#583) and the layout (ako/mxcli#600). All three took the
-same fix, an in-place `UpdateRawUnit` rather than a replacement. The tell is
-cheap and worth reaching for first: `ls` the `.mxunit` filenames across two
-identical runs. A **changed filename** is delete+insert and the handler is
-wrong; a **same filename with different bytes** is the codec or a missing carry
-and `canon` is where to look. A replacement also silently reverts the unit's
-ROW, which is how `create or replace layout` moved a foldered layout back to the
-module root on every rewrite — there is no `FOLDER` clause on the statement, so
-the rebuild always names the module root and only an insert applies it.
-
-When something *has* changed, `Reconcile` still does not let the rebuild's fresh
-`$ID`s reach disk: `canon.TransplantIDs` matches the incoming document against the
-stored one element by element (by `$Type` and shape, by `Name` where there is one,
-LCS-anchored within each list) and puts the **stored** `$ID` back on every element
-that still corresponds. Without it a one-argument edit re-minted 36 of a nanoflow's
-37 element identities and Studio Pro painted the whole document as changed (#910).
-Its correctness bar is lower than it looks and worth knowing: a *wrong* match only
-makes a diff bigger, because every reference is rewritten with the element — the
-one real failure is two elements sharing an `$ID`, which `dropCollisions` guards.
-
-Three rules follow, and each has already been violated once:
-
-1. **Never rewrite an element `$ID` without rewriting every reference to it in the
-   same pass.** Pointers are *primitive* properties holding an `element.ID`, not
-   `ChildProperty`, so a containment walk traverses the whole document and never
-   sees one. PR #125 renumbered IDs this way and made projects unopenable
-   (`KeyNotFoundException` at `ResolvePostponedProperties`). A unit is rewritten
-   wholesale or not at all. The transplant obeys this by substituting over *every*
-   16-byte binary in the document rather than a maintained list of pointer
-   properties — any occurrence of one of the document's element IDs is a reference
-   by definition, the same insight the canonical form rests on.
-2. **Adding a write path means wiring it to `canon.Reconcile`.** A new choke point
-   that writes directly will silently churn while everything else is quiet — the
-   worst kind of inconsistency, because the diff blames the wrong change.
-3. **A new document type with an identity property needs a row in
-   `canon.identityFields`.** It cannot be generated: Mendix's `IsIdentifier` lives
-   in the modeler assemblies, not in the reflection data `generated/metamodel` is
-   built from. `TestFreshGUIDFieldsHaveAnIdentityDecision` catches the common case
-   (a property the codec mints fresh on every write) but cannot catch an identity property
-   the codec does not mint. Establish the property's status the way `StableId` was
-   — the method table is in ADR-0008.
-
-Elision itself is type-agnostic and covers new document types for free, but it
-assumes **no binary pointer crosses a unit boundary** (measured 0 of 9,910, not
-enforced). A document type that references another *unit* by `$ID` rather than by
-qualified name breaks that assumption and invalidates the argument in ADR-0008.
-
-`MXCLI_ALWAYS_WRITE=1` forces every write to land, for bisecting. It does not
-disable identity preservation. **Any test asserting "nothing changed" must include
-a control** — otherwise the test passes against a build that never had the fix,
-which is exactly how PR #125 shipped green. Note what the control can now be:
-since identities are carried, a forced write of an in-sync unit produces the
-**same bytes**, so "flip `MXCLI_ALWAYS_WRITE` and watch the content change" no
-longer distinguishes anything (measured: same sha, mtime moves). Control on the
-**rebuild** instead — encode the document twice and show the raw codec output
-differs (`TestRebuildChurnsSubElementIDs`) — or, from the shell, on **mtimes**
-rather than hashes.
-
-The executor reports which of the two happened: a statement whose unit writes were
-all elided prints `Unchanged nanoflow: …` instead of `Replaced nanoflow: …`
-(`ExecContext.ReportMutation`, fed by each writer's `WriteStats`). The verb is only
-downgraded on positive evidence — writes offered, none landed — so a mutation that
-never touches unit storage is reported exactly as before.
-
-**Several elisions in one run collapse into one line**, because that report is the
-most repeated thing mxcli prints and an agent pays for it on every later model
-call (a tool result is written into the conversation once and re-read by each one).
-Measured on a settled 40-statement script: 41 lines / 1,604 B became 2 lines /
-177 B. Two rules keep it honest, and each was arrived at by getting it wrong:
-
-1. **Only `Unchanged` collapses.** It is the one verb that by construction reports
-   an absence, so no line a reader would act on is ever replaced by a number —
-   a mixed run still names every real write individually and counts only the rest.
-   Collapsing on volume instead ("after N lines") would hide real writes in exactly
-   the runs where they matter.
-2. **The trigger is how many arrive, not which entry point ran.** A lone elision is
-   printed verbatim, since "1 document already in sync" is worse than the line it
-   replaces. Gating on "is this a script?" looked equivalent and is not: `-c`
-   reaches `ExecuteProgram` too, because `executeMDL` prepends a `CONNECT`
-   statement, so a one-liner collapsed to a count of one.
-
-`mutationTally` (`mdl/executor/mutation_tally.go`), active only inside a program run.
-
 ### The Tunnel Is Linux-Only, On Purpose — Do Not "Restore" It
 
-`mxcli run --hub` and `mxcli tunnel-hub` embed [chisel](https://github.com/jpillora/chisel),
-a dual-use tunnelling tool that appears in threat intelligence as a pivoting
-component. Shipping it in the Windows and macOS binaries — where the tunnel can
-never run — got them flagged by Defender (`Trojan:Script/Sabsik.EN.A!ml`) and
-denied by enterprise EDR, which blocks mxcli for corporate Mendix developers on
-managed endpoints. It is now built **for Linux only**. See
+`run --hub` / `tunnel-hub` embed chisel, which got the Windows and macOS builds
+flagged by Defender and denied by enterprise EDR. Linux-only is the fix, not a
+portability gap: making it cross-platform again re-introduces the detection for
+most downloads. Reasoning and alternatives in
 [ADR-0009](docs/13-decisions/0009-tunnel-is-linux-only.md).
 
-This looks like a portability gap and is not one. Making the tunnel cross-platform
-again re-introduces the detection for the large majority of downloads.
+Two rules that are not in the ADR:
 
-- **All chisel imports live behind two seams**, one interface each:
-  `tunnelConn` / `startTunnel` (`cmd/mxcli/docker/tunnel_linux.go` + `tunnel_other.go`)
-  and `controlServer` / `newControlServer` (`cmd/mxcli/tunnelhub/control_linux.go`
-  + `control_other.go`). Adding a chisel import anywhere else is the mistake the
-  guard exists to catch.
-- **`scripts/check-tunnel-deps.sh` (CI, and `make check-tunnel-deps`) fails the
-  build** if chisel or its tunnelling-specific dependencies — the SSH/websocket/
-  socks stack included, which is how it would come back without the word "chisel"
-  appearing — reach a windows/darwin dependency graph. It asserts a positive
-  control first (chisel *is* in the linux graph), so it cannot pass vacuously.
-- **The hub seam is at `Start`, not construction**, so the portable front
-  (registry, API, auth, routing) stays testable on every platform.
 - **Never obfuscate, pack, or rename to evade detection.** That is attacker
-  tradecraft and makes things strictly worse. The only legitimate fix is not
-  shipping the capability where it is unused. Code signing does **not** substitute:
-  a signed binary containing chisel is still flagged behaviourally.
-- Do not conflate this with #185 (`Wacatac.C!ml`), which was a genuine generic
-  Go-binary false positive with a different remedy.
+  tradecraft and makes things strictly worse; code signing does not substitute,
+  because a signed binary containing chisel is still flagged behaviourally.
+- **Every chisel import lives behind one of two seams** (`tunnel_linux.go` /
+  `tunnel_other.go`, `control_linux.go` / `control_other.go`). An import anywhere
+  else is what `make check-tunnel-deps` exists to catch.
 
 ### Theme Files: Where SCSS Actually Compiles
 
-Styling written to the wrong place fails **silently** — the build succeeds and the
-rules are simply absent, which is indistinguishable in the browser from a
-specificity problem. Verified on Mendix 11.13 (probe rules compiled, then grepped
-out of `theme-cache/web/theme.compiled.css`):
+Styling written to the wrong place fails **silently** — the build succeeds and
+the rules are simply absent. Which file compiles, in what order, and why a
+literal colour outside the palette is wrong under every theme but one:
+`.claude/skills/mendix/theme-styling/SKILL.md`.
 
-- **`theme/web/main.scss` compiles LAST** — after Atlas Core *and* after every
-  module theme source. A partial imported from it overrides any Atlas rule with no
-  `!important`. This is the home for app-level styling (Layer 2), and it is a
-  three-line file of Mendix's own imports, not an Atlas-owned file.
-- **`themesource/<name>/` is only compiled when `<name>` matches a real module.**
-  mxbuild walks the model's modules; it never globs the directory. An invented
-  folder is skipped without a warning. Use a module's theme source only when the
-  styling belongs to that module.
-- **`theme/web/custom-variables.scss` is imported once per module** (8× in a blank
-  app), so it must hold **declarations only** — a rule there is emitted N times.
-  Tokens go here (Layer 1); rules go in the partial.
-- **Mendix 11 Atlas is CSS-custom-property-first**: `:root { --brand-primary: … }`,
-  not SCSS `!default`. The derived ramp is CSS `color-mix()` against
-  `var(--brand-primary)`, so retuning the primary re-derives it live.
+### Writes Are Conditional, and an `$ID` Is Never Renumbered In Place
 
-A fifth, learned by putting three themes in one stylesheet: **a theme is almost
-entirely token values.** The Atlas map, the recipe layer and the widget layer are
-byte-identical across all three built-ins (measured: one hash; 174 lines of
-recipes), and every colour in them resolves through `var(--mxt-*)` — only the
-palette, the fonts and 3–8 lines of skin differ per theme. That is what makes
-`theme apply <a> <b> <c>` a class swap rather than a rebuild, and it is a rule
-for anything added to those layers: **a literal colour outside the palette
-survives the swap and is wrong under every theme but one.** The default theme's
-scope is `:root` *minus* the other skins' classes, never a bare `:root` — bare
-keeps matching once another class is set, so the outcome would come down to
-specificity instead of being mutually exclusive by construction. A Sass variable
-holding a selector must be a **quoted string** (`$s: ":root, :root.mxt-x"`);
-a bare selector is not a Sass expression and `mx check` never sees it, because
-the failure is at SCSS compile time.
+Storage does not write a unit whose new content is semantically equal to what is
+stored ([ADR-0008](docs/13-decisions/0008-identity-and-idempotence.md)), and when
+a write does land the stored element `$ID`s are carried onto it rather than
+replaced. Mechanism, measurements and the reporting rules:
+[idempotent-writes](docs-site/src/internals/idempotent-writes.md).
 
-`cmd/mxcli/theme` encodes all four. Its embed uses `//go:embed all:assets` — a
-plain `go:embed assets` skips `_`-prefixed files, which is exactly how SCSS spells
-a partial. Files the project already owns are written as digest-fenced blocks
-(guard-don't-drop, as in ADR-0005): a block with local edits is refused, not
-overwritten.
+Three rules, each already violated once:
 
-The registry reads two sources: the embedded themes and the project's own, under
-**`theme/mxcli-themes/<name>/`** (`theme.LocalThemesDir`), a local one shadowing
-an embedded one of the same name. That path is fixed by two constraints — it must
-be **committed** (a design-derived theme is source the team shares, which rules
-out `.mxcli/`, gitignored by `mxcli init`) and **not compiled** (mxbuild's entry
-point is `theme/web/main.scss`; it does not glob `theme/`, verified against an
-11.13 build). `theme create` scaffolds one by copying an existing theme and
-renaming the identifiers built from the name (`@mixin mxcli-<name>-<alt>`, the
-`@import`) — a copy that skips that rename collides the moment both themes exist.
-`--from <file>` seeds the palette from `--mxt-*` declarations in any CSS-shaped
-text; **an unrecognised `--mxt-*` name is refused, not written**, because nothing
-reads it — the theme would apply cleanly and render unchanged, which is
-indistinguishable from the design not having been applied at all.
+1. **Never rewrite an element `$ID` without rewriting every reference to it in the
+   same pass.** Pointers are primitive properties holding an `element.ID`, so a
+   containment walk never sees one. PR #125 renumbered this way and made projects
+   unopenable. A unit is rewritten wholesale or not at all.
+2. **A new write path must be wired to `canon.Reconcile`.** One that writes
+   directly churns silently while everything else is quiet, so the diff blames the
+   wrong change.
+3. **A new document type with an identity property needs a row in
+   `canon.identityFields`.** It cannot be generated — Mendix's `IsIdentifier` is
+   not in the reflection data.
 
-Two more, learned by flipping the variant on a running app:
-
-- **Atlas ships `:root.theme-dark` / `:root.theme-neutral` in `theme/web/` but
-  nothing that applies them** — the slot exists, the switcher does not. A theme's
-  own dark block must be declared at `:root.theme-dark` *after* Mendix's
-  `_theme-dark.scss` (same specificity, later wins), or the app reverts to stock
-  Mendix blue the moment the class appears. Because the class lands on `<html>`,
-  popups and modals rendered at `<body>` follow it too.
-- **Never pin an Atlas leaf to a literal colour.** Map it to a theme token
-  (`--bg-color: var(--mxt-ground)`) so a variant restates ~30 values instead of
-  ~60. A hardcoded `--font-color-default` is invisible the moment the ground goes
-  dark. Two Atlas rules also assume a *dark navigation rail* and paint topbar text
-  with `--color-base`, so every mxcli theme keeps the rail dark in both variants
-  and forces `color: inherit` on those widgets.
+**Any test asserting "nothing changed" must include a control.** Without one it
+passes against a build that never had the fix, which is how PR #125 shipped green.
 
 ### Association Parent/Child Pointer Semantics (Counter-Intuitive)
 
@@ -560,42 +284,6 @@ This affects **entity access rules**: MemberAccess entries for associations must
 
 The same convention applies in `domainmodel.Association`: `ParentID` = FROM entity, `ChildID` = TO entity.
 
-### Public API Pattern
-```go
-// read-only access
-reader, err := modelsdk.Open("/path/to/project.mpr")
-defer reader.Close()
-
-// read-write access
-writer, err := modelsdk.OpenForWriting("/path/to/project.mpr")
-defer writer.Close()
-```
-
-### High-Level Fluent API (in api/)
-The `api/` package provides a simplified, fluent API inspired by Mendix Web Extensibility Model API:
-
-```go
-a, err := api.Open("/path/to/project.mpr")   // or api.New(b) over any backend
-defer a.Close()
-
-module, _ := a.Modules.Get("MyModule")
-a.SetModule(module)
-
-entity, _ := a.DomainModels.CreateEntity("Customer").
-    persistent().
-    WithStringAttribute("Name", 100).
-    WithIntegerAttribute("Age").
-    build()
-```
-
-Available namespaces: `DomainModels`, `enumerations`, `microflows`, `pages`, `modules`
-
-It takes a **`backend.FullBackend`, not a `*mpr.Writer`** — it used to hold a concrete legacy
-writer and so bypassed the backend abstraction entirely, which is why `AddAttribute` and
-`UpdateAttribute` sat unimplemented on the codec engine with `api/` as their only caller. The
-practical gain is that the same builders now run against any backend, including a live Studio Pro
-over MCP, which was unreachable before. `Open` owns the connection it makes; a backend passed to
-`New` belongs to the caller and `Close` leaves it alone.
 
 ## Code Style Guidelines
 
