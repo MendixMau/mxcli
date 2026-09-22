@@ -264,11 +264,6 @@ func (unsupportedBackend) CreateViewEntitySourceDocument(_ model.ID, _ string, _
 	return
 }
 
-func (unsupportedBackend) WriteViewEntitySourceDocument(_ model.ID, _ string, _ string, _ string, _ string) (r0 model.ID, err1 error) {
-	err1 = errUnsupported("WriteViewEntitySourceDocument")
-	return
-}
-
 func (unsupportedBackend) CreateWorkflow(_ *workflows.Workflow) (err0 error) {
 	err0 = errUnsupported("CreateWorkflow")
 	return
@@ -1252,6 +1247,11 @@ func (unsupportedBackend) UpdateJsonStructure(_ *types.JsonStructure) (err0 erro
 	return
 }
 
+func (unsupportedBackend) UpdateLayout(_ *pages.Layout) (err0 error) {
+	err0 = errUnsupported("UpdateLayout")
+	return
+}
+
 func (unsupportedBackend) UpdateMenuDocument(_ *types.MenuDocument) (err0 error) {
 	err0 = errUnsupported("UpdateMenuDocument")
 	return
@@ -1373,5 +1373,10 @@ func (unsupportedBackend) WriteJavaScriptSourceFile(_ string, _ string, _ string
 
 func (unsupportedBackend) WriteJavaSourceFile(_ string, _ string, _ string, _ []*types.JavaActionParameter, _ types.CodeActionReturnType, _ []string, _ string) (err0 error) {
 	err0 = errUnsupported("WriteJavaSourceFile")
+	return
+}
+
+func (unsupportedBackend) WriteViewEntitySourceDocument(_ model.ID, _ string, _ string, _ string, _ string) (r0 model.ID, err1 error) {
+	err1 = errUnsupported("WriteViewEntitySourceDocument")
 	return
 }
