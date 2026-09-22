@@ -204,3 +204,10 @@ For pluggable widgets (DataGrid2, ComboBox, Gallery, etc.), templates must inclu
 - `object`: Default WidgetObject with all property values
 
 **CE0463 "widget definition changed" error**: This error occurs when the Object's property structure doesn't match the Type's PropertyTypes. Always extract templates from Studio Pro-created widgets, not programmatically generated ones. See `sdk/widgets/templates/README.md` for details. For debugging CE0463 and other BSON issues, follow the workflow in `.claude/skills/debug-bson.md`.
+
+## `mxcli fix widgets` clears CE0463 after a headless install
+
+`fix widgets` / `fix design-properties` run `mx update-widgets` and
+`mx rename-design-properties` and **persist** the result without their MPR v2 -> v1
+collapse: let the tool convert, read the units back, restore v2, write the changed
+ones through mxcli's writer. Measured 203 -> 0 errors on a vanilla 11.12.1 app.
