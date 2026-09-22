@@ -264,6 +264,11 @@ func (unsupportedBackend) CreateViewEntitySourceDocument(_ model.ID, _ string, _
 	return
 }
 
+func (unsupportedBackend) WriteViewEntitySourceDocument(_ model.ID, _ string, _ string, _ string, _ string) (r0 model.ID, err1 error) {
+	err1 = errUnsupported("WriteViewEntitySourceDocument")
+	return
+}
+
 func (unsupportedBackend) CreateWorkflow(_ *workflows.Workflow) (err0 error) {
 	err0 = errUnsupported("CreateWorkflow")
 	return

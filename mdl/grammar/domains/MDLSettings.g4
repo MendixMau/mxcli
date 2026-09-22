@@ -19,17 +19,31 @@ options { tokenVocab = MDLLexer; }
  * ALTER SETTINGS LANGUAGE MODIFY 'ar_SD' (Key: Value, ...);
  * ALTER SETTINGS LANGUAGE REMOVE 'ar_SD';
  * ALTER SETTINGS WORKFLOWS Key = Value, ...;
+ * ALTER SETTINGS WORKFLOWS ADD [OR MODIFY] GROUP 'Approvers' [(Description: '...')];
+ * ALTER SETTINGS WORKFLOWS MODIFY GROUP 'Approvers' (Description: '...');
+ * ALTER SETTINGS WORKFLOWS REMOVE GROUP 'Approvers';
  *
  * ADD/REMOVE name the ENABLED languages — the list Studio Pro shows under
  * App Settings > Languages, and the only languages a build emits anything for.
  * A language is identified by its code alone: Studio Pro's "Arabic, Sudan" is
  * derived from `ar_SD` for display and is not stored (verified against a
  * Studio Pro-authored reference on 11.13.0).
+ *
+ * The GROUP forms name the workflow groups under App Settings > Workflows >
+ * Groups. They take the same four verbs, and for the same reason: a group is
+ * identified by its name alone (Settings$WorkflowGroup declares Name and
+ * Description and no identifier), so it is addressed the way a language is.
+ * The GROUP keyword is what separates the two — without it the clause is about
+ * languages, which is the only other thing ALTER SETTINGS adds and removes.
  */
 alterSettingsClause
-    : settingsSection ADD OR MODIFY STRING_LITERAL languageOptions?
-    | settingsSection ADD STRING_LITERAL languageOptions?
-    | settingsSection MODIFY STRING_LITERAL languageOptions
+    : settingsSection ADD OR MODIFY GROUP STRING_LITERAL settingsItemOptions?
+    | settingsSection ADD GROUP STRING_LITERAL settingsItemOptions?
+    | settingsSection MODIFY GROUP STRING_LITERAL settingsItemOptions
+    | settingsSection REMOVE GROUP STRING_LITERAL
+    | settingsSection ADD OR MODIFY STRING_LITERAL settingsItemOptions?
+    | settingsSection ADD STRING_LITERAL settingsItemOptions?
+    | settingsSection MODIFY STRING_LITERAL settingsItemOptions
     | settingsSection REMOVE STRING_LITERAL
     | settingsSection settingsAssignment (COMMA settingsAssignment)*
     | CONSTANT STRING_LITERAL (VALUE settingsValue | DROP) (IN CONFIGURATION STRING_LITERAL)?
@@ -47,16 +61,22 @@ settingsAssignment
     : IDENTIFIER EQUALS settingsValue
     ;
 
-// The optional properties of an added language, in the ( key: value ) form every
-// other MDL statement uses. All five are what Texts$Language stores; omitting
-// them reproduces what Studio Pro's Add Language dialog writes.
+// The optional properties of an added language or workflow group, in the
+// ( key: value ) form every other MDL statement uses. For a language all five
+// are what Texts$Language stores; omitting them reproduces what Studio Pro's Add
+// Language dialog writes. For a workflow group the only option is Description.
 //   ( CheckCompleteness: true, CustomDateFormat: 'yyyy-MM-dd' )
-languageOptions
-    : LPAREN languageOption (COMMA languageOption)* RPAREN
+//   ( Description: 'Primary approval group' )
+settingsItemOptions
+    : LPAREN settingsItemOption (COMMA settingsItemOption)* RPAREN
     ;
 
-languageOption
-    : IDENTIFIER COLON settingsValue
+// The key is identifierOrKeyword, not IDENTIFIER: `Description` is an MDL
+// keyword (DESCRIPTION, from the security statements), so a group's only option
+// would otherwise be a parse error — "mismatched input 'Description' expecting
+// IDENTIFIER" — on the one statement the feature exists for.
+settingsItemOption
+    : identifierOrKeyword COLON settingsValue
     ;
 
 settingsValue
