@@ -28,13 +28,15 @@ which is authoritative -- this table names the minors only.
 ### v1 (Mendix < 10.18)
 
 - Single `.mpr` SQLite database file
-- All documents stored as BSON blobs in the `UnitContents` table
+- All documents stored as BSON blobs in the `Contents` column of the `Unit`
+  table -- there is no separate contents table
 - Self-contained -- one file holds the entire project
 
 ### v2 (Mendix >= 10.18)
 
-- `.mpr` SQLite file for metadata only
-- `mprcontents/` folder with individual `.mxunit` files for each document
+- `.mpr` SQLite file for metadata only -- the `Unit` table has no `Contents`
+  column
+- `mprcontents/<XX>/<YY>/<UUID>.mxunit` -- one file per document
 - Better suited for Git version control (smaller, per-document diffs)
 
 The library auto-detects the format. No configuration is needed.

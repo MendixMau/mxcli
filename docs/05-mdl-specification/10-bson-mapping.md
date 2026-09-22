@@ -25,19 +25,29 @@ This document describes how MDL constructs map to BSON structures in Mendix MPR 
 Mendix projects are stored in `.mpr` files which contain:
 
 ### MPR v1 (Mendix < 10.18)
-Single SQLite database file with:
-- `Unit` table: Document metadata
-- `UnitContents` table: BSON document contents
+Single SQLite database file with two tables:
+- `Unit`: one row per document, BSON contents included as the `Contents` blob
+- `_MetaData`: Mendix product/build version and schema hash
+
+There is no separate contents table: `SELECT Contents FROM Unit WHERE UnitID = ?`.
 
 ### MPR v2 (Mendix >= 10.18)
 SQLite metadata file + separate content files:
-- `.mpr` file: SQLite with `Unit` table (metadata only)
-- `mprcontents/` folder: Individual `.mxunit` files containing BSON
+- `.mpr` file: SQLite with the same `Unit` table **minus `Contents`**, plus a
+  `_Transaction` table
+- `mprcontents/<XX>/<YY>/<UUID>.mxunit`: one file per document, containing BSON
+
+Format detection is by the presence of the `mprcontents/` directory, falling
+back to whether `Unit` has a `Contents` column -- never by probing for a
+contents table. See
+[v1 vs v2](../../docs-site/src/internals/mpr-v1-v2.md).
 
 ### Unit Types
 
-| UnitType | Document Type |
-|----------|---------------|
+A document's type is its BSON `$Type`, not a column on `Unit`:
+
+| `$Type` | Document Type |
+|---------|---------------|
 | `DomainModels$DomainModel` | Domain model (entities, associations) |
 | `DomainModels$ViewEntitySourceDocument` | OQL query for VIEW entities |
 | `microflows$microflow` | Microflow definition |
