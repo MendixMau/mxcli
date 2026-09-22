@@ -183,6 +183,21 @@ func applySetPropertyMutator(ctx *ExecContext, mutator backend.PageMutator, op *
 			if err := mutator.SetWidgetAction(op.Target.Widget, action); err != nil {
 				return mdlerrors.NewBackend("set Action on "+op.Target.Name(), err)
 			}
+		} else if p := designPropertyForStoredWidget(
+			ctx.GetThemeRegistry(), mutator, op.Target.Widget, propName); p != nil {
+			// An Atlas design property of THIS stored widget. It lives in
+			// Appearance.DesignProperties, which SetWidgetProperty does not
+			// reach, so before ako/mxcli#515 this dead-ended and ALTER STYLING
+			// was the only spelling that worked.
+			//
+			// Routed only when the project's theme declares the key FOR THIS
+			// WIDGET's type; anything else falls through to the setter below and
+			// keeps that path's error, so a mistyped pluggable key is still a
+			// mistyped pluggable key rather than a silently-written design
+			// property.
+			if err := applyDesignPropertySet(mutator, op.Target, p, value); err != nil {
+				return mdlerrors.NewBackend("set "+propName+" on "+op.Target.Name(), err)
+			}
 		} else {
 			if err := mutator.SetWidgetProperty(op.Target.Widget, propName, value); err != nil {
 				return mdlerrors.NewBackend("set "+propName+" on "+op.Target.Name(), err)
