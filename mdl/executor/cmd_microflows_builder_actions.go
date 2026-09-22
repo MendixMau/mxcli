@@ -425,7 +425,7 @@ func (fb *flowBuilder) addEnumSplit(s *ast.EnumSplitStmt) model.ID {
 
 	branchWidth := 0
 	for _, br := range branches {
-		w := fb.measurer.measureStatements(br.body).Width
+		w := fb.measurer.measureBranch(br.body).Width
 		if w > branchWidth {
 			branchWidth = w
 		}
@@ -433,7 +433,7 @@ func (fb *flowBuilder) addEnumSplit(s *ast.EnumSplitStmt) model.ID {
 	if branchWidth == 0 {
 		branchWidth = HorizontalSpacing / 2
 	}
-	mergeX := splitX + SplitWidth + HorizontalSpacing/2 + branchWidth + HorizontalSpacing/2
+	mergeX := splitX + SplitWidth + HorizontalSpacing/2 + branchWidth
 	mergeX, mergeY := mergePosition(s.Annotations, mergeX, centerY)
 	var merge *microflows.ExclusiveMerge
 	ensureMerge := func() *microflows.ExclusiveMerge {
@@ -475,6 +475,14 @@ func (fb *flowBuilder) addEnumSplit(s *ast.EnumSplitStmt) model.ID {
 		}
 	}
 
+	origins := enumSplitOriginAnchors(branchYs, centerY)
+	slot := func(i int) splitCaseSlot {
+		if origins == nil {
+			return splitCaseSlot{order: i, origin: -1}
+		}
+		return splitCaseSlot{order: i, origin: origins[i]}
+	}
+
 	savedEndsWithReturn := fb.endsWithReturn
 	allBranchesReturn := len(branches) > 0
 	for i, br := range branches {
@@ -498,7 +506,7 @@ func (fb *flowBuilder) addEnumSplit(s *ast.EnumSplitStmt) model.ID {
 					fb.pendingJoin = nil
 					fb.labels().handled++
 					m := fb.mergeForLabel(label)
-					fb.addGroupedEnumSplitFlows(splitID, m.ID, br.values, i, splitX+SplitWidth+HorizontalSpacing/4, branchY)
+					fb.addGroupedEnumSplitFlows(splitID, m.ID, br.values, slot(i), splitX+SplitWidth+HorizontalSpacing/4, branchY)
 				} else {
 					fb.takePendingJoin(lastID, pendingCase, prevAnchor)
 				}
@@ -513,7 +521,7 @@ func (fb *flowBuilder) addEnumSplit(s *ast.EnumSplitStmt) model.ID {
 				fb.pendingAnnotations = nil
 			}
 			if lastID == "" {
-				fb.addGroupedEnumSplitFlows(splitID, actID, br.values, i, splitX+SplitWidth+HorizontalSpacing/4, branchY)
+				fb.addGroupedEnumSplitFlows(splitID, actID, br.values, slot(i), splitX+SplitWidth+HorizontalSpacing/4, branchY)
 				// The first statement in a case can carry @anchor(from:…,
 				// to:…) that should apply to the split→firstActivity flow.
 				// addGroupedEnumSplitFlows appends one flow per case value;
@@ -552,13 +560,18 @@ func (fb *flowBuilder) addEnumSplit(s *ast.EnumSplitStmt) model.ID {
 		}
 		allBranchesReturn = false
 		if lastID == "" {
-			fb.addGroupedEnumSplitFlows(splitID, ensureMerge().ID, br.values, i, splitX+SplitWidth+HorizontalSpacing/4, branchY)
+			fb.addGroupedEnumSplitFlows(splitID, ensureMerge().ID, br.values, slot(i), splitX+SplitWidth+HorizontalSpacing/4, branchY)
 		} else {
+			var tail *microflows.SequenceFlow
 			if pendingCase != "" {
-				fb.flows = append(fb.flows, newHorizontalFlowWithCase(lastID, ensureMerge().ID, pendingCase))
+				tail = newHorizontalFlowWithCase(lastID, ensureMerge().ID, pendingCase)
 			} else {
-				fb.flows = append(fb.flows, newHorizontalFlow(lastID, ensureMerge().ID))
+				tail = newHorizontalFlow(lastID, ensureMerge().ID)
 			}
+			if origins != nil {
+				tail.DestinationConnectionIndex = mergeSideFor(fb.objectPosition(lastID), fb.objectPosition(ensureMerge().ID))
+			}
+			fb.flows = append(fb.flows, tail)
 		}
 	}
 
@@ -793,9 +806,9 @@ func (fb *flowBuilder) addStructuredInheritanceSplit(s *ast.InheritanceSplitStmt
 	return splitID
 }
 
-func (fb *flowBuilder) addGroupedEnumSplitFlows(originID, destinationID model.ID, values []string, order int, mergeX, mergeY int) {
+func (fb *flowBuilder) addGroupedEnumSplitFlows(originID, destinationID model.ID, values []string, slot splitCaseSlot, mergeX, mergeY int) {
 	if len(values) <= 1 {
-		fb.addEnumSplitFlows(originID, destinationID, values, order)
+		fb.addEnumSplitFlows(originID, destinationID, values, slot)
 		return
 	}
 	branchMerge := &microflows.ExclusiveMerge{
@@ -806,21 +819,117 @@ func (fb *flowBuilder) addGroupedEnumSplitFlows(originID, destinationID model.ID
 		},
 	}
 	fb.objects = append(fb.objects, branchMerge)
-	fb.addEnumSplitFlows(originID, branchMerge.ID, values, order)
+	fb.addEnumSplitFlows(originID, branchMerge.ID, values, slot)
 	fb.flows = append(fb.flows, newHorizontalFlow(branchMerge.ID, destinationID))
 }
 
-func (fb *flowBuilder) addEnumSplitFlows(originID, destinationID model.ID, values []string, order int) {
+func (fb *flowBuilder) addEnumSplitFlows(originID, destinationID model.ID, values []string, slot splitCaseSlot) {
+	split, target := fb.objectPosition(originID), fb.objectPosition(destinationID)
 	if len(values) == 0 {
 		flow := newHorizontalFlow(originID, destinationID)
-		applySplitCaseOrder(flow, order)
+		slot.apply(flow, split, target)
 		fb.flows = append(fb.flows, flow)
 		return
 	}
 	for _, value := range values {
 		flow := newHorizontalFlowWithEnumCase(originID, destinationID, value)
-		applySplitCaseOrder(flow, order)
+		slot.apply(flow, split, target)
 		fb.flows = append(fb.flows, flow)
+	}
+}
+
+// splitCaseSlot says how one case's flow leaves the split. origin is the side of
+// the split it leaves from, or -1 for a split of up to three cases, which keeps the
+// pair table below (top, right, bottom — the same sides, as it happens).
+type splitCaseSlot struct {
+	order  int
+	origin int
+}
+
+// apply sets the flow's sides. split and target are where the two ends actually are,
+// which is not where the stack was planned once a branch carries @position: a line is
+// only sent out of the top corner towards something above the split, and out of the
+// bottom towards something below, whatever third the case was counted into.
+func (slot splitCaseSlot) apply(flow *microflows.SequenceFlow, split, target model.Point) {
+	if flow == nil {
+		return
+	}
+	if slot.origin < 0 {
+		applySplitCaseOrder(flow, slot.order)
+		return
+	}
+	origin := slot.origin
+	if origin == AnchorTop && target.Y >= split.Y || origin == AnchorBottom && target.Y <= split.Y {
+		origin = AnchorRight
+	}
+	flow.OriginConnectionIndex = origin
+	flow.DestinationConnectionIndex = AnchorLeft
+}
+
+// objectPosition returns where an already-built object stands.
+func (fb *flowBuilder) objectPosition(id model.ID) model.Point {
+	for i := len(fb.objects) - 1; i >= 0; i-- {
+		if o := fb.objects[i]; o != nil && o.GetID() == id {
+			return o.GetPosition()
+		}
+	}
+	return model.Point{}
+}
+
+// enumSplitOriginAnchors picks the side of the split each case leaves from, for a
+// split of four or more cases: the upper third from the top corner, the middle
+// third from the right, the lower third from the bottom. It returns nil for three
+// cases or fewer, which the pair table already draws that way.
+//
+// The pair table was written to store the case ORDER (see splitCaseOrder), and past
+// the third case it does so with sides no drawing would choose: the fourth case
+// leaves the split's LEFT corner, the fifth to eighth arrive on top of their
+// activity, the ninth onwards on its far side. Seven cases drawn that way cross each
+// other and the activities they pass. Grouped, no two lines cross: the branches are
+// stacked top to bottom in case order, so a line from the top corner only ever goes
+// up and one from the bottom only down.
+//
+// A third is by count, the remainder going to the middle (7 cases: 2/3/2) or, when
+// it is two, one each to top and bottom (8 cases: 3/2/3). A branch is only given the
+// top corner if it really is above the split, and the bottom only if below, so a
+// stack made lopsided by one tall branch never gets a line that leaves upwards to
+// reach something underneath.
+func enumSplitOriginAnchors(branchYs []int, centerY int) []int {
+	n := len(branchYs)
+	if n <= 3 {
+		return nil
+	}
+	top, bottom := n/3, n/3
+	if n%3 == 2 {
+		top++
+		bottom++
+	}
+	origins := make([]int, n)
+	for i, y := range branchYs {
+		switch {
+		case i < top && y < centerY:
+			origins[i] = AnchorTop
+		case i >= n-bottom && y > centerY:
+			origins[i] = AnchorBottom
+		default:
+			origins[i] = AnchorRight
+		}
+	}
+	return origins
+}
+
+// mergeSideFor is the side of the closing merge a branch arrives on: an upper branch
+// comes down onto its top corner and a lower one up onto its bottom, instead of all of
+// them converging on the left corner. It goes by where the branch's last element
+// actually stands, so a branch moved with @position still arrives from its own side.
+func mergeSideFor(last, merge model.Point) int {
+	switch {
+	case last.Y < merge.Y:
+		return AnchorTop
+	case last.Y > merge.Y:
+		return AnchorBottom
+	default:
+		return AnchorLeft
 	}
 }
 
