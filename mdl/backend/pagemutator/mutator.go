@@ -2900,11 +2900,15 @@ func setPluggableWidgetPropertyMut(widget bson.D, propName string, value any) er
 //
 // The message used to be "property %q not found (widget has no pluggable
 // Object)". That is true and unusable: "pluggable Object" is not something the
-// author wrote, and it is not the whole truth either. An Atlas design property
-// on a built-in widget — "Remove empty text" on a List View, the case reported
-// as mendixlabs/mxcli#1135 — IS writable, through ALTER STYLING, which the old
-// message never mentioned. A dead end that names its exit is a one-line fix for
-// the reader; one that does not is a bug report.
+// author wrote, and it was not the whole truth either — an Atlas design property
+// on a built-in widget (the case reported as mendixlabs/mxcli#1135) is writable.
+//
+// It named ALTER STYLING as the route until ako/mxcli#515 taught `set` to write
+// design properties itself. Reaching here now means the key is neither a
+// first-class property NOR a design property the theme declares for this
+// widget's type, so the message says that and points at the command that lists
+// the ones it does declare — sending the reader to a second statement would be
+// stale advice for a route that no longer differs.
 //
 // A Forms$Appearance and no Object is exactly a built-in widget, which is when
 // the advice applies. A pluggable widget keeps the error that names its own
@@ -2914,11 +2918,12 @@ func noPluggableObjectError(widget bson.D, propName string) error {
 	if bsonnav.DGetDoc(widget, "Appearance") == nil {
 		return fmt.Errorf("property %q not found on this widget", propName)
 	}
-	return fmt.Errorf("property %q is not a property of this built-in widget — "+
-		"`set` writes its own properties (Caption, Class, Style, DynamicClasses, "+
-		"Visible, Editable, …); for an Atlas design property use "+
-		"`alter styling on page|snippet <Module.Name> widget %s set '%s' = <value>` instead",
-		propName, bsonnav.DGetString(widget, "Name"), propName)
+	return fmt.Errorf("property %q is not a property of this built-in widget, and not an Atlas "+
+		"design property your theme declares for it — `set` writes its own properties "+
+		"(Caption, Class, Style, DynamicClasses, Visible, Editable, …) and any design "+
+		"property of this widget's type. Run `mxcli show design properties for <widget type>` "+
+		"to see which those are",
+		propName)
 }
 
 // setTranslatableText sets a translatable text value in BSON.
