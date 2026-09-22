@@ -354,6 +354,18 @@ gone quiet. Prefer an in-place update where the handler can do one: the REST
 client's own fix is to call `UpdateConsumedRestService` and keep delete+create
 only for a folder move, which lives in the unit's row rather than its contents.
 
+**The carry keys on the unit ID, so it does not reach a handler that re-mints
+one** — and three handlers did, in one week: the REST client (#556), the view
+entity's OQL document (#583) and the layout (ako/mxcli#600). All three took the
+same fix, an in-place `UpdateRawUnit` rather than a replacement. The tell is
+cheap and worth reaching for first: `ls` the `.mxunit` filenames across two
+identical runs. A **changed filename** is delete+insert and the handler is
+wrong; a **same filename with different bytes** is the codec or a missing carry
+and `canon` is where to look. A replacement also silently reverts the unit's
+ROW, which is how `create or replace layout` moved a foldered layout back to the
+module root on every rewrite — there is no `FOLDER` clause on the statement, so
+the rebuild always names the module root and only an insert applies it.
+
 When something *has* changed, `Reconcile` still does not let the rebuild's fresh
 `$ID`s reach disk: `canon.TransplantIDs` matches the incoming document against the
 stored one element by element (by `$Type` and shape, by `Name` where there is one,
