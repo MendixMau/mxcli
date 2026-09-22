@@ -502,7 +502,18 @@ func formatAction(
 			if len(dbSource.Sorting) > 0 {
 				var sortParts []string
 				for _, sortItem := range dbSource.Sorting {
+					// A sort that navigates associations is emitted with its hops,
+					// one `/` per step. Emitting the attribute alone is lossy in the
+					// way that hides longest: the replay has to guess which
+					// association was meant, and where two reach the same entity it
+					// can pick the other one — a model that builds cleanly and sorts
+					// by the wrong thing (mendixlabs/mxcli#1152).
 					attrName := sortItem.AttributeQualifiedName
+					for i := len(sortItem.EntityRefSteps) - 1; i >= 0; i-- {
+						if assoc := sortItem.EntityRefSteps[i].Association; assoc != "" {
+							attrName = assoc + "/" + attrName
+						}
+					}
 					order := "asc"
 					if sortItem.Direction == microflows.SortDirectionDescending {
 						order = "desc"

@@ -77,6 +77,7 @@ type MockBackend struct {
 	DeleteAssociationFunc                      func(domainModelID model.ID, assocID model.ID) error
 	DeleteCrossAssociationFunc                 func(domainModelID model.ID, assocID model.ID) error
 	CreateViewEntitySourceDocumentFunc         func(moduleID model.ID, moduleName, docName, oqlQuery, documentation string) (model.ID, error)
+	WriteViewEntitySourceDocumentFunc          func(moduleID model.ID, moduleName, docName, oqlQuery, documentation string) (model.ID, error)
 	DeleteViewEntitySourceDocumentFunc         func(id model.ID) error
 	DeleteViewEntitySourceDocumentByNameFunc   func(moduleName, docName string) error
 	FindViewEntitySourceDocumentIDFunc         func(moduleName, docName string) (model.ID, error)

@@ -509,7 +509,10 @@ func resolveLayoutName(ctx *ExecContext, layoutID model.ID) string {
 // rawSortColumn represents a sort column for describe output.
 type rawSortColumn struct {
 	Attribute string // Qualified name or simple identifier
-	Order     string // "ASC" or "DESC"
+	// Associations holds one qualified association name per hop, when the sort
+	// navigates to another entity (mendixlabs/mxcli#1152).
+	Associations []string
+	Order        string // "ASC" or "DESC"
 }
 
 // rawDataSource represents a data source for describe output.
