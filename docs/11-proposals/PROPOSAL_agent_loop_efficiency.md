@@ -119,12 +119,34 @@ The reported loop is **5–8 calls per change**: write script → `mxcli check` 
 
 Four of those steps are already avoidable with today's binary:
 
-- **`check` before `exec` is redundant.** `exec` already runs the full semantic
-  check before it writes anything and refuses the script on an error
-  (`cmd/mxcli/cmd_exec.go`). Yet `projectGates` in `cmd/mxcli/init_claudemd.go`
-  lists `check` and `exec` as two consecutive gates, so the generated CLAUDE.md
-  in **every** mxcli project teaches the two-call form. One wasted call per
-  change, in every session, by construction.
+- **`check` before `exec` is NOT redundant — I had this wrong.** An earlier
+  draft claimed `exec` folds in everything `check` does, so the two-gate form
+  wasted a call in every project. That is false, and the correction matters
+  because it was Track A's headline.
+
+  There are **two** validation passes, and `exec` runs only the first:
+
+  | Pass | What it catches | `check -p` | `exec` |
+  |---|---|---|---|
+  | `executor.ValidateProgram(prog, path)` (package-level) | semantic rules — MDL0xx, reserved words, list-op nesting | ✅ | ✅ |
+  | `exec.ValidateProgram(prog)` (method, project connected) | **reference resolution** — dangling entity/page/microflow/icon names | ✅ | ❌ |
+  | `exec.CheckProjectConflicts(prog)` | plain `CREATE` over a document that already exists | ✅ | ❌ |
+
+  So `mxcli check script.mdl -p app.mpr` genuinely catches things `exec` does
+  not, *before* a partial write — and `exec` is not transactional, so that
+  preflight is load-bearing. The gate list is teaching an additive step, not a
+  wasted one.
+
+  (`--references` in the gate line *is* redundant: it is implied by `-p`. That
+  is cosmetic.)
+
+  **How the error was made, since it is the instructive part:** the claim was
+  read off `cmd_exec.go`'s doc comment — "the same semantic checks as
+  `mxcli check`" — which is accurate about the pass it describes and silent
+  about the two it does not. Reading the call graph takes one more step and was
+  skipped. The repo's own checklist has the rule that would have caught it
+  ("Fix proven to be the cause — revert it and confirm the symptom returns");
+  the equivalent here was to diff what the two commands actually call.
 - **The 35 s restart is NOT avoidable on Mendix 11.14** — see the section below.
   On 11.13 and earlier, `run --local --watch` hot-reloads a behavioural change
   in ~3 s, so the restart is opt-in slowness there and forced here.
@@ -282,10 +304,30 @@ compatibility promise. That argues for (a) reporting this defect to Mendix
 rather than only routing around it, and (b) keeping the cold-build path a
 first-class supported mode rather than a fallback.
 
-**Also: fix the gate list.** `projectGates` should teach `exec` (check folded in)
-rather than `check` then `exec`, and should name `apply` once it exists. The
-gates tests (`init_claudemd_gates_test.go`) already hold three copies of that
-list to one definition, so this is a one-line change that propagates.
+**What the gate list actually gets wrong.** Not the `check` gate — the framing
+around it. The generated CLAUDE.md says the gates are "**the definition of done,
+not a menu** — a change is finished when they have all been run", and the list
+has `docker check` (~25 s), `test` (~30 s cold) and `run --local` in it. Read
+literally, that mandates all seven gates on **every change**, which is precisely
+the maximal-verification pathology the cost report describes. It also
+contradicts the sentence immediately above it, which offers an escalation rule
+("each is only worth paying for once the one above is clean").
+
+The fix is **batching, not deletion**: the gates are the definition of done for
+a *change*, where a change is a coherent unit of work — not per statement and
+not per file write. Iterate with `exec` until the script is right, then run the
+gates once. That preserves every gate (the three-copy tests exist because `test`
+fell off this list once) while removing the per-micro-edit repetition, and it is
+the same "build once per batch" shape as the `tsc` comparison above.
+
+**And a real code change worth making:** `exec` already connects to the project,
+so it *could* run the reference pass in its preflight. If it did, the `check`
+gate would become genuinely redundant for the apply path and the call would be
+saved for real — and `exec` would stop being able to half-apply a script with a
+dangling reference. `CheckProjectConflicts` is a separate question and probably
+has to stay check-only, since a plain `CREATE` over an existing document is an
+error for `check` but ordinary for a re-run. This is the one place in Track A
+where the win is a code change rather than wording.
 
 ## Lever 2 — shrink what each call adds (attacks S)
 
