@@ -147,6 +147,7 @@ so a silent write would build cleanly and then fail to open.
 | `Action` | Widgets with an on-click action (ACTIONBUTTON, LINKBUTTON, clickable containers) | Any `create page` action expression | `set Action = microflow M.ACT_Go on btnSave` |
 | `caption` | ACTIONBUTTON, LINKBUTTON | String | `set caption = 'Submit' on btnSave` |
 | `content` | DYNAMICTEXT | String | `set content = 'New Heading' on txtTitle` |
+| `RenderMode` | DYNAMICTEXT | Text, Paragraph, H1–H6 (any case; anything else is refused) | `set RenderMode = H2 on txtTitle` |
 | `label` | TEXTBOX, TEXTAREA, DATEPICKER, COMBOBOX, CHECKBOX, RADIOBUTTONS | String | `set label = 'full Name' on txtName` |
 | `buttonstyle` | ACTIONBUTTON, LINKBUTTON | Primary, Default, Success, Danger, Warning, Info | `set buttonstyle = danger on btnDelete` |
 | `class` | Any widget | CSS class string | `set class = 'card mx-2' on container1` |
