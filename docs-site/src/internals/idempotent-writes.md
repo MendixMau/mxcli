@@ -118,6 +118,20 @@ Two cautions, both of which produce a meaningless zero:
 The console tells you the same thing, per document: a statement whose write was
 skipped reports `Unchanged nanoflow: …` rather than `Replaced nanoflow: …`.
 
+When a run skips **several**, they collapse into one line rather than one per
+statement:
+
+```
+Modified entity: MyFirstModule.Od07
+Created entity: MyFirstModule.OdNew1
+39 documents already in sync (unchanged, not listed)
+```
+
+Every write that actually landed is still named individually — only `Unchanged`
+is counted, because it is the one report that by construction says nothing
+happened. A run with exactly one elision prints it in full, so nothing is ever
+replaced by a count of one.
+
 For a per-unit view of what would be skipped, `scripts/mprsnapshot -canon` emits
 canonical digests keyed by unit id.
 
