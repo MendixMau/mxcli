@@ -1,0 +1,25 @@
+
+-- ---------------------------------------------------------------------------
+-- Design properties through ALTER PAGE / ALTER PAGES (ako/mxcli#515)
+-- ---------------------------------------------------------------------------
+--
+-- `set` writes a design property of the stored widget's own type, so styling a
+-- page no longer needs a second statement. The key is resolved against that
+-- widget's theme group; anything the theme does not declare for it stays on the
+-- pluggable path and keeps that path's error, so a typo is still a typo.
+--
+-- `on`/`off` for a toggle, where OFF removes the entry (Mendix stores a toggle's
+-- off state as the absence of the entry, not as a stored false).
+
+alter page Styling.StyledPage {
+  set 'Spacing top' = 'Large' on ctnCard;
+};
+
+-- The bulk form: one design property on every widget of a TYPE, across a module
+-- or the whole project. `widgettype` takes the MDL keyword, which resolves to
+-- exactly one widget id — a `like '%datagrid%'` predicate would also match the
+-- data grid's filter widgets, which do not carry its design properties.
+--
+-- Run it with `dry run` first: it applies the assignments to a discardable copy
+-- and reports what would happen, on a statement that rewrites every page it
+-- lands on.

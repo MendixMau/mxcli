@@ -80,3 +80,50 @@ alter page MyFirstModule.ThingList {
 --
 -- That message used to name ALTER STYLING as the route. It no longer does:
 -- naming a second statement for something `set` now writes is stale advice.
+
+-- ---------------------------------------------------------------------------
+-- The bulk form
+-- ---------------------------------------------------------------------------
+--
+-- A house style is "every data grid is compact and striped", which should be one
+-- statement rather than one per page. It mirrors the layout sweep MDL already
+-- has (ALTER PAGES [IN mod] SET LAYOUT = … [WHERE LAYOUT = …]) and is told apart
+-- from it at parse time by what follows SET: LAYOUT is a keyword, a design
+-- property is a quoted string.
+--
+--   alter pages in MyFirstModule
+--     set 'Compact' = on, 'Striped' = on
+--     where widgettype = datagrid
+--     dry run;
+--
+-- Measured on a blank 11.12.2 project with two Data grid 2 widgets:
+--
+--   dry run -> Found 2 datagrid widget(s) in 2 container(s)
+--              Would set 'Compact' on dgA in MyFirstModule.GridA  (…and dgB)
+--              [dry run] Would style 2 widget(s)
+--   apply   -> Styled 2 widget(s)
+--   describe styling -> DesignProperties: ['Compact': on, 'Striped': on]
+--   mx check -> The app contains: 0 errors.
+--
+-- WHERE selects a TYPE, never a name. A widget name is unique only within its
+-- page — measured, `actionButton1` appears in 30 units of a blank project — so a
+-- name predicate would sweep unrelated widgets together.
+--
+-- And the type is named by its MDL KEYWORD, which resolves to exactly one widget
+-- id. The predicate a user reaches for instead, `WidgetType LIKE '%datagrid%'`,
+-- matches 20 widgets in 6 containers on the same blank project, because it also
+-- sweeps in DatagridTextFilter, DatagridDateFilter and DatagridDropdownFilter —
+-- different widgets that do not carry the data grid's design properties.
+--
+-- Reporting is ako/mxcli#520's three-way outcome, so a sweep that matches
+-- widgets and writes none of them says so instead of claiming success:
+--
+--   alter pages in MyFirstModule set 'Row size' = 'Small' where widgettype = datagrid;
+--   -> Warning: Failed to set 'Row size' on dgA: not a design property this
+--      widget's theme declares
+--      Styled 0 widget(s)
+--      2 widget(s) matched but had no design property that could be set
+--      exit 1
+--
+-- ('Row size' is the NATIVE data grid's property; Data grid 2 declares Borders,
+--  Compact, Hover and Striped. `show design properties for datagrid` lists them.)
