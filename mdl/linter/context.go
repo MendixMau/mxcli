@@ -1287,6 +1287,11 @@ type Activity struct {
 	MicroflowQualifiedName string
 	ModuleName             string
 	EntityRef              string
+	// ServiceRef is the called service document (REST/web service/OData
+	// client); ActionRef the operation or action within it. Both are stored
+	// by the catalog builder and are empty for activities that call neither.
+	ServiceRef string
+	ActionRef  string
 }
 
 // ActivitiesFor returns an iterator over all activities for a given microflow.
@@ -1294,7 +1299,8 @@ func (ctx *LintContext) ActivitiesFor(microflowQualifiedName string) iter.Seq[Ac
 	return func(yield func(Activity) bool) {
 		rows, err := ctx.db.Query(`
 			SELECT Id, Name, Caption, ActivityType, ActionType,
-			       MicroflowId, MicroflowQualifiedName, ModuleName, EntityRef
+			       MicroflowId, MicroflowQualifiedName, ModuleName, EntityRef,
+			       ServiceRef, ActionRef
 			FROM activities
 			WHERE MicroflowQualifiedName = ?
 			ORDER BY Sequence
@@ -1308,8 +1314,10 @@ func (ctx *LintContext) ActivitiesFor(microflowQualifiedName string) iter.Seq[Ac
 		for rows.Next() {
 			var a Activity
 			var name, caption, actionType, entityRef sql.NullString
+			var serviceRef, actionRef sql.NullString
 			err := rows.Scan(&a.ID, &name, &caption, &a.ActivityType, &actionType,
-				&a.MicroflowID, &a.MicroflowQualifiedName, &a.ModuleName, &entityRef)
+				&a.MicroflowID, &a.MicroflowQualifiedName, &a.ModuleName, &entityRef,
+				&serviceRef, &actionRef)
 			if err != nil {
 				ctx.recordQueryError("ActivitiesFor (row scan)", err)
 				continue
@@ -1318,6 +1326,8 @@ func (ctx *LintContext) ActivitiesFor(microflowQualifiedName string) iter.Seq[Ac
 			a.Caption = caption.String
 			a.ActionType = actionType.String
 			a.EntityRef = entityRef.String
+			a.ServiceRef = serviceRef.String
+			a.ActionRef = actionRef.String
 
 			if !yield(a) {
 				return
