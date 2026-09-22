@@ -90,6 +90,13 @@ Example:
 			}
 			os.Exit(1)
 		}
+		// "Apply this file" that applies nothing is never what was meant, and a
+		// silent no-op is the worst outcome for a replayable mdlsource/
+		// (ako/mxcli#618).
+		if line, bad := unparsableInput(string(content), len(prog.Statements)); bad {
+			fmt.Fprintln(os.Stderr, unparsableInputError(filePath, line))
+			os.Exit(1)
+		}
 
 		// Pre-flight: refuse a script whose semantic checks report an error,
 		// rather than writing part of it and leaving the model to mxbuild.

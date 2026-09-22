@@ -168,6 +168,12 @@ Examples:
 			}
 			os.Exit(1)
 		}
+		// Zero statements from non-empty input is not an empty script: the parser
+		// never got into the file. Both gates refuse it (ako/mxcli#618).
+		if line, bad := unparsableInput(string(content), len(prog.Statements)); bad {
+			fmt.Fprintln(os.Stderr, unparsableInputError(filePath, line))
+			os.Exit(1)
+		}
 		if !isStructured {
 			fmt.Printf("✓ Syntax OK (%d statements)\n", len(prog.Statements))
 		}
