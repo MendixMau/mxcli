@@ -156,6 +156,7 @@ Examples:
 		dbUser, _ := cmd.Flags().GetString("db-user")
 		dbPassword, _ := cmd.Flags().GetString("db-password")
 		screenshot, _ := cmd.Flags().GetBool("screenshot")
+		pageCheck, _ := cmd.Flags().GetBool("page-check")
 		screenshotPath, _ := cmd.Flags().GetString("screenshot-path")
 		screenshotURLs, _ := cmd.Flags().GetStringArray("screenshot-url")
 		screenshotUser, _ := cmd.Flags().GetString("screenshot-user")
@@ -210,6 +211,7 @@ Examples:
 			EnsureDB:           ensureDB,
 			SetupOnly:          setupOnly,
 			Screenshot:         screenshot,
+			PageCheck:          pageCheck,
 			ScreenshotPath:     screenshotPath,
 			ScreenshotURLs:     screenshotURLs,
 			ScreenshotUser:     screenshotUser,
@@ -324,6 +326,7 @@ func init() {
 	runCmd.Flags().String("db-user", "", "Database user (default mendix)")
 	runCmd.Flags().String("db-password", "", "Database password (default mendix)")
 	runCmd.Flags().Bool("screenshot", false, "Capture a Playwright screenshot after boot and each applied change")
+	runCmd.Flags().Bool("page-check", false, "Print a text verdict for each page (title, headings, error banners, row count, console errors) instead of reading a screenshot — far cheaper, and it reports console errors a PNG cannot show")
 	runCmd.Flags().String("screenshot-path", "", "Screenshot output PNG (default <projectDir>/.mxcli/run-local.png)")
 	runCmd.Flags().StringArray("screenshot-url", nil, "Page to screenshot: a full URL or a path relative to the app root, e.g. /p/customers (default the app root). Repeat for a multi-page set.")
 	runCmd.Flags().String("screenshot-user", "", "Log in with this user before screenshotting (for pages behind login)")

@@ -436,23 +436,39 @@ skills should say so with a trigger rather than a preference: **a diagnosis
 expected to take more than ~5 probes is delegated, not run inline.** The same
 applies to log spelunking and "which of these 30 files mentions X".
 
-## Lever 5 — turn each discovered workaround into tool knowledge
+## Lever 5 — turn each discovered workaround into tool knowledge (mostly already done)
 
-Five Mendix limitations each cost an investigation and a rework in that session:
+The first draft listed the five Mendix limitations the cost report named and proposed
+turning each into a `check` diagnostic or a skill. **That was written from the
+report's framing without verifying any of them, and checking all five afterwards
+found that four were already covered and the fifth was not a Mendix limitation at
+all.**
 
-| Discovered the hard way | Where it should live instead |
+| Reported as a Mendix limitation | What it actually is |
 |---|---|
-| inputs inside lists are read-only → admin editing must be pop-ups | `mxcli check` diagnostic on an input widget in a list/gallery context |
-| the sidebar went stale after actions | `create-page` / `patterns-crud` skill, refresh guidance |
-| pop-up styling breaks (pop-ups sit outside the styled area) | `theme-styling` skill |
-| login fields did not register scripted input | a `mxcli playwright login` helper that does it correctly |
-| the Docker image had the wrong Java version | `mxcli docker check` preflight |
+| inputs inside lists are read-only, so admin editing became pop-ups | **An mxcli bug, fixed 2026-09-06.** Mendix's List View has its *own* `Editable` (default No) which wins over the textbox's; the parser accepted `Editable: true`, `buildListViewV3` never read it and the writer wrote false. See the finding in `mdl-executor.jsonl` |
+| pop-up styling breaks outside the app's styled area | covered in `theme-styling/SKILL.md` — the class lands on `<html>`, so popups rendered at `<body>` follow it |
+| login fields did not register scripted input | covered in `test-app/SKILL.md`, with the `playwright-cli eval` workaround, and it says the fill fails *silently* |
+| the Docker image had the wrong Java version | handled in code — `docker/javaversion.go` knows 11.14 is the first version wanting Java 25 rather than 21 |
+| the sidebar went stale after actions | the only one still open, and it is runtime refresh behaviour with no static signal to check for |
 
-This is the highest-leverage lever on any horizon longer than one session,
-because it converts a cost paid **once per session per user** into one paid
-**once, by us**. It is also exactly the repo's existing instinct — findings
-files, lint rules, check diagnostics — applied to a class of knowledge that has
-so far only been rediscovered.
+So the lever as originally written would have produced one diagnostic that is now
+**actively wrong** (inputs in lists are editable, and saying otherwise sends a reader
+back to the pop-up workaround they no longer need) and three that duplicate existing
+skills.
+
+**What the correction actually reveals is a routing problem, not a knowledge problem.**
+The knowledge existed, in the skill whose `description` is supposed to surface it, and
+the session hit the wall anyway. That is the same failure as the skill table drifting
+to 12 of 68 (#906): an index that does not route is indistinguishable from missing
+content. Effort here belongs in making skills *findable* at the moment of need, not in
+writing more of them.
+
+The general principle survives and is worth keeping: a workaround discovered in a
+session is a cost paid once per session per user until it becomes a diagnostic, a
+refusal or a skill. The lesson added by measuring is the prior step — **check whether
+it is already known, and whether it is even true, before encoding it.** Encoding a
+platform limitation that was really a bug outlives the bug.
 
 ## Lever 6 — measure it, then claim it
 
