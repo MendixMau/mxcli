@@ -328,6 +328,61 @@ right shape for this (a table routing a symptom to the cheapest sufficient
 proof); it needs the text-vs-pixel row added and `run-local` / `test-app`
 pointed at it.
 
+## Would the LSP help? Modestly, and not where the money is
+
+mxcli ships a language server (`mxcli lsp --stdio`) with diagnostics, hover,
+completion and go-to-definition. The natural question is whether pointing an
+agent at it collapses the loop.
+
+**It does not, and the reason is one line of the implementation.**
+`runSemanticValidation` in `cmd/mxcli/lsp_diagnostics.go` "runs the same
+validators as `cmd_check.go`". The LSP and `mxcli check` are the *same checker*
+behind two front ends. So the LSP finds exactly what `check` finds — and the
+check↔build gap, which is what forces the 25 s mxbuild per change, is completely
+unaffected. The LSP makes the tier that is already cheap slightly cheaper, and
+does nothing to the tier that dominates.
+
+Two further reasons it is a wash rather than a win as normally used:
+
+- **The call it saves is one we are removing for free anyway.** The redundant
+  `check` call goes away because `exec` folds the check in. The LSP would be
+  deleting a call already on the chopping block.
+- **Reading diagnostics is itself a tool call.** Unless the harness attaches
+  them to the edit result, it is one `getDiagnostics` instead of one
+  `mxcli check` — the same arithmetic.
+
+### The one condition under which it becomes a real lever
+
+**If diagnostics ride along with the `Write`/`Edit` result at zero extra tool
+call.** That is precisely the property identified as the Vercel agent's biggest
+structural advantage in the asymmetry table above: its cheapest verification
+tier is not a cheap tool call, it is *not a tool call at all*. An LSP wired that
+way is mxcli's only available route to that property for static errors. Wired
+any other way, it is a front end onto a command we already have.
+
+### And one way it could make things worse
+
+Diagnostics auto-attached to every edit are paid on **every** edit, including the
+intermediate ones. An MDL script written top to bottom is incomplete at every
+save but the last, so per-edit diagnostics on it are mostly noise about
+incompleteness — potentially more tokens than one terse `check` at the end of the
+batch. If this is wired up, it wants to fire on batch completion, not per
+keystroke or per edit.
+
+### What it is genuinely good for
+
+**It is the second delivery channel for the parity programme.** Because the
+validators are shared, every rule added by
+`PROPOSAL_check_mxbuild_gap_heuristics.md` appears in the editor *and* in the
+agent's checker with no extra work. That is an argument for spending on parity
+rather than on the LSP: parity pays into both channels at once, while LSP work
+pays into neither checker.
+
+It is also a genuine win for the **human** in VS Code, and for wall time — the
+server caches the widget and theme registries so the filesystem is not walked
+per keystroke, which `mxcli check` does per invocation. Neither of those is a
+token lever.
+
 ## Lever 4 — keep long investigations out of the main conversation
 
 One self-inflicted bug (a stub script that wiped real microflow bodies) took
