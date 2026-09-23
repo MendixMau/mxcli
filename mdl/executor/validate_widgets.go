@@ -1091,17 +1091,18 @@ var templatePlaceholderRe = regexp.MustCompile(`\{(\d+)\}`)
 // sources mirror buildDynamicTextV3: explicit ContentParams, a single Attribute
 // binding, or a whole-content reference (which carries no {N}, so is irrelevant
 // here).
+//
+// An action/link button's Caption is the same ClientTemplate and orphans the
+// same way (CE0720). Its parameters mirror buildButtonV3: CaptionParams, or the
+// ContentParams spelling DESCRIBE emitted for buttons before #632.
 func validateDynamicTextPlaceholders(w *ast.WidgetV3, locationPrefix string) *linter.Violation {
+	if isButtonKeyword(w.Type) {
+		return validateButtonCaptionPlaceholders(w, locationPrefix)
+	}
 	if !strings.EqualFold(w.Type, "dynamictext") {
 		return nil
 	}
-	content := w.GetContent()
-	maxIdx := 0
-	for _, m := range templatePlaceholderRe.FindAllStringSubmatch(content, -1) {
-		if n, err := strconv.Atoi(m[1]); err == nil && n > maxIdx {
-			maxIdx = n
-		}
-	}
+	maxIdx := maxTemplatePlaceholder(w.GetContent())
 	if maxIdx == 0 {
 		return nil // no placeholders → nothing to orphan
 	}
@@ -1122,6 +1123,42 @@ func validateDynamicTextPlaceholders(w *ast.WidgetV3, locationPrefix string) *li
 			locationPrefix, w.Name, maxIdx, params, maxIdx,
 		),
 	}
+}
+
+func isButtonKeyword(t string) bool {
+	return strings.EqualFold(t, "actionbutton") || strings.EqualFold(t, "linkbutton")
+}
+
+func validateButtonCaptionPlaceholders(w *ast.WidgetV3, locationPrefix string) *linter.Violation {
+	maxIdx := maxTemplatePlaceholder(w.GetCaption())
+	if maxIdx == 0 {
+		return nil
+	}
+	params := len(w.GetCaptionParams())
+	if params == 0 {
+		params = len(w.GetContentParams())
+	}
+	if maxIdx <= params {
+		return nil
+	}
+	return &linter.Violation{
+		RuleID:   "MDL-WIDGET04",
+		Severity: linter.SeverityError,
+		Message: fmt.Sprintf(
+			"%s: widget `%s` (%s) caption references template placeholder {%d} but only %d parameter(s) are bound — bind it with `CaptionParams: [{%d} = <attr>]`. An orphaned placeholder fails the build (CE0720).",
+			locationPrefix, w.Name, strings.ToLower(w.Type), maxIdx, params, maxIdx,
+		),
+	}
+}
+
+func maxTemplatePlaceholder(template string) int {
+	maxIdx := 0
+	for _, m := range templatePlaceholderRe.FindAllStringSubmatch(template, -1) {
+		if n, err := strconv.Atoi(m[1]); err == nil && n > maxIdx {
+			maxIdx = n
+		}
+	}
+	return maxIdx
 }
 
 // validatePluggableWidgetProperties checks every AST property key on a
