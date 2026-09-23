@@ -29,5 +29,16 @@ func (s *Stream) Consume() Token {
 	return t
 }
 
+// PeekAt returns the token n positions ahead of the cursor (PeekAt(0) == Peek()).
+func (s *Stream) PeekAt(n int) Token {
+	if i := s.pos + n; i >= 0 && i < len(s.toks) {
+		return s.toks[i]
+	}
+	if n := len(s.toks); n > 0 {
+		return Token{Kind: TokEOF, Pos: s.toks[n-1].Pos}
+	}
+	return Token{Kind: TokEOF}
+}
+
 func (s *Stream) Mark() int      { return s.pos }
 func (s *Stream) Reset(mark int) { s.pos = mark }

@@ -31,6 +31,12 @@ type NumberLit struct {
 type BoolLit struct {
 	baseNode
 	Value bool
+	// Called is set when the literal was written with XPath's call spelling,
+	// `true()` / `false()`. The parser accepts it so the rest of the expression
+	// still parses (it used to stop at the '(' and report E014, whose advice is
+	// about `empty`), and UnknownFunctionCalls reports it, because in a microflow
+	// expression it is CE0117 "Error(s) in expression".
+	Called bool
 }
 
 type EmptyExpr struct{ baseNode }

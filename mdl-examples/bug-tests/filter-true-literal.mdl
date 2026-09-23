@@ -1,0 +1,17 @@
+-- The valid spelling of filter-xpath-true-call.fail.mdl: Boolean literals, no
+-- parentheses. `mxcli check` is clean and mx check reports no CE0117.
+
+create or modify module FilterTrueProbe;
+
+create or modify persistent entity FilterTrueProbe.Item (
+  IsActive: Boolean default false
+);
+
+create or replace microflow FilterTrueProbe.ActiveItems () returns Boolean
+begin
+  retrieve $L from FilterTrueProbe.Item;
+  $Active = filter($L, $currentObject/IsActive = true);
+  $First = find($L, $currentObject/IsActive = false);
+  return true;
+end;
+/

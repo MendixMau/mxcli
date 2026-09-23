@@ -1,0 +1,24 @@
+-- filter()/find() with `true()` / `false()`: XPath's spelling of the Boolean
+-- constants, valid inside a retrieve's `where [...]` and CE0117 "Error(s) in
+-- expression" anywhere a microflow expression is stored (mx check 11.12.2).
+--
+-- `mxcli check mdl-examples/bug-tests/filter-xpath-true-call.fail.mdl` reports
+-- MDL044 on each statement below, suggesting the literal `true` / `false`.
+-- Before the fix check with no project passed both, and with -p reported E014
+-- with advice about `empty`. The reported hang was the 158 MB project's catalog
+-- load, not the parser: `timeout 20 mxcli check` on this file returns at once.
+
+create or modify module FilterTrueProbe;
+
+create or modify persistent entity FilterTrueProbe.Item (
+  IsActive: Boolean default false
+);
+
+create or replace microflow FilterTrueProbe.ActiveItems () returns Boolean
+begin
+  retrieve $L from FilterTrueProbe.Item;
+  $Active = filter($L, $currentObject/IsActive = true());
+  $First = find($L, $currentObject/IsActive = false());
+  return true;
+end;
+/

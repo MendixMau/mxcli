@@ -44,7 +44,43 @@ func UnknownFunctionCalls(src string) []FuncRef {
 			Suggestion: nearestFunc(c.Name),
 		})
 	})
+	// `true()` / `false()` are XPath's spelling of the boolean literals. The
+	// parser keeps them as a BoolLit (so the rest of the tree types correctly),
+	// but a microflow expression rejects the call form with CE0117 — measured
+	// with mx check 11.12.2 on a filter predicate and a declare.
+	walkBoolCalls(root, func(b *BoolLit) {
+		name := "false"
+		if b.Value {
+			name = "true"
+		}
+		out = append(out, FuncRef{Name: name, Line: b.Pos().Line, Column: b.Pos().Column})
+	})
 	return out
+}
+
+// walkBoolCalls invokes fn for every BoolLit written in call form (`true()`).
+func walkBoolCalls(e RobustExpr, fn func(*BoolLit)) {
+	switch n := e.(type) {
+	case *BoolLit:
+		if n.Called {
+			fn(n)
+		}
+	case *CallExpr:
+		for _, a := range n.Args {
+			walkBoolCalls(a, fn)
+		}
+	case *BinExpr:
+		walkBoolCalls(n.L, fn)
+		walkBoolCalls(n.R, fn)
+	case *UnaryExpr:
+		walkBoolCalls(n.Operand, fn)
+	case *ParenExpr:
+		walkBoolCalls(n.Inner, fn)
+	case *IfThenElseExpr:
+		walkBoolCalls(n.Cond, fn)
+		walkBoolCalls(n.Then, fn)
+		walkBoolCalls(n.Else, fn)
+	}
 }
 
 // walkCalls invokes fn for every CallExpr in the tree (depth-first).

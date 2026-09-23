@@ -439,10 +439,18 @@ func parseIdentLed(s *Stream, ctx Context) (RobustExpr, []Hint) {
 	t := s.Consume()
 	name := t.Text
 	switch strings.ToLower(name) {
-	case "true":
-		return &BoolLit{baseNode: baseNode{P: t.Pos}, Value: true}, nil
-	case "false":
-		return &BoolLit{baseNode: baseNode{P: t.Pos}, Value: false}, nil
+	case "true", "false":
+		lit := &BoolLit{baseNode: baseNode{P: t.Pos}, Value: strings.EqualFold(name, "true")}
+		// `true()` / `false()` is XPath's spelling. Consume an empty argument
+		// list so the expression around it keeps parsing; the literal is marked
+		// so UnknownFunctionCalls (MDL044) can report it. Only an EMPTY list is
+		// taken: `true(x)` is left for the trailing-token check.
+		if s.Peek().Kind == TokLParen && s.PeekAt(1).Kind == TokRParen {
+			s.Consume()
+			s.Consume()
+			lit.Called = true
+		}
+		return lit, nil
 	case "empty":
 		return &EmptyExpr{baseNode: baseNode{P: t.Pos}}, nil
 	case "null":

@@ -503,6 +503,14 @@ func (v *microflowValidator) checkStmtExprFunctions(s ast.MicroflowStatement) {
 		for _, ch := range stmt.Changes {
 			v.checkExprFunctions(fmt.Sprintf("change '%s' attribute '%s'", stmt.Variable, ch.Attribute), ch.Value)
 		}
+	case *ast.ListOperationStmt:
+		// A filter/find predicate and a range's offset/limit are microflow
+		// expressions as well; an unknown call or XPath's `true()` there fails
+		// CE0117 exactly as it does in a declare, but was never walked.
+		label := fmt.Sprintf("list operation '$%s'", stmt.OutputVariable)
+		v.checkExprFunctions(label+" condition", stmt.Condition)
+		v.checkExprFunctions(label+" offset", stmt.OffsetExpr)
+		v.checkExprFunctions(label+" limit", stmt.LimitExpr)
 	case *ast.LogStmt:
 		// The #1033 repro put the unknown call in a log message, which was never
 		// walked — in a microflow either.
@@ -525,7 +533,13 @@ func (v *microflowValidator) checkExprFunctions(label string, expr ast.Expressio
 	}
 	for _, u := range exprcheck.UnknownFunctionCalls(src) {
 		var suggestion string
-		if mendixAggregateFuncs[strings.ToLower(u.Name)] {
+		if lname := strings.ToLower(u.Name); lname == "true" || lname == "false" {
+			// XPath spells the literals as calls (valid inside a retrieve's
+			// where [...]); a microflow expression does not.
+			suggestion = fmt.Sprintf(
+				"'%s()' is XPath's spelling (valid only in a retrieve's where [...]); in a microflow expression write `true` / `false` without parentheses.",
+				lname)
+		} else if mendixAggregateFuncs[strings.ToLower(u.Name)] {
 			// count/sum/average/minimum/maximum are aggregate ACTIVITIES, not
 			// expression functions — a did-you-mean against an unrelated math
 			// function (e.g. count→round) sends the author the wrong way. Tell them
