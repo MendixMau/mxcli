@@ -6,9 +6,12 @@
 -- failure only shows in the rendered app.
 --
 -- false IS Mendix's default (mendixmodelsdk 4.115.0: Pages$ListView `editable`
--- defaults to false), so the writer is not changed. What was missing is a
--- diagnostic: `mxcli check` now warns MDL-WIDGET31 on a list view that is not
--- editable while it holds inputs that are not `editable: Never`.
+-- defaults to false), and Studio Pro agrees: in ako/TestApp (Mendix 11.14.0)
+-- 30 of 32 list views are stored false with no input inside, and the only one
+-- holding inputs (Pages.EditableLIstView) was set to true. So the writer is not
+-- changed. What was missing is a diagnostic: `mxcli check` now warns
+-- MDL-WIDGET31 on a list view that is not editable while it holds inputs that
+-- are not `editable: Never`.
 --
 -- Verify:
 --

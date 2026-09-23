@@ -22,8 +22,12 @@ import (
 //
 // The writer is right to default it to false: that is Mendix's own default
 // (mendixmodelsdk 4.115.0, Pages$ListView `editable` defaults to false and
-// _initializeDefaultProperties does not set it). So the fix is a diagnostic for
-// the combination, not a different default.
+// _initializeDefaultProperties does not set it). Studio Pro agrees, measured on
+// ako/TestApp (Mendix 11.14.0): 30 of its 32 list views are stored Editable false
+// and none of those holds an input; the one list view with inputs
+// (Pages.EditableLIstView, five textboxes at Editability Always) was set to
+// Editable true by its author. So the fix is a diagnostic for the combination,
+// not a different default.
 //
 // Editability is read with GetBoolProp, the same call buildListViewV3 uses, so
 // the rule reports what will be written: a quoted `editable: 'true'` is a string

@@ -18,7 +18,10 @@ import (
 // false is Mendix's own default (mendixmodelsdk 4.115.0: Pages$ListView
 // `editable` is a PrimitiveProperty defaulting to false, and
 // _initializeDefaultProperties does not override it), so the writer is right to
-// write it. What was missing is a diagnostic for the combination that is never
+// write it. Studio Pro agrees: in ako/TestApp (Mendix 11.14.0) 30 of 32 list
+// views are stored false and hold no input, and the one with inputs was set to
+// true by its author — the `control: editable true` case below is that page's
+// shape. What was missing is a diagnostic for the combination that is never
 // meant: inputs a list view will render read-only.
 func TestMDLWIDGET31_ListViewInputsNotEditable(t *testing.T) {
 	cases := []struct {
