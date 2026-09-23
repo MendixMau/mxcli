@@ -383,6 +383,19 @@ image imgRemote (ImageType: imageUrl, ImageUrl: 'https://example.com/logo.svg')
 image imgIcon   (ImageType: icon)
 ```
 
+### Asking before a microflow or nanoflow runs
+
+A button whose action is `microflow` or `nanoflow` can show Mendix's confirmation dialog:
+
+```sql
+actionbutton btnPurge (Caption: 'Purge', Action: microflow Sales.ACT_Purge,
+  Confirmation: 'Delete all archived orders?', ConfirmProceed: 'Purge', ConfirmCancel: 'Keep')
+```
+
+- `ConfirmProceed` / `ConfirmCancel` default to `Proceed` / `Cancel`; `describe` omits them when they match.
+- The dialog is stored on the **action** (`Forms$ConfirmationInfo` under the microflow settings, or on the nanoflow action), so any other action (`delete`, `save_changes`, `show_page`, …) with `Confirmation:` is refused as **MDL-WIDGET32** — Mendix has no slot for it there. A caption without a question is refused too.
+- Changing the button's `Action:` later with `alter page … set Action = …` builds a fresh action, so re-state `Confirmation` in the same `set`.
+
 ### A button's icon is one of three elements
 
 Mendix stores **three different icon elements**, and the keyword picks which:

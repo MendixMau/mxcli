@@ -679,6 +679,8 @@ var staticWidgetKnownProps = func() map[string]bool {
 		"Password", "Validation", "ValidationMessage",
 		// button icon-collection reference (issue #602)
 		"Icon",
+		// a microflow/nanoflow button's confirmation dialog (Forms$ConfirmationInfo)
+		"Confirmation", "ConfirmProceed", "ConfirmCancel",
 		// staticimage's image-collection reference, Module.Collection.Image
 		// (mendixlabs/mxcli#1057). Describe emits it, so leaving it out here
 		// makes the describe -> create round trip warn about its own output.
@@ -716,7 +718,8 @@ var staticWidgetKnownPropList = func() []string {
 		"Attributes", "FilterType", "DesignProperties", "Width", "Height", "Visible",
 		"Editable", "Tooltip", "DynamicClasses", "WidthUnit", "HeightUnit",
 		"DesktopColumns", "TabletColumns", "PhoneColumns", "PageSize", "Pagination",
-		"Image", "DefaultImage", "DisplayAs", "OnClickType")
+		"Image", "DefaultImage", "DisplayAs", "OnClickType",
+		"Confirmation", "ConfirmProceed", "ConfirmCancel")
 	return list
 }()
 
@@ -954,6 +957,16 @@ func validateStaticWidget(w *ast.WidgetV3, locationPrefix string) []linter.Viola
 	}
 
 	out = append(out, validateConsumableConditional(w, locationPrefix)...)
+
+	// A confirmation dialog lives on a microflow or nanoflow call; anywhere else
+	// the properties would be dropped on write, so they are refused (MDL-WIDGET32).
+	if problem := confirmationPropsProblem(w); problem != "" {
+		out = append(out, linter.Violation{
+			RuleID:   "MDL-WIDGET32",
+			Severity: linter.SeverityError,
+			Message:  fmt.Sprintf("%s: %s", locationPrefix, problem),
+		})
+	}
 
 	// A DataView cannot use a database data source — a data view shows one object,
 	// so Mendix offers only Context / Microflow / Nanoflow / Listen sources.

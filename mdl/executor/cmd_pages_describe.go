@@ -632,6 +632,12 @@ type rawWidget struct {
 	RenderMode  string
 	Action      string
 	ButtonStyle string
+	// Confirmation is the question of the action's confirmation dialog
+	// (Forms$ConfirmationInfo); ConfirmProceed/ConfirmCancel are its captions,
+	// left empty when they are the defaults Studio Pro stores.
+	Confirmation   string
+	ConfirmProceed string
+	ConfirmCancel  string
 	// Icon is the qualified name an icon-collection or image icon points at.
 	// Empty for no icon and for a glyph icon, which carries a numeric Code
 	// instead. IconType keeps the storage $Type so the emitter can tell the

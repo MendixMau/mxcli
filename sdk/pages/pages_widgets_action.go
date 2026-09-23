@@ -220,9 +220,28 @@ type MicroflowClientAction struct {
 	MicroflowID       model.ID                     `json:"microflowId"`
 	MicroflowName     string                       `json:"microflowName,omitempty"` // Qualified name for BSON serialization
 	ParameterMappings []*MicroflowParameterMapping `json:"parameterMappings,omitempty"`
+	Confirmation      *ConfirmationInfo            `json:"confirmation,omitempty"`
 }
 
 func (MicroflowClientAction) isClientAction() {}
+
+// ConfirmationInfo is the confirmation dialog a microflow or nanoflow action
+// shows before running. BSON storage type: Forms$ConfirmationInfo, with three
+// translatable texts (Question, ProceedButtonCaption, CancelButtonCaption).
+// Studio Pro stores the default captions "Proceed" and "Cancel" explicitly, so
+// the writer fills them in when a caption is nil.
+type ConfirmationInfo struct {
+	model.BaseElement
+	Question       *model.Text `json:"question,omitempty"`
+	ProceedCaption *model.Text `json:"proceedCaption,omitempty"`
+	CancelCaption  *model.Text `json:"cancelCaption,omitempty"`
+}
+
+// Default confirmation button captions, as Studio Pro writes them.
+const (
+	DefaultConfirmProceedCaption = "Proceed"
+	DefaultConfirmCancelCaption  = "Cancel"
+)
 
 // NanoflowParameterMapping maps a nanoflow parameter to a value in a NanoflowClientAction.
 // BSON storage type: Forms$NanoflowParameterMapping (not Pages$).
@@ -243,6 +262,7 @@ type NanoflowClientAction struct {
 	NanoflowID        model.ID                    `json:"nanoflowId"`
 	NanoflowName      string                      `json:"nanoflowName,omitempty"` // Qualified name for BSON serialization
 	ParameterMappings []*NanoflowParameterMapping `json:"parameterMappings,omitempty"`
+	Confirmation      *ConfirmationInfo           `json:"confirmation,omitempty"`
 }
 
 func (NanoflowClientAction) isClientAction() {}

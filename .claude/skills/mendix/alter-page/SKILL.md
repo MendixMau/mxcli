@@ -109,6 +109,12 @@ set caption = 'New Caption' on widgetName
 -- Multiple properties
 set (caption = 'Save & Close', buttonstyle = success) on btnSave
 
+-- Confirmation dialog on a button with a microflow/nanoflow action.
+-- Captions default to Proceed / Cancel; only the authoring-language text
+-- changes, other translations are kept. Confirmation = '' removes it.
+set (Confirmation = 'Delete all archived orders?', ConfirmProceed = 'Purge') on btnPurge
+set Confirmation = '' on btnPurge
+
 -- Page-level property (no ON clause). Page-level property names are
 -- case-sensitive and must match the Mendix property exactly.
 set Title = 'New Page Title'

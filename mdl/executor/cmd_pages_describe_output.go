@@ -456,6 +456,7 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 		if w.Action != "" {
 			props = append(props, fmt.Sprintf("Action: %s", w.Action))
 		}
+		props = appendConfirmationProps(props, w)
 		if w.ButtonStyle != "" && w.ButtonStyle != "Default" {
 			props = append(props, fmt.Sprintf("ButtonStyle: %s", w.ButtonStyle))
 		}

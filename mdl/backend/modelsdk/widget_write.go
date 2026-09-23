@@ -1646,6 +1646,34 @@ func microflowSettingsToGen(microflowName string, mappings []*pages.MicroflowPar
 	return s
 }
 
+// confirmationInfoToGen builds the Forms$ConfirmationInfo a microflow action's
+// MicroflowSettings (or a nanoflow action directly) carries: three Texts$Text
+// parts. Studio Pro stores the default captions "Proceed" and "Cancel" rather
+// than leaving them empty, so a nil caption is written as that default —
+// reading the document back then yields the caption the dialog really shows.
+func confirmationInfoToGen(c *pages.ConfirmationInfo) element.Element {
+	ci := genPg.NewConfirmationInfo()
+	assignID(ci)
+	ci.SetQuestion(confirmTextToGen(c.Question, ""))
+	ci.SetProceedButtonCaption(confirmTextToGen(c.ProceedCaption, pages.DefaultConfirmProceedCaption))
+	ci.SetCancelButtonCaption(confirmTextToGen(c.CancelCaption, pages.DefaultConfirmCancelCaption))
+	return ci
+}
+
+// confirmTextToGen converts one confirmation text, substituting def in the
+// authoring language when t carries no translation.
+func confirmTextToGen(t *model.Text, def string) element.Element {
+	if t == nil || len(t.Translations) == 0 {
+		t = &model.Text{Translations: map[string]string{model.AuthoringLanguage(): def}}
+	}
+	out := textToGen(t)
+	assignID(out)
+	for _, tr := range out.TranslationsItems() {
+		assignID(tr)
+	}
+	return out
+}
+
 // formSettingsToGen builds the Forms$FormSettings (PageSettings) shared by the
 // page-opening actions: target page by-name and empty parameter mappings.
 //
@@ -1797,7 +1825,11 @@ func clientActionToGen(a pages.ClientAction) (element.Element, error) {
 		}
 		assignID(g)
 		g.SetDisabledDuringExecution(true)
-		g.SetMicroflowSettings(microflowSettingsToGen(x.MicroflowName, x.ParameterMappings))
+		ms := microflowSettingsToGen(x.MicroflowName, x.ParameterMappings)
+		if x.Confirmation != nil {
+			ms.(*genPg.MicroflowSettings).SetConfirmationInfo(confirmationInfoToGen(x.Confirmation))
+		}
+		g.SetMicroflowSettings(ms)
 		return g, nil
 	case *pages.NanoflowClientAction:
 		// call_nanoflow → Forms$CallNanoflowClientAction. Unlike the microflow
@@ -1819,6 +1851,9 @@ func clientActionToGen(a pages.ClientAction) (element.Element, error) {
 			m.SetParameterQualifiedName(x.NanoflowName + "." + pm.ParameterName)
 			bindParameterMappingValue(m, pm.Variable, pm.VariableKind, pm.Expression)
 			g.AddParameterMappings(m)
+		}
+		if x.Confirmation != nil {
+			g.SetConfirmationInfo(confirmationInfoToGen(x.Confirmation))
 		}
 		return g, nil
 	case *pages.CreateObjectClientAction:

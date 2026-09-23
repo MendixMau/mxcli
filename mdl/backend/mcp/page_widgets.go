@@ -391,6 +391,10 @@ func mapClientAction(a pages.ClientAction) (map[string]any, error) {
 	case nil, *pages.NoClientAction:
 		return map[string]any{"$Type": "Pages$NoClientAction"}, nil
 	case *pages.MicroflowClientAction:
+		// Refuse rather than drop: the dialog is not mapped over MCP yet.
+		if act.Confirmation != nil {
+			return nil, fmt.Errorf("a microflow action's confirmation dialog is not yet supported over MCP")
+		}
 		return map[string]any{
 			"$Type":     "Pages$MicroflowClientAction",
 			"microflow": act.MicroflowName,

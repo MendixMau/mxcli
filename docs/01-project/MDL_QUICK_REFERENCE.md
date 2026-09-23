@@ -1438,6 +1438,7 @@ MDL uses explicit property declarations for pages:
 | Variable binding | `datasource: $Var` | `dataview dv (datasource: $Product) { ... }` |
 | Action binding | `action: type` | `actionbutton btn (caption: 'Save', action: save_changes)` — the forms are a closed set (`mxcli syntax page.action`); anything else is **MDL-WIDGET28** |
 | No action | `action: nothing` | `actionbutton btn (caption: 'Decorative', action: nothing)` — an explicitly inert control. Write it deliberately: an action keyword **short its argument** (`action: open_link` with no URL) is now an error rather than a widget silently written with no action at all |
+| Confirmation dialog | `confirmation: 'q' [, confirmproceed: 'c', confirmcancel: 'c']` | `actionbutton btn (caption: 'Purge', action: microflow M.ACT_Purge, confirmation: 'Delete all archived orders?', confirmproceed: 'Purge')` — asks before the call. Stored on the **action** (`Forms$ConfirmationInfo`), so only a `microflow` / `nanoflow` action takes it; anything else is **MDL-WIDGET32**. Captions default to `Proceed` / `Cancel` and `describe` omits them when they match |
 | Microflow action | `action: microflow Name(Param: val)` | `action: microflow Mod.ACT_Process(Order: $Order)` |
 | Button icon | `icon: 'Module.IconCollection.IconName'` | `linkbutton btn (caption: 'Edit', action: nothing, icon: 'Atlas_Core.Atlas_Filled.pencil')` — the **icon-collection** icon; MxBuild rejects an unknown name (CE1613) |
 | Image icon | `icon: image Module.ImageCollection.Name` | `actionbutton btn (caption: 'Logo', action: nothing, icon: image MyMod.Images.logo)` — an **image** collection is a different document from an icon collection, and the names are spelled the same, so the keyword is what separates them. Written without `image` it is stored as a custom-icon reference and the build fails **CE1613** |
@@ -1656,7 +1657,7 @@ Modify an existing page or snippet's widget tree in-place without full `create o
 | Set layout | `set layout = Module.LayoutName` | Change page layout, auto-maps placeholders |
 | Set layout + map | `set layout = Module.Layout map (Old as New)` | Explicit placeholder mapping |
 
-**Supported SET properties:** Caption, Label, ButtonStyle, Class, Style, DynamicClasses, Editable, Visible, Name, Title (page-level), Documentation (page-level), Layout (page-level), PopupWidth / PopupHeight / PopupResizable (page-level), and quoted pluggable widget properties.
+**Supported SET properties:** Caption, Label, ButtonStyle, Confirmation / ConfirmProceed / ConfirmCancel (buttons with a microflow or nanoflow action; `Confirmation = ''` removes the dialog), Class, Style, DynamicClasses, Editable, Visible, Name, Title (page-level), Documentation (page-level), Layout (page-level), PopupWidth / PopupHeight / PopupResizable (page-level), and quoted pluggable widget properties.
 
 **Example:**
 ```sql

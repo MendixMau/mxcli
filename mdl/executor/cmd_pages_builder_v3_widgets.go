@@ -991,6 +991,12 @@ func (pb *pageBuilder) buildButtonV3(w *ast.WidgetV3) (*pages.ActionButton, erro
 		btn.Action = act
 	}
 
+	// Handle Confirmation / ConfirmProceed / ConfirmCancel: the dialog lives on
+	// the microflow or nanoflow action, not on the button.
+	if err := pb.applyConfirmationV3(w, btn.Action); err != nil {
+		return nil, err
+	}
+
 	// Handle Icon (#602, #1059): one of Mendix's three icon elements.
 	icon, err := buildWidgetIcon(w)
 	if err != nil {

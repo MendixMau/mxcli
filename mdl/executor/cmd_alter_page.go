@@ -156,7 +156,7 @@ func applySetPropertyMutator(ctx *ExecContext, mutator backend.PageMutator, op *
 	for k := range op.Properties {
 		propNames = append(propNames, k)
 	}
-	sort.Strings(propNames)
+	orderSetProperties(propNames)
 
 	for _, propName := range propNames {
 		value := op.Properties[propName]
@@ -226,6 +226,32 @@ func applySetPropertyMutator(ctx *ExecContext, mutator backend.PageMutator, op *
 		}
 	}
 	return nil
+}
+
+// orderSetProperties sorts one SET's property names for a deterministic
+// application order. The confirmation dialog's captions edit a dialog the
+// question creates, and the dialog lives on the action, so Action goes first,
+// then Confirmation, then its captions — plain byte order would put
+// ConfirmCancel before Confirmation.
+func orderSetProperties(propNames []string) {
+	sort.Strings(propNames)
+	sort.SliceStable(propNames, func(i, j int) bool {
+		return confirmationSetRank(propNames[i]) < confirmationSetRank(propNames[j])
+	})
+}
+
+// confirmationSetRank orders the confirmation properties after every other
+// property of one SET, question before captions.
+func confirmationSetRank(prop string) int {
+	switch strings.ToLower(prop) {
+	case "confirmation":
+		return 1
+	case "confirmproceed":
+		return 2
+	case "confirmcancel":
+		return 3
+	}
+	return 0
 }
 
 // convertASTDataSource converts an AST DataSource value to a pages.DataSource.

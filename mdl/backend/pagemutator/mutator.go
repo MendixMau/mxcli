@@ -2707,6 +2707,8 @@ func setRawWidgetPropertyMut(widget bson.D, propName string, value any) error {
 		return nil
 	case "attribute":
 		return setWidgetAttributeRefMut(widget, value)
+	case "confirmation", "confirmproceed", "confirmcancel":
+		return setWidgetConfirmationMut(widget, strings.ToLower(propName), value)
 	default:
 		// Try as pluggable widget property
 		return setPluggableWidgetPropertyMut(widget, propName, value)

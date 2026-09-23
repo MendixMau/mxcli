@@ -1,0 +1,75 @@
+-- ============================================================================
+-- Button Confirmation Examples - Confirmation / ConfirmProceed / ConfirmCancel
+-- ============================================================================
+--
+-- A button that calls a microflow or nanoflow can ask "are you sure?" first.
+-- Mendix stores the dialog on the ACTION (Forms$ConfirmationInfo: Question,
+-- ProceedButtonCaption, CancelButtonCaption), so only those two action kinds
+-- take it; anything else is refused as MDL-WIDGET32.
+--
+-- The captions default to Proceed / Cancel. DESCRIBE PAGE omits a caption
+-- equal to its default, so describe -> exec -> describe is stable.
+--
+-- Run: mxcli exec mdl-examples/doctype-tests/button-confirmation.mdl -p app.mpr
+-- ============================================================================
+
+create module ConfirmTest;
+
+create microflow ConfirmTest.ACT_Purge ()
+begin
+  log info 'purge';
+end;
+/
+
+create nanoflow ConfirmTest.NAV_Reset ()
+begin
+  log info 'reset';
+end;
+/
+
+-- ----------------------------------------------------------------------------
+-- CREATE PAGE: default captions, custom captions, nanoflow action, link button
+-- ----------------------------------------------------------------------------
+
+create or replace page ConfirmTest.Maintenance (
+  Title: 'Maintenance',
+  Layout: Atlas_Core.Atlas_Default
+) {
+  container cMain {
+    actionbutton btnPurge (Caption: 'Purge', Action: microflow ConfirmTest.ACT_Purge,
+      Confirmation: 'Delete all archived orders?', ButtonStyle: Danger)
+    actionbutton btnPurgeCustom (Caption: 'Purge (custom)', Action: microflow ConfirmTest.ACT_Purge,
+      Confirmation: 'Really purge?', ConfirmProceed: 'Purge', ConfirmCancel: 'Keep')
+    actionbutton btnReset (Caption: 'Reset', Action: nanoflow ConfirmTest.NAV_Reset,
+      Confirmation: 'Reset the filters?')
+    linkbutton lnkPurge (Caption: 'Purge', Action: microflow ConfirmTest.ACT_Purge,
+      Confirmation: 'Delete all archived orders?', ConfirmProceed: 'Yes')
+    actionbutton btnPlain (Caption: 'No dialog', Action: microflow ConfirmTest.ACT_Purge)
+  }
+}
+
+describe page ConfirmTest.Maintenance;
+
+-- ----------------------------------------------------------------------------
+-- ALTER PAGE: add, edit, remove
+-- ----------------------------------------------------------------------------
+
+alter page ConfirmTest.Maintenance {
+  -- add a dialog to a button that had none
+  set (Confirmation = 'Run it now?', ConfirmCancel = 'Not now') on btnPlain;
+  -- edit one caption; the question and the other caption are kept
+  set ConfirmProceed = 'Go' on btnPurgeCustom;
+  -- remove the dialog
+  set Confirmation = '' on btnReset;
+};
+
+describe page ConfirmTest.Maintenance;
+
+-- ----------------------------------------------------------------------------
+-- Refused (MDL-WIDGET32) — uncomment to see the errors:
+--
+--   actionbutton b1 (Caption: 'Save', Action: save_changes, Confirmation: 'Sure?')
+--     -- the dialog lives on a microflow/nanoflow action; save has no slot
+--   actionbutton b2 (Caption: 'Go', Action: microflow ConfirmTest.ACT_Purge, ConfirmProceed: 'Yes')
+--     -- a caption without a question
+-- ----------------------------------------------------------------------------
