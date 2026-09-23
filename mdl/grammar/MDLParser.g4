@@ -148,6 +148,7 @@ alterStatement
     | ALTER SETTINGS alterSettingsClause
     | ALTER PAGE qualifiedName LBRACE alterPageOperation+ RBRACE
     | alterPagesLayoutStatement
+    | alterPagesStylingStatement
     // ALTER LAYOUT reuses alterPageOperation wholesale: a layout's widget tree is
     // a page's widget tree with four extra element types, so SET/INSERT/DROP/
     // REPLACE mean exactly the same thing. A scroll-container region is addressed
@@ -273,6 +274,39 @@ alterPagesLayoutStatement
     : ALTER PAGES (IN identifierOrKeyword)? SET LAYOUT EQUALS qualifiedName
       (MAP LPAREN alterLayoutMapping (COMMA alterLayoutMapping)* RPAREN)?
       (WHERE LAYOUT EQUALS qualifiedName)?
+    ;
+
+// ALTER PAGES [IN <module>] SET '<design property>' = <value>, ... WHERE WIDGETTYPE = <kw> [DRY RUN]
+//
+// The bulk form of ALTER PAGE's design-property SET, and the same argument: a
+// house style is "every data grid is compact and striped", which is one
+// statement rather than one per page. It mirrors the layout form above --- same
+// verb, same optional IN, same WHERE --- and is told apart from it at parse time
+// by what follows SET, since LAYOUT is a keyword and a design property is a
+// quoted string.
+//
+// WHERE selects a widget TYPE, never a name: a widget name is unique only within
+// its page (measured --- `actionButton1` exists in 30 units of a blank project),
+// so a name predicate would sweep unrelated widgets together. The type is named
+// by its MDL keyword, which resolves to exactly one widget id, rather than by a
+// LIKE over the stored id, which also matches the data grid's FILTER widgets.
+//
+// DRY RUN is not optional politeness: this statement rewrites every page a match
+// lands on, and the preview is the only way to see what a pattern selects before
+// it selects it.
+alterPagesStylingStatement
+    : ALTER PAGES (IN identifierOrKeyword)? SET alterPagesStylingAssignment
+      (COMMA alterPagesStylingAssignment)*
+      WHERE WIDGETTYPE EQUALS (STRING_LITERAL | identifierOrKeyword)
+      (DRY RUN)?
+    ;
+
+// The same three value shapes alterStylingAssignment takes, minus CLASS/STYLE:
+// those are per-widget CSS, which a project-wide sweep has no business setting.
+alterPagesStylingAssignment
+    : STRING_LITERAL EQUALS STRING_LITERAL         // 'Row size' = 'Small'
+    | STRING_LITERAL EQUALS ON                     // 'Striped' = ON
+    | STRING_LITERAL EQUALS OFF                    // 'Striped' = OFF
     ;
 
 alterPageAssignment

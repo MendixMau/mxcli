@@ -130,6 +130,15 @@ Examples:
 				os.Exit(1)
 			}
 			source = checked.MDL
+			// A rendering with nothing in it means the file declares no @test
+			// block. That is not #618's "the parser could not begin reading it"
+			// — the parser was handed an empty rendering, not the author's text
+			// — so it gets its own message rather than one quoting a line that
+			// was never parsed.
+			if strings.TrimSpace(source) == "" && strings.TrimSpace(string(content)) != "" {
+				fmt.Fprintln(os.Stderr, noTestsDeclaredError(mdlSourceLabel(filePath)))
+				os.Exit(1)
+			}
 			for _, p := range checked.Problems {
 				testProblems = append(testProblems, linter.Violation{
 					RuleID:   "MDL-TEST01",
@@ -166,6 +175,15 @@ Examples:
 					fmt.Fprintf(os.Stderr, "  Example: IMPORT FROM alias QUERY $$SELECT * FROM table$$ INTO Module.Entity MAP (...)\n")
 				}
 			}
+			os.Exit(1)
+		}
+		// Zero statements from non-empty input is not an empty script: the parser
+		// never got into the file. Both gates refuse it (ako/mxcli#618).
+		//
+		// `source`, not `content`: for a test file they differ, and the message
+		// names a line from whichever text the parser was actually given.
+		if line, bad := unparsableInput(source, len(prog.Statements)); bad {
+			fmt.Fprintln(os.Stderr, unparsableInputError(filePath, line))
 			os.Exit(1)
 		}
 		if !isStructured {

@@ -558,7 +558,19 @@ gallery productGallery (datasource: database Module.Product, selection: single) 
 
 ### Filter Widgets
 
-Filter widgets are used inside GALLERY FILTER containers to enable search/filtering:
+A filter widget lives in one of two places: **inside a DATA GRID column's own braces**,
+where it filters that column, or inside a **GALLERY FILTER container**, where it filters
+the whole list. The widgets below are the same either way:
+
+```sql
+datagrid dg (datasource: database Module.Entity) {
+  column colName (attribute: Name) { textfilter f1 }   -- the grid form
+}
+
+gallery g (datasource: database Module.Entity) {
+  filter flt { textfilter f1 }                         -- the gallery form
+}
+```
 
 **TEXTFILTER** - Text search filter:
 ```sql
