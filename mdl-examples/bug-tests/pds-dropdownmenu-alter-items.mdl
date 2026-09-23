@@ -1,0 +1,37 @@
+-- ALTER PAGE on the entries of a pluggable widget's object list, here a PDS
+-- Dropdown Menu's `dropdownitem`s. Needs a project with the PDS widgets
+-- installed and `mxcli widget init` run; the page is Marketplace's
+-- UserGroups.GroupDetails, whose menu `pDSDropdownMenu1` DESCRIBE shows with
+-- four entries, dropdownitem1..4. Run each ALTER on its own copy.
+--
+-- Before the fix every insert/replace failed `mxcli check` with MDL-WIDGET25
+-- "`dropdownitem` is not a widget in this project", exec failed with
+-- "unsupported widget type: dropdownitem", and `drop widget dropdownitem2`
+-- found no widget of that name. Replacing the whole menu (the workaround)
+-- passed check and exec and then failed mx check with CE0463.
+--
+-- After: each ALTER below exec's, DESCRIBE shows the list changed as written
+-- (entries renumbered), and mx check 11.12.2 reports exactly the project's
+-- pre-existing baseline (103 CE0535, 1233 CE6083, 1 CE6478), no CE0463.
+
+alter page UserGroups.GroupDetails {
+  insert after dropdownitem1 {
+    dropdownitem dropdownitemNew (itemType: 'button', caption: 'New Item', destructive: 'false')
+  }
+};
+
+alter page UserGroups.GroupDetails {
+  insert into pDSDropdownMenu1 {
+    dropdownitem dropdownitemLast (itemType: 'button', caption: 'Last Item', destructive: 'false')
+  }
+};
+
+alter page UserGroups.GroupDetails {
+  replace dropdownitem3 with {
+    dropdownitem dropdownitemR (itemType: 'button', caption: 'Replaced Item', destructive: 'true')
+  }
+};
+
+alter page UserGroups.GroupDetails {
+  drop widget dropdownitem2
+};

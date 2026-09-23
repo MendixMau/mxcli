@@ -605,20 +605,7 @@ func makeObjectListMapping(widgetID string, p mpk.PropertyDef) ObjectListMapping
 // deriveObjectListKeyword turns a property key like "groups" / "basicItems" /
 // "series" / "markers" into an uppercase MDL keyword in the singular form.
 func deriveObjectListKeyword(propertyKey string) string {
-	overrides := map[string]string{
-		"basicItems":     "ITEM",
-		"customItems":    "CUSTOMITEM",
-		"dynamicMarkers": "DYNAMICMARKER",
-		"attributesList": "ATTR",
-		"filterOptions":  "OPTION",
-		"series":         "SERIES", // Latin singular == plural
-	}
-	if k, ok := overrides[propertyKey]; ok {
-		return k
-	}
-	lower := strings.ToLower(propertyKey)
-	singular := strings.TrimSuffix(lower, "s")
-	return strings.ToUpper(singular)
+	return types.ObjectListKeyword(propertyKey)
 }
 
 // operationForType maps an MPK property type to the engine's operation name.

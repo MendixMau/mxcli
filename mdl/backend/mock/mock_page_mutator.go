@@ -33,6 +33,10 @@ type MockPageMutator struct {
 	InsertListViewTemplatesFunc    func(listViewRef string, templates []*pages.ListViewTemplate) error
 	DropListViewTemplateFunc       func(listViewRef, specialization string) error
 	ReplaceColumnFunc              func(gridRef, columnRef string, columns []*backend.DataGridColumnSpec) error
+	ResolveObjectListItemFunc      func(widgetRef, itemRef string) (backend.ObjectListItemRef, bool, error)
+	PluggableWidgetIDFunc          func(widgetRef string) string
+	InsertObjectListItemsFunc      func(ownerRef, listKey string, index int, donor pages.Widget) error
+	DropObjectListItemsFunc        func(ownerRef, listKey string, indexes []int) error
 	FindWidgetFunc                 func(name string) bool
 	AddVariableFunc                func(name, dataType, defaultValue string) error
 	DropVariableFunc               func(name string) error
@@ -157,6 +161,39 @@ func (m *MockPageMutator) ReplaceColumn(gridRef, columnRef string, columns []*ba
 		return m.ReplaceColumnFunc(gridRef, columnRef, columns)
 	}
 	return fmt.Errorf("MockBackend.ReplaceColumn not configured")
+}
+
+// ResolveObjectListItem answers "not an entry" when unconfigured, like
+// FindWidget answers "not found": it is a query every INSERT/DROP/REPLACE asks
+// first, so an error default would fail every existing widget-path test.
+func (m *MockPageMutator) ResolveObjectListItem(widgetRef, itemRef string) (backend.ObjectListItemRef, bool, error) {
+	if m.ResolveObjectListItemFunc != nil {
+		return m.ResolveObjectListItemFunc(widgetRef, itemRef)
+	}
+	return backend.ObjectListItemRef{}, false, nil
+}
+
+// PluggableWidgetID answers "not a pluggable widget" when unconfigured, for the
+// same reason as ResolveObjectListItem.
+func (m *MockPageMutator) PluggableWidgetID(widgetRef string) string {
+	if m.PluggableWidgetIDFunc != nil {
+		return m.PluggableWidgetIDFunc(widgetRef)
+	}
+	return ""
+}
+
+func (m *MockPageMutator) InsertObjectListItems(ownerRef, listKey string, index int, donor pages.Widget) error {
+	if m.InsertObjectListItemsFunc != nil {
+		return m.InsertObjectListItemsFunc(ownerRef, listKey, index, donor)
+	}
+	return fmt.Errorf("MockBackend.InsertObjectListItems not configured")
+}
+
+func (m *MockPageMutator) DropObjectListItems(ownerRef, listKey string, indexes []int) error {
+	if m.DropObjectListItemsFunc != nil {
+		return m.DropObjectListItemsFunc(ownerRef, listKey, indexes)
+	}
+	return fmt.Errorf("MockBackend.DropObjectListItems not configured")
 }
 
 func (m *MockPageMutator) FindWidget(name string) bool {

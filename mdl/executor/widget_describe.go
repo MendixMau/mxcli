@@ -430,6 +430,8 @@ func conditionText(c *types.WidgetVisibilityCondition) string {
 		return fmt.Sprintf("%s is one of %s", c.PropertyKey, strings.ReplaceAll(c.Value, ",", ", "))
 	case "notin":
 		return fmt.Sprintf("%s is not one of %s", c.PropertyKey, strings.ReplaceAll(c.Value, ",", ", "))
+	case types.OperatorAlways:
+		return "always"
 	default:
 		return fmt.Sprintf("%s %s %q", c.PropertyKey, c.Operator, c.Value)
 	}

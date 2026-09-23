@@ -90,6 +90,13 @@ func validateWidgetKind(w *ast.WidgetV3, registry *WidgetRegistry, parentDef *Wi
 			(parentObjectLists[strings.ToUpper(w.Type)] != nil || parentDeclaresSlot(parentDef, w.Type)) {
 			return nil
 		}
+		// The top level of an ALTER PAGE body: the parent is a widget on the
+		// page the static check cannot see (see alterObjectListMappings). An
+		// entry keyword some definition declares is accepted; exec resolves the
+		// real parent and refuses one it does not declare.
+		if parentDef == nil && parentObjectLists != nil && isObjectListContainerKeyword(w.Type, registry) {
+			return nil
+		}
 		// Inside a resolvable parent, "not a container of <parent>" beats "not a
 		// widget": it names what the parent DOES declare, which is the answer
 		// the author needs. `attribut` inside an htmlelement is a misspelt

@@ -173,7 +173,7 @@ func AugmentTemplate(tmpl *WidgetTemplate, def *mpk.WidgetDefinition) error {
 	// and 3.0.1). A stale option in the embedded Type that the installed widget
 	// doesn't define triggers CE0463 ("definition has changed"). The .mpk is
 	// authoritative, so overwrite each enum PropertyType's option set from it.
-	reconcileEnumValues(tmpl.Type, mpkEnumValuesByKey(def))
+	reconcileEnumValues(tmpl.Type, mpkPropDefsByKey(def))
 
 	// Reconcile per-property metadata (Category, Caption) and the DefaultValue of
 	// existing PropertyTypes against the .mpk. reconcileEnumValues above rebuilds an
@@ -306,21 +306,60 @@ func reorderObjectTypePropertyTypes(objType map[string]any, props []mpk.Property
 	}
 }
 
-// mpkPropDefsByKey indexes a widget's PropertyDefs by key, across both top-level and
-// nested (object-list) properties.
+// mpkPropDefsByKey indexes a widget's TOP-LEVEL PropertyDefs by key. It is a
+// scope, not a flat index: a nested (object-list) property is looked up only in
+// its parent's Children, via walkScopedPropertyTypes.
+//
+// It used to flatten the nested properties into the same map, so a key used at
+// two levels resolved to whichever came last. PDSDropdownMenu has a top-level
+// `caption` (group "General::Dropdown Menu") and a dropdownItems `caption`
+// (group "Actions"); the nested one won, the top-level PropertyType was
+// rewritten to Category "Actions", and every freshly built instance of the
+// widget failed CE0463 "The definition of this widget has changed" — while the
+// stored, Studio Pro-written instance on the same page did not.
 func mpkPropDefsByKey(def *mpk.WidgetDefinition) map[string]mpk.PropertyDef {
-	out := map[string]mpk.PropertyDef{}
-	var add func([]mpk.PropertyDef)
-	add = func(props []mpk.PropertyDef) {
-		for _, p := range props {
-			out[p.Key] = p
-			if len(p.Children) > 0 {
-				add(p.Children)
+	return propDefIndex(def.Properties)
+}
+
+func propDefIndex(props []mpk.PropertyDef) map[string]mpk.PropertyDef {
+	out := make(map[string]mpk.PropertyDef, len(props))
+	for _, p := range props {
+		out[p.Key] = p
+	}
+	return out
+}
+
+// walkScopedPropertyTypes visits every CustomWidgets$WidgetPropertyType under node
+// and calls fn with the .mpk definition of that property IN ITS OWN SCOPE: the
+// top-level scope is scope, and the PropertyTypes nested under a matched property's
+// ObjectType are resolved against that property's Children only. A PropertyType
+// whose key the scope does not define is skipped, and so is everything nested
+// under it (there is no scope to resolve it against). fn runs before the walk
+// descends, so it may rewrite the node's scalar fields.
+func walkScopedPropertyTypes(node any, scope map[string]mpk.PropertyDef, fn func(pt map[string]any, pd mpk.PropertyDef)) {
+	switch v := node.(type) {
+	case map[string]any:
+		if v["$Type"] == "CustomWidgets$WidgetPropertyType" {
+			key, _ := v["PropertyKey"].(string)
+			pd, ok := scope[key]
+			var child map[string]mpk.PropertyDef
+			if ok && key != "" {
+				fn(v, pd)
+				child = propDefIndex(pd.Children)
 			}
+			for _, val := range v {
+				walkScopedPropertyTypes(val, child, fn)
+			}
+			return
+		}
+		for _, val := range v {
+			walkScopedPropertyTypes(val, scope, fn)
+		}
+	case []any:
+		for _, item := range v {
+			walkScopedPropertyTypes(item, scope, fn)
 		}
 	}
-	add(def.Properties)
-	return out
 }
 
 // reconcilePropertyMetadata walks a widget Type and, for every PropertyType whose key
@@ -329,36 +368,22 @@ func mpkPropDefsByKey(def *mpk.WidgetDefinition) map[string]mpk.PropertyDef {
 // Only non-empty .mpk values are applied (the .mpk always carries a category/caption;
 // DefaultValue is present for enumeration/boolean/integer types).
 func reconcilePropertyMetadata(node any, byKey map[string]mpk.PropertyDef) {
-	switch v := node.(type) {
-	case map[string]any:
-		if v["$Type"] == "CustomWidgets$WidgetPropertyType" {
-			if key, _ := v["PropertyKey"].(string); key != "" {
-				if pd, ok := byKey[key]; ok {
-					if pd.Category != "" {
-						v["Category"] = pd.Category
-					}
-					if pd.Caption != "" {
-						v["Caption"] = pd.Caption
-					}
-					if pd.Description != "" {
-						v["Description"] = pd.Description
-					}
-					if pd.DefaultValue != "" {
-						if vt, ok := v["ValueType"].(map[string]any); ok {
-							vt["DefaultValue"] = pd.DefaultValue
-						}
-					}
-				}
+	walkScopedPropertyTypes(node, byKey, func(v map[string]any, pd mpk.PropertyDef) {
+		if pd.Category != "" {
+			v["Category"] = pd.Category
+		}
+		if pd.Caption != "" {
+			v["Caption"] = pd.Caption
+		}
+		if pd.Description != "" {
+			v["Description"] = pd.Description
+		}
+		if pd.DefaultValue != "" {
+			if vt, ok := v["ValueType"].(map[string]any); ok {
+				vt["DefaultValue"] = pd.DefaultValue
 			}
 		}
-		for _, val := range v {
-			reconcilePropertyMetadata(val, byKey)
-		}
-	case []any:
-		for _, item := range v {
-			reconcilePropertyMetadata(item, byKey)
-		}
-	}
+	})
 }
 
 // reconcileValueTypesFromMPK overwrites the schema-derived scalar fields of every
@@ -375,74 +400,56 @@ func reconcileValueTypesFromMPK(tmpl *WidgetTemplate, byKey map[string]mpk.Prope
 	// PropertyType $IDs whose Type changed → their Object WidgetValue must be reset.
 	changedTypeIDs := map[string]mpk.PropertyDef{}
 
-	var walk func(any)
-	walk = func(node any) {
-		switch v := node.(type) {
-		case map[string]any:
-			if v["$Type"] == "CustomWidgets$WidgetPropertyType" {
-				if key, _ := v["PropertyKey"].(string); key != "" {
-					if pd, ok := byKey[key]; ok {
-						if vt, ok := v["ValueType"].(map[string]any); ok {
-							bsonType := xmlTypeToBSONType(pd.Type)
-							if bsonType != "" {
-								if old, _ := vt["Type"].(string); old != bsonType {
-									if id, _ := v["$ID"].(string); id != "" {
-										changedTypeIDs[id] = pd
-									}
-								}
-								vt["Type"] = bsonType
-							}
-							vt["Required"] = pd.Required
-							vt["IsList"] = pd.IsList
-							vt["Multiline"] = pd.Multiline
-							vt["DefaultValue"] = pd.DefaultValue
-							vt["AllowedTypes"] = buildAllowedTypesArray(pd.AllowedTypes)
-							vt["SelectionTypes"] = buildSelectionTypesArray(pd.SelectionTypes)
-							vt["DataSourceProperty"] = pd.DataSource
-							// Normalize the mutually-exclusive type-specific fields to the
-							// authoritative .mpk type. A ValueType cloned from a wrong-typed
-							// exemplar (or whose Type changed across widget versions) otherwise
-							// keeps stale fields that don't apply to its current type — e.g. a
-							// TextTemplate carrying EnumerationValues from an Enumeration
-							// exemplar, or a Widgets property carrying a cloned ReturnType.
-							// mxbuild emits these empty for the non-matching type, so a
-							// leftover is a within-key definition mismatch → CE0463.
-							switch bsonType {
-							case "Enumeration":
-								vt["EnumerationValues"] = buildEnumValuesArray(pd.EnumValues)
-								vt["ReturnType"] = nil
-							case "Expression":
-								vt["EnumerationValues"] = []any{float64(2)}
-								if pd.ReturnType != "" || pd.ReturnTypeAssignableTo != "" {
-									vt["ReturnType"] = buildReturnType(pd.ReturnType, pd.ReturnTypeAssignableTo)
-								} else {
-									vt["ReturnType"] = nil
-								}
-							default:
-								vt["EnumerationValues"] = []any{float64(2)}
-								vt["ReturnType"] = nil
-							}
-							// Widget-shipped caption/template translations (from the .mpk
-							// <translations>), emitted into the definition as a
-							// WidgetTranslation list. Absent here → CE0463 on widgets that
-							// ship localized captions (DataGrid2 nl_NL).
-							if len(pd.Translations) > 0 {
-								vt["Translations"] = buildTranslationsArray(pd.Translations)
-							}
-						}
+	walkScopedPropertyTypes(tmpl.Type, byKey, func(v map[string]any, pd mpk.PropertyDef) {
+		if vt, ok := v["ValueType"].(map[string]any); ok {
+			bsonType := xmlTypeToBSONType(pd.Type)
+			if bsonType != "" {
+				if old, _ := vt["Type"].(string); old != bsonType {
+					if id, _ := v["$ID"].(string); id != "" {
+						changedTypeIDs[id] = pd
 					}
 				}
+				vt["Type"] = bsonType
 			}
-			for _, val := range v {
-				walk(val)
+			vt["Required"] = pd.Required
+			vt["IsList"] = pd.IsList
+			vt["Multiline"] = pd.Multiline
+			vt["DefaultValue"] = pd.DefaultValue
+			vt["AllowedTypes"] = buildAllowedTypesArray(pd.AllowedTypes)
+			vt["SelectionTypes"] = buildSelectionTypesArray(pd.SelectionTypes)
+			vt["DataSourceProperty"] = pd.DataSource
+			// Normalize the mutually-exclusive type-specific fields to the
+			// authoritative .mpk type. A ValueType cloned from a wrong-typed
+			// exemplar (or whose Type changed across widget versions) otherwise
+			// keeps stale fields that don't apply to its current type — e.g. a
+			// TextTemplate carrying EnumerationValues from an Enumeration
+			// exemplar, or a Widgets property carrying a cloned ReturnType.
+			// mxbuild emits these empty for the non-matching type, so a
+			// leftover is a within-key definition mismatch → CE0463.
+			switch bsonType {
+			case "Enumeration":
+				vt["EnumerationValues"] = buildEnumValuesArray(pd.EnumValues)
+				vt["ReturnType"] = nil
+			case "Expression":
+				vt["EnumerationValues"] = []any{float64(2)}
+				if pd.ReturnType != "" || pd.ReturnTypeAssignableTo != "" {
+					vt["ReturnType"] = buildReturnType(pd.ReturnType, pd.ReturnTypeAssignableTo)
+				} else {
+					vt["ReturnType"] = nil
+				}
+			default:
+				vt["EnumerationValues"] = []any{float64(2)}
+				vt["ReturnType"] = nil
 			}
-		case []any:
-			for _, item := range v {
-				walk(item)
+			// Widget-shipped caption/template translations (from the .mpk
+			// <translations>), emitted into the definition as a
+			// WidgetTranslation list. Absent here → CE0463 on widgets that
+			// ship localized captions (DataGrid2 nl_NL).
+			if len(pd.Translations) > 0 {
+				vt["Translations"] = buildTranslationsArray(pd.Translations)
 			}
 		}
-	}
-	walk(tmpl.Type)
+	})
 
 	if len(changedTypeIDs) == 0 {
 		return
@@ -556,48 +563,19 @@ func buildSelectionTypesArray(names []string) []any {
 	return arr
 }
 
-// mpkEnumValuesByKey indexes a widget's enumeration option sets by property key,
-// across both top-level and nested (object-list) properties.
-func mpkEnumValuesByKey(def *mpk.WidgetDefinition) map[string][]mpk.EnumValue {
-	out := map[string][]mpk.EnumValue{}
-	var add func([]mpk.PropertyDef)
-	add = func(props []mpk.PropertyDef) {
-		for _, p := range props {
-			if len(p.EnumValues) > 0 {
-				out[p.Key] = p.EnumValues
-			}
-			if len(p.Children) > 0 {
-				add(p.Children)
-			}
-		}
-	}
-	add(def.Properties)
-	return out
-}
-
 // reconcileEnumValues walks a widget Type and, for every enumeration PropertyType
-// whose key has a .mpk option set, rebuilds its ValueType.EnumerationValues from
-// the .mpk so the embedded Type's enum members exactly match the installed widget.
-func reconcileEnumValues(node any, byKey map[string][]mpk.EnumValue) {
-	switch v := node.(type) {
-	case map[string]any:
-		if v["$Type"] == "CustomWidgets$WidgetPropertyType" {
-			if vt, ok := v["ValueType"].(map[string]any); ok && vt["Type"] == "Enumeration" {
-				if key, _ := v["PropertyKey"].(string); key != "" {
-					if opts, ok := byKey[key]; ok {
-						vt["EnumerationValues"] = buildEnumValuesArray(opts)
-					}
-				}
-			}
+// whose key has a .mpk option set in its own scope (see walkScopedPropertyTypes),
+// rebuilds its ValueType.EnumerationValues from the .mpk so the embedded Type's
+// enum members exactly match the installed widget.
+func reconcileEnumValues(node any, byKey map[string]mpk.PropertyDef) {
+	walkScopedPropertyTypes(node, byKey, func(v map[string]any, pd mpk.PropertyDef) {
+		if len(pd.EnumValues) == 0 {
+			return
 		}
-		for _, val := range v {
-			reconcileEnumValues(val, byKey)
+		if vt, ok := v["ValueType"].(map[string]any); ok && vt["Type"] == "Enumeration" {
+			vt["EnumerationValues"] = buildEnumValuesArray(pd.EnumValues)
 		}
-	case []any:
-		for _, item := range v {
-			reconcileEnumValues(item, byKey)
-		}
-	}
+	})
 }
 
 // buildEnumValuesArray builds a CustomWidgets$WidgetEnumerationValue list (with the
@@ -1246,27 +1224,20 @@ func remapObjectTypePointers(objProps []any, idRemap map[string]string) {
 // but the XML does not carry is left alone — overwriting it with a zero value
 // would trade one definition mismatch for another.
 func syncDefinitionAttrs(propTypes []any, props []mpk.PropertyDef) {
-	byKey := make(map[string]*mpk.PropertyDef, len(props))
-	var index func([]mpk.PropertyDef)
-	index = func(ps []mpk.PropertyDef) {
-		for i := range ps {
-			byKey[ps[i].Key] = &ps[i]
-			if len(ps[i].Children) > 0 {
-				index(ps[i].Children)
-			}
-		}
-	}
-	index(props)
-
-	var walk func([]any)
-	walk = func(pts []any) {
+	// Resolved per scope, like walkScopedPropertyTypes: a nested key is looked up
+	// only among its parent's Children, never in a flattened index where a key
+	// used at two levels resolves to whichever was indexed last.
+	var walk func([]any, map[string]mpk.PropertyDef)
+	walk = func(pts []any, byKey map[string]mpk.PropertyDef) {
 		for _, pt := range pts {
 			ptMap, ok := pt.(map[string]any)
 			if !ok {
 				continue
 			}
+			var child map[string]mpk.PropertyDef
 			if key, _ := ptMap["PropertyKey"].(string); key != "" {
-				if p := byKey[key]; p != nil {
+				if p, ok := byKey[key]; ok {
+					child = propDefIndex(p.Children)
 					// These live on the PropertyType's ValueType, not on the
 					// PropertyType itself — targeting the wrong node made this a
 					// silent no-op. Verified against `mx update-widgets` output:
@@ -1292,18 +1263,18 @@ func syncDefinitionAttrs(propTypes []any, props []mpk.PropertyDef) {
 			if vt, ok := getMapField(ptMap, "ValueType"); ok {
 				if ot, ok := getMapField(vt, "ObjectType"); ok {
 					if nested, ok := getArrayField(ot, "PropertyTypes"); ok {
-						walk(nested)
+						walk(nested, child)
 					}
 				}
 			}
 			if ot, ok := getMapField(ptMap, "ObjectType"); ok {
 				if nested, ok := getArrayField(ot, "PropertyTypes"); ok {
-					walk(nested)
+					walk(nested, child)
 				}
 			}
 		}
 	}
-	walk(propTypes)
+	walk(propTypes, propDefIndex(props))
 }
 
 // NewPropertyPair builds the (WidgetPropertyType, WidgetProperty) pair for a property

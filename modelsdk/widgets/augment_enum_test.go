@@ -51,7 +51,7 @@ func TestReconcileEnumValues(t *testing.T) {
 	}}
 
 	typ := mkType()
-	reconcileEnumValues(typ, mpkEnumValuesByKey(def))
+	reconcileEnumValues(typ, mpkPropDefsByKey(def))
 
 	vt := typ["ObjectType"].(map[string]any)["PropertyTypes"].([]any)[1].(map[string]any)["ValueType"].(map[string]any)
 	got := enumVals(vt)

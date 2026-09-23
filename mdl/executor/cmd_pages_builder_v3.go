@@ -503,9 +503,13 @@ func (pb *pageBuilder) buildWidgetV3(w *ast.WidgetV3) (pages.Widget, error) {
 // handle. CustomWidget embeds BaseWidget and already serializes an Appearance
 // node, so this only fills in values the user set — no structural BSON change.
 //
-// Conditional visibility/editability is intentionally NOT applied here: the
-// CustomWidget serializer currently hardcodes those settings to nil, so wiring
-// them would have no effect (and is tracked separately).
+// Conditional VISIBILITY is applied: the writer emits a CustomWidget's
+// ConditionalVisibilitySettings like any other widget's (applyWidgetBase), and
+// describe page prints `Visible: [...]` for a pluggable widget that has one, so
+// dropping it here made a describe -> replace round trip silently show the
+// widget to everyone. Conditional EDITABILITY is still not applied: a pluggable
+// widget's editability is not written (MDL-WIDGET21), and setting the settings
+// node without the matching Editable enum would contradict itself.
 func (pb *pageBuilder) buildPluggable(def *WidgetDefinition, w *ast.WidgetV3) (pages.Widget, error) {
 	widget, err := pb.pluggableEngine.Build(def, w)
 	if err != nil {
@@ -514,6 +518,7 @@ func (pb *pageBuilder) buildPluggable(def *WidgetDefinition, w *ast.WidgetV3) (p
 	if err := applyWidgetAppearance(widget, w, pb.themeRegistry); err != nil {
 		return nil, err
 	}
+	applyConditionalVisibility(widget, w, false)
 	return widget, nil
 }
 
@@ -529,27 +534,7 @@ func applyConditionalSettings(widget pages.Widget, w *ast.WidgetV3) {
 	}
 	bw := bwg.GetBaseWidget()
 
-	if visibleIf := w.GetStringProp("VisibleIf"); visibleIf != "" {
-		// `Visible: [expr]` — bracket form, expression already rooted by the visitor.
-		bw.ConditionalVisibility = &pages.ConditionalVisibilitySettings{
-			BaseElement: model.BaseElement{
-				ID:       model.ID(types.GenerateID()),
-				TypeName: "Forms$ConditionalVisibilitySettings",
-			},
-			Expression: visibleIf,
-		}
-	} else if expr, ok := pages.StaticVisibleExpression(w.Properties["Visible"]); ok {
-		// `Visible: false` or `Visible: '<expr>'` — a page widget has no plain
-		// boolean Visible field, so route it through ConditionalVisibilitySettings
-		// (previously this value was parsed but never consumed → silently dropped).
-		bw.ConditionalVisibility = &pages.ConditionalVisibilitySettings{
-			BaseElement: model.BaseElement{
-				ID:       model.ID(types.GenerateID()),
-				TypeName: "Forms$ConditionalVisibilitySettings",
-			},
-			Expression: expr,
-		}
-	}
+	applyConditionalVisibility(widget, w, true)
 
 	if editableIf := w.GetStringProp("EditableIf"); editableIf != "" {
 		bw.ConditionalEditability = &pages.ConditionalEditabilitySettings{
@@ -568,6 +553,44 @@ func applyConditionalSettings(widget pages.Widget, w *ast.WidgetV3) {
 		// what makes the enum "Conditional", so honouring a plain `Editable` too
 		// would write an enum contradicting the element beside it.
 		bw.Editable = editable
+	}
+}
+
+// applyConditionalVisibility sets ConditionalVisibility from `Visible: [expr]`
+// (VisibleIf) or, when allowStatic, a static `Visible:` value. Shared by the
+// built-in widget path and buildPluggable; the pluggable path takes the bracket
+// form only, because a pluggable widget may own a property spelled `visible`
+// (the PDS dropdown menu's items do) and the static slot must stay its own.
+func applyConditionalVisibility(widget pages.Widget, w *ast.WidgetV3, allowStatic bool) {
+	type baseWidgetGetter interface {
+		GetBaseWidget() *pages.BaseWidget
+	}
+	bwg, ok := widget.(baseWidgetGetter)
+	if !ok {
+		return
+	}
+	bw := bwg.GetBaseWidget()
+
+	if visibleIf := w.GetStringProp("VisibleIf"); visibleIf != "" {
+		// `Visible: [expr]` — bracket form, expression already rooted by the visitor.
+		bw.ConditionalVisibility = &pages.ConditionalVisibilitySettings{
+			BaseElement: model.BaseElement{
+				ID:       model.ID(types.GenerateID()),
+				TypeName: "Forms$ConditionalVisibilitySettings",
+			},
+			Expression: visibleIf,
+		}
+	} else if expr, ok := pages.StaticVisibleExpression(w.Properties["Visible"]); ok && allowStatic {
+		// `Visible: false` or `Visible: '<expr>'` — a page widget has no plain
+		// boolean Visible field, so route it through ConditionalVisibilitySettings
+		// (previously this value was parsed but never consumed → silently dropped).
+		bw.ConditionalVisibility = &pages.ConditionalVisibilitySettings{
+			BaseElement: model.BaseElement{
+				ID:       model.ID(types.GenerateID()),
+				TypeName: "Forms$ConditionalVisibilitySettings",
+			},
+			Expression: expr,
+		}
 	}
 }
 

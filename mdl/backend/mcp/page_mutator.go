@@ -511,6 +511,23 @@ func (m *mcpPageMutator) ReplaceColumn(gridRef, columnRef string, _ []*backend.D
 	return fmt.Errorf("replacing column %s.%s is not yet supported by the MCP backend", gridRef, columnRef)
 }
 
+// ResolveObjectListItem reports no entry: the MCP backend cannot address
+// object-list entries yet, so the reference falls through to the widget paths,
+// which refuse it as before.
+func (m *mcpPageMutator) ResolveObjectListItem(_, _ string) (backend.ObjectListItemRef, bool, error) {
+	return backend.ObjectListItemRef{}, false, nil
+}
+
+func (m *mcpPageMutator) PluggableWidgetID(_ string) string { return "" }
+
+func (m *mcpPageMutator) InsertObjectListItems(ownerRef, listKey string, _ int, _ pages.Widget) error {
+	return fmt.Errorf("inserting %s entries into %s is not yet supported by the MCP backend", listKey, ownerRef)
+}
+
+func (m *mcpPageMutator) DropObjectListItems(ownerRef, listKey string, _ []int) error {
+	return fmt.Errorf("dropping %s entries from %s is not yet supported by the MCP backend", listKey, ownerRef)
+}
+
 // designPropsMap returns the widget's appearance.designProperties object,
 // creating the appearance and the map if absent.
 func designPropsMap(w map[string]any) map[string]any {

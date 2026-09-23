@@ -94,7 +94,7 @@ func GenerateFromMPK(def *mpk.WidgetDefinition) *WidgetTemplate {
 	// returnType, ValueType scalars) match the installed widget; otherwise a
 	// generated widget (e.g. any Charts widget) drifts within-key → CE0463.
 	byKey := mpkPropDefsByKey(def)
-	reconcileEnumValues(tmpl.Type, mpkEnumValuesByKey(def))
+	reconcileEnumValues(tmpl.Type, mpkPropDefsByKey(def))
 	reconcilePropertyMetadata(tmpl.Type, byKey)
 	reconcileValueTypesFromMPK(tmpl, byKey)
 	completeValueTypeEnvelope(tmpl.Type)

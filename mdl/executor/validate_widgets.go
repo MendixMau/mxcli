@@ -137,7 +137,45 @@ func validateWidgetTree(widgets []*ast.WidgetV3, registry *WidgetRegistry, locat
 // encloses them is unknown, so rules that depend on the enclosing context stand
 // down rather than guess.
 func validateWidgetSubtree(widgets []*ast.WidgetV3, registry *WidgetRegistry, locationPrefix string) []linter.Violation {
-	return validateWidgetTreeIn(widgets, registry, locationPrefix, nil, nil, pageArgContext{})
+	return validateWidgetTreeIn(widgets, registry, locationPrefix, alterObjectListMappings(registry), nil, pageArgContext{})
+}
+
+// alterObjectListMappings is the parent context for the top level of an ALTER
+// PAGE body. The parent there is a widget ON THE PAGE — `insert after
+// dropdownitem1 { dropdownitem … }` or `insert into pDSDropdownMenu1 { … }` —
+// which the static check cannot see, so an object-list entry keyword was
+// reported as "not a widget in this project" (MDL-WIDGET25) even though exec
+// knows exactly where it goes. The union of every definition's entry keywords
+// stands in for the unknown parent; exec resolves the real one and refuses a
+// keyword the target does not declare.
+//
+// A keyword two definitions declare with different item vocabularies is kept
+// out of the map (its sub-properties cannot be judged without the parent), but
+// the map is non-nil either way: a nil parentDef with a non-nil map is how
+// validateWidgetKind tells this position from the root of a CREATE PAGE, where
+// an entry keyword really is misplaced.
+func alterObjectListMappings(registry *WidgetRegistry) map[string]*ObjectListMapping {
+	out := map[string]*ObjectListMapping{}
+	if registry == nil {
+		return out
+	}
+	ambiguous := map[string]bool{}
+	for _, def := range registry.All() {
+		for i := range def.ObjectLists {
+			ol := &def.ObjectLists[i]
+			kw := strings.ToUpper(ol.MDLContainer)
+			if kw == "" || ambiguous[kw] {
+				continue
+			}
+			if prev, ok := out[kw]; ok && prev != ol {
+				delete(out, kw)
+				ambiguous[kw] = true
+				continue
+			}
+			out[kw] = ol
+		}
+	}
+	return out
 }
 
 // validateWidgetTreeIn is validateWidgetTree with the *parent* widget's

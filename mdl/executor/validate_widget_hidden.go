@@ -66,6 +66,16 @@ func hiddenPropertyViolation(locationPrefix, widgetName, mdlName, itemLabel stri
 	if itemLabel != "" {
 		where = " " + itemLabel
 	}
+	if rule.HiddenWhen.Always() && len(rule.And) == 0 {
+		return linter.Violation{
+			RuleID:   "MDL-WIDGET10",
+			Severity: severity,
+			Message: fmt.Sprintf(
+				"%s: widget `%s` (%s)%s property `%s` is always hidden by the widget's editor — %s",
+				locationPrefix, widgetName, mdlName, where, rule.PropertyKey, consequence,
+			),
+		}
+	}
 	scope := ""
 	if rule.HiddenWhen.Scope == types.ConditionScopeItem && itemLabel != "" {
 		scope = "its own "

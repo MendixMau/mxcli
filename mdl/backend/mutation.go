@@ -58,6 +58,15 @@ func (r WidgetRef) Name() string {
 	return r.Widget
 }
 
+// ObjectListItemRef locates one entry of a pluggable widget's object list.
+type ObjectListItemRef struct {
+	Owner    string // Name of the pluggable widget holding the list
+	WidgetID string // its widget id, e.g. mendix.pdsdropdownmenu.PDSDropdownMenu
+	ListKey  string // the list property's key, e.g. dropdownItems
+	Keyword  string // the entries' MDL keyword, lower case, e.g. dropdownitem
+	Index    int    // 0-based position in the list
+}
+
 // PageMutator provides fine-grained mutation operations on a single
 // page, layout, or snippet unit. Obtain one via PageMutationBackend.OpenPageForMutation.
 // All methods operate on the in-memory representation; call Save to persist.
@@ -146,6 +155,38 @@ type PageMutator interface {
 	// ReplaceColumn replaces a single DataGrid2 column with new columns.
 	// Columns are serialized as CustomWidgets$WidgetObject, not as form widgets.
 	ReplaceColumn(gridRef string, columnRef string, columns []*DataGridColumnSpec) error
+
+	// --- Object-list entries of a generic pluggable widget ---
+	//
+	// An entry of a pluggable widget's object list (a PDS dropdown menu's
+	// `dropdownitem`, a chart's `series`) is a CustomWidgets$WidgetObject with no
+	// Name. DESCRIBE names it positionally, `<keyword><N>`, and these methods
+	// address it by that name. They exist for the same reason InsertColumns
+	// does: an entry is not a widget, and the widget paths refuse it (#891).
+
+	// ResolveObjectListItem resolves a positional entry name. itemRef is ""
+	// for a bare `dropdownitem2` (widgetRef holds the name) and the entry name
+	// for the qualified `menu.dropdownitem2`. ok is false — with no error — when
+	// the reference names no entry, so the caller falls through to its widget
+	// and column paths. A bare name that matches entries of two widgets is an
+	// error naming the qualified forms.
+	ResolveObjectListItem(widgetRef, itemRef string) (ref ObjectListItemRef, ok bool, err error)
+
+	// PluggableWidgetID returns the widget id of the named pluggable widget,
+	// or "" when the name is not a pluggable widget.
+	PluggableWidgetID(widgetRef string) string
+
+	// InsertObjectListItems splices donor's entries of list listKey into the
+	// owner's list of that key at index (0..len; -1 appends). donor is a
+	// pluggable widget of the same widget id built only to carry the entries;
+	// everything else about it is discarded. Its entries point at donor's Type,
+	// so they are re-pointed at the owner's stored Type — refused, with nothing
+	// written, when a pointer has no counterpart there.
+	InsertObjectListItems(ownerRef, listKey string, index int, donor pages.Widget) error
+
+	// DropObjectListItems removes the entries at the given 0-based indexes of the
+	// owner's list listKey.
+	DropObjectListItems(ownerRef, listKey string, indexes []int) error
 
 	// FindWidget checks if a widget with the given name exists in the tree.
 	FindWidget(name string) bool

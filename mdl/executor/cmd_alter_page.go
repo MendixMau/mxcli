@@ -312,6 +312,12 @@ func applyInsertWidgetMutator(ctx *ExecContext, mutator backend.PageMutator, op 
 		return mutator.InsertColumns(op.Target.Widget, op.Target.Column, backend.InsertPosition(op.Position), specs)
 	}
 
+	// Entries of a pluggable widget's object list (a dropdown menu's
+	// `dropdownitem`s): by position, or INTO the widget itself.
+	if handled, err := applyInsertObjectListItems(ctx, mutator, op, moduleName, moduleID); handled {
+		return err
+	}
+
 	// Special path: inserting specialization templates into a List View. A
 	// Forms$ListViewTemplate lives in the list view's Templates array, not in its
 	// Widgets array, and is not a widget — the same reason DataGrid2 columns take
@@ -369,11 +375,7 @@ func applyInsertWidgetMutator(ctx *ExecContext, mutator backend.PageMutator, op 
 // ============================================================================
 
 func applyDropWidgetMutator(mutator backend.PageMutator, op *ast.DropWidgetOp) error {
-	refs := make([]backend.WidgetRef, len(op.Targets))
-	for i, t := range op.Targets {
-		refs[i] = backend.WidgetRef{Widget: t.Widget, Column: t.Column}
-	}
-	return mutator.DropWidget(refs)
+	return applyDropWidgetsAndItems(mutator, op)
 }
 
 // ============================================================================
@@ -398,6 +400,11 @@ func applyReplaceWidgetMutator(ctx *ExecContext, mutator backend.PageMutator, op
 			return mdlerrors.NewBackend("build replacement column specs", err)
 		}
 		return mutator.ReplaceColumn(op.Target.Widget, op.Target.Column, specs)
+	}
+
+	// An entry of a pluggable widget's object list, addressed by position.
+	if handled, err := applyReplaceObjectListItem(ctx, mutator, op, moduleName, moduleID); handled {
+		return err
 	}
 
 	// Find entity context from enclosing DataView/DataGrid/ListView for regular widget replace.

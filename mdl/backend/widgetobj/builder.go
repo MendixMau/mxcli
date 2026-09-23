@@ -784,6 +784,117 @@ func (ob *Builder) EnsureRequiredObjectLists() {}
 
 func (ob *Builder) ApplyPropertyVisibility(rules []types.WidgetVisibilityRule) {
 	ob.object = ApplyVisibilityRules(ob.object, ob.propertyTypeIDs, rules)
+	// DataGrid columns keep their measured per-column-kind table.
+	if _, tabled := emptyClientTemplateRules[ob.widgetID]; !tabled {
+		ob.object = applyItemVisibilityRules(ob.object, ob.propertyTypeIDs, rules)
+	}
+}
+
+// applyItemVisibilityRules is ApplyVisibilityRules for the ITEMS of object
+// lists: each item's TextTemplate sub-properties are nulled where a nested rule
+// hides them, and given an empty ClientTemplate where they are visible and
+// unset. A condition scoped to the item is read from that item's own values,
+// any other from the widget's.
+//
+// It only touches a list whose widget ships nested rules for it — that is what
+// says the editor's per-item logic is known, so a template no rule hides is
+// visible. The PDS Dropdown Menu's divider `caption` is that case: optional,
+// governed by no rule, and stored by Studio Pro as an empty ClientTemplate;
+// writing null there was CE0463 on a replace of the whole menu. A list with no
+// nested rules keeps the builder's convention, which is null for an optional
+// template (#891 measured that filling those with defaults made things worse).
+func applyItemVisibilityRules(object bson.D, propertyTypeIDs map[string]pages.PropertyTypeIDEntry, rules []types.WidgetVisibilityRule) bson.D {
+	byList := map[string][]types.WidgetVisibilityRule{}
+	for _, r := range rules {
+		if r.Nested() && r.HiddenWhen != nil {
+			byList[r.ListPropertyKey] = append(byList[r.ListPropertyKey], r)
+		}
+	}
+	if len(byList) == 0 {
+		return object
+	}
+	lists := make([]string, 0, len(byList))
+	for k := range byList {
+		lists = append(lists, k)
+	}
+	sort.Strings(lists)
+	widgetValues := primitiveValuesOf(object, propertyTypeIDs)
+	for _, listKey := range lists {
+		entry, ok := propertyTypeIDs[listKey]
+		if !ok || len(entry.NestedPropertyIDs) == 0 {
+			continue
+		}
+		listRules := byList[listKey]
+		object = updateWidgetPropertyValue(object, propertyTypeIDs, listKey, func(val bson.D) bson.D {
+			for i, e := range val {
+				if e.Key != "Objects" {
+					continue
+				}
+				arr, ok := e.Value.(bson.A)
+				if !ok {
+					continue
+				}
+				out := make(bson.A, len(arr))
+				for j, it := range arr {
+					item, ok := it.(bson.D)
+					if !ok {
+						out[j] = it
+						continue
+					}
+					out[j] = applyVisibilityToItem(item, entry.NestedPropertyIDs, listRules, widgetValues)
+				}
+				val[i].Value = out
+			}
+			return val
+		})
+	}
+	return object
+}
+
+func applyVisibilityToItem(item bson.D, nested map[string]pages.PropertyTypeIDEntry, rules []types.WidgetVisibilityRule, widgetValues map[string]string) bson.D {
+	itemValues := primitiveValuesOf(item, nested)
+	keys := make([]string, 0, len(nested))
+	for k, e := range nested {
+		if strings.EqualFold(e.ValueType, "TextTemplate") {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		hidden, determinable := false, true
+		for _, r := range rules {
+			if r.PropertyKey != key {
+				continue
+			}
+			fires, ok := r.Fires(func(c types.WidgetVisibilityCondition) (string, bool) {
+				if c.Scope == types.ConditionScopeItem {
+					v, ok := itemValues[c.PropertyKey]
+					return v, ok
+				}
+				v, ok := widgetValues[c.PropertyKey]
+				return v, ok
+			})
+			if !ok {
+				determinable = false
+			}
+			if ok && fires {
+				hidden = true
+			}
+		}
+		if !hidden && !determinable {
+			continue // never guess
+		}
+		item = updateWidgetPropertyValue(item, nested, key, func(val bson.D) bson.D {
+			if hidden {
+				return setBSONField(val, "TextTemplate", nil)
+			}
+			if bsonFieldIsNil(val, "TextTemplate") {
+				return setBSONField(val, "TextTemplate", BuildEmptyClientTemplate())
+			}
+			return val
+		})
+	}
+	return item
 }
 
 // ApplyVisibilityRules nulls the TextTemplate of any TextTemplate-typed property
@@ -818,6 +929,9 @@ func ApplyVisibilityRules(object bson.D, propertyTypeIDs map[string]pages.Proper
 	hidden := make(map[string]bool, len(rules))
 	conditional := make([]string, 0, len(rules))
 	for _, rule := range rules {
+		if rule.Nested() {
+			continue // names an item sub-property, not one of the widget's own
+		}
 		entry, ok := propertyTypeIDs[rule.PropertyKey]
 		if !ok || entry.ValueType != "TextTemplate" {
 			continue

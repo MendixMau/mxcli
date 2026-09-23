@@ -91,7 +91,13 @@ const defaultSlotContainer = "template"
 //	    to a value the widget hides, which mxbuild rejects with CE0463 and which
 //	    makes `mx create-module-package` refuse the module (upstream #931). Bump
 //	    forces existing projects to regenerate their defs with both.
-const WidgetDefGeneratorVersion = 17
+//	17 — bumped in merge ac43acec without a history line.
+//	18 — lift UNCONDITIONAL hides — a `hidePropertiesIn` that opens
+//	    getProperties with no guard (PDS Dropdown Menu's ariaLabelCaption /
+//	    moreOptionsCaption) — as operator `always`. Such a TextTemplate is stored
+//	    null by Studio Pro; a def generated before this carried no rule, so
+//	    rebuilding the widget wrote the populated default and failed CE0463.
+const WidgetDefGeneratorVersion = 18
 
 // WidgetDefinition describes how to construct a pluggable widget from MDL syntax.
 // Loaded from embedded JSON definition files (*.def.json).
@@ -734,6 +740,11 @@ func (e *PluggableWidgetEngine) hiddenUnnamedProperties(def *WidgetDefinition, w
 		key := strings.ToLower(rule.PropertyKey)
 		if explicit[key] {
 			continue // named by the script — MDL-WIDGET10's business, not ours
+		}
+		if rule.HiddenWhen.Always() && len(rule.And) == 0 {
+			// An unconditional hide has no condition to resolve.
+			out[key] = defaults[defaultsKey("", rule.PropertyKey)]
+			continue
 		}
 		condKey := strings.ToLower(rule.HiddenWhen.PropertyKey)
 		condVal, known := values[condKey]
@@ -2209,7 +2220,11 @@ func isBuiltinPropName(name string) bool {
 		"ButtonStyle", "DesktopWidth", "DesktopColumns", "TabletColumns",
 		"PhoneColumns", "PageSize", "Pagination", "PagingPosition",
 		"ShowPagingButtons", "Attributes", "FilterType", "Width", "Height",
-		"Tooltip", "Name":
+		"Tooltip", "Name",
+		// `Visible: [expr]` is lowered to VisibleIf by the visitor and applied
+		// by buildPluggable as ConditionalVisibilitySettings — it is what
+		// describe page emits for a pluggable widget with a condition.
+		"VisibleIf":
 		return true
 	}
 	return false

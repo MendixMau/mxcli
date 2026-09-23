@@ -159,6 +159,21 @@ func extractVisibilityRulesFromJS(js string) ([]types.WidgetVisibilityRule, edit
 		if listKey != "" {
 			itemIdent = enclosingForEachParam(js, callStart)
 		}
+		if listKey == "" && len(condKeys) == 0 && isUnconditionalHide(js, callStart) {
+			stats.Recognized++
+			for _, key := range keys {
+				sig := "\x00" + key + "\x00" + types.OperatorAlways
+				if seen[sig] {
+					continue
+				}
+				seen[sig] = true
+				rules = append(rules, types.WidgetVisibilityRule{
+					PropertyKey: key,
+					HiddenWhen:  &types.WidgetVisibilityCondition{Operator: types.OperatorAlways},
+				})
+			}
+			continue
+		}
 		cond, guardText, ok, conjunctive := parseGuard(js, callStart, itemIdent)
 		// A guard inside `outer ? ( … inner && hide(x) … )` states only the INNER
 		// term; the branch runs on outer too. Collect the enclosing group guards
@@ -654,6 +669,26 @@ func enclosingOpener(js string, pos int) int {
 // nsPrefixRE matches the widget-editor namespace prefix before a hide call — the
 // minifier names it per widget (`_.`, `D.`, `M.`, `j.`, `A.`, …), so it must be
 // matched generically rather than hard-coded to `_.`.
+// getPropertiesOpenRE matches the text right before the FIRST expression of a
+// getProperties body: `getProperties=function(e,t){return ` (the minified
+// comma-sequence form), `function getProperties(e,t){`, or the arrow form.
+var getPropertiesOpenRE = regexp.MustCompile(
+	`(?:getProperties\s*[=:]\s*function\s*\w*|function\s+getProperties|getProperties\s*[=:]\s*)\s*\([^()]*\)\s*(?:=>\s*)?\{\s*(?:return\s+)?$`)
+
+// isUnconditionalHide reports whether the hide call at callStart is the first
+// thing getProperties does — no guard, no preceding expression. PDS Dropdown
+// Menu opens with `return M.hidePropertiesIn(t,e,["ariaLabelCaption",…]),…`:
+// those properties are never shown, so Studio Pro stores their TextTemplates
+// null. Anything less certain (a hide after another call, or at the start of a
+// different function) is left to parseGuard.
+func isUnconditionalHide(js string, callStart int) bool {
+	pre := strings.TrimRight(js[:callStart], " ")
+	if loc := nsPrefixRE.FindStringIndex(pre); loc != nil {
+		pre = pre[:loc[0]]
+	}
+	return getPropertiesOpenRE.MatchString(pre)
+}
+
 var nsPrefixRE = regexp.MustCompile(`[A-Za-z_$][\w$]*\.$`)
 
 // parseGuard reads the guard expression immediately preceding a hide call and

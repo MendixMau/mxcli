@@ -61,6 +61,9 @@ func (r WidgetVisibilityRule) Fires(lookup func(c WidgetVisibilityCondition) (st
 	}
 	all := true
 	for _, c := range conds {
+		if c.Always() {
+			continue // holds in every configuration; nothing to look up
+		}
 		v, ok := lookup(c)
 		if !ok {
 			return false, false
@@ -88,6 +91,14 @@ func (r WidgetVisibilityRule) Nested() bool { return r.ListPropertyKey != "" }
 //	notempty — the named property is anything but the empty string
 //	in       — the named property is one of Value's comma-separated entries
 //	notin    — the named property is none of them
+//	always   — no property: the editor hides it unconditionally
+//
+// `always` is an UNCONDITIONAL hide — `getProperties(e,t){return
+// hidePropertiesIn(t,e,["ariaLabelCaption",…]),…}` in the PDS dropdown menu.
+// Such a property is never shown in Studio Pro, so its TextTemplate is stored
+// null; serializing the template default instead is CE0463. It carries no
+// PropertyKey, so a consumer that looks the condition's property up must ask
+// Always() first rather than treat the empty key as unknown.
 //
 // `empty` is NOT `falsy`: editorConfig writes `null===e.someDataSource` and
 // `0===e.someList.length` for "the author has not picked one", which is a
@@ -111,6 +122,12 @@ type WidgetVisibilityCondition struct {
 	// GROUP's own `initialCollapsedState` is "dynamic".
 	Scope string `json:"scope,omitempty"`
 }
+
+// OperatorAlways is the operator of an unconditional hide (see the operator list).
+const OperatorAlways = "always"
+
+// Always reports whether the condition holds in every configuration.
+func (c WidgetVisibilityCondition) Always() bool { return c.Operator == OperatorAlways }
 
 // ConditionScopeItem marks a condition evaluated against the object-list item
 // that carries the rule's property, rather than against the widget.
@@ -141,6 +158,8 @@ func (c *WidgetVisibilityCondition) Hidden(values map[string]string) bool {
 		return containsCSV(c.Value, current)
 	case "notin":
 		return !containsCSV(c.Value, current)
+	case OperatorAlways:
+		return true
 	default:
 		return false
 	}
