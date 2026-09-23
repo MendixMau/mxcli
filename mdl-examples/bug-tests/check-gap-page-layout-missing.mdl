@@ -1,0 +1,15 @@
+-- check --references gap (marketplace-rnd): a page whose layout does not exist.
+--
+-- Atlas_Core has no Popup_Content layout (the popup layout is
+-- Atlas_Core.PopupLayout). `check --references` used to pass this and `exec`
+-- then failed with "layout not found". The layout is now resolved against the
+-- project and the script's own CREATE LAYOUT statements.
+--
+-- Needs a project: passes a project-less `check` and fails
+-- `mxcli check <this file> -p app.mpr --references`.
+
+create or modify module GapLayout;
+
+create page GapLayout.P_Popup (Title: 'Popup', Layout: Atlas_Core.Popup_Content) {
+  dynamictext dt (content: 'x')
+};

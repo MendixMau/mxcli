@@ -1,0 +1,25 @@
+-- check --references gap (marketplace-rnd): a retrieve over a Reference from its
+-- TO end, used as an object.
+--
+-- System.User_Language runs from User to Language (a Reference, owner Default).
+-- Retrieving it from a Language starts at the end that does not hold the
+-- reference, so Mendix returns every User pointing at that language: a LIST.
+-- `exec` types the output from how it is used and writes the microflow, and
+-- mxbuild then rejects `$User/Name` as CE0117.
+--
+-- The rule needs the association's ends from the model, so this passes a
+-- project-less `check` and fails
+-- `mxcli check <this file> -p app.mpr --references`. Associations the script
+-- creates itself are not resolved by the rule.
+-- Fix: `$One = head($User)`, or
+-- `retrieve $User from System.User where [System.User_Language = $Lang] limit 1`.
+
+create or modify module GapReverse;
+
+create microflow GapReverse.MF_FirstUserName ($Lang: System.Language) returns String as $Name
+begin
+  retrieve $User from $Lang/System.User_Language;
+  declare $Name String = $User/Name;
+  return $Name;
+end;
+/

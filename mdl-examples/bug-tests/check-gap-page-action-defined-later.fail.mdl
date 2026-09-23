@@ -1,0 +1,17 @@
+-- check --references gap (marketplace-rnd): a page button's action names a
+-- microflow the script creates only further down.
+--
+-- A page is written as soon as its statement runs, and resolving its button's
+-- microflow happens then, so `exec` stops with "microflow not found" before the
+-- microflow exists. Before the fix, `check` passed it. The rule (MDL-ORDER01)
+-- now covers widget actions on pages and snippets, as it already did for
+-- microflow calls. Create the microflow first.
+
+create or modify module GapOrder;
+
+create page GapOrder.P_Home (Title: 'Home', Layout: Atlas_Core.Atlas_Default) {
+  actionbutton btnGo (Caption: 'Go', Action: MICROFLOW GapOrder.ACT_Go)
+};
+
+create microflow GapOrder.ACT_Go () begin end;
+/

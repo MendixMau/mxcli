@@ -3,6 +3,7 @@
 package executor
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/mendixlabs/mxcli/mdl/ast"
@@ -59,6 +60,11 @@ func TestValidateMicroflow_XPathAssociationEmpty(t *testing.T) {
 		wantMDL bool
 	}{
 		{"association = empty", "[Ledger.Transaction_Category = empty]", true},
+		{"association != empty", "[Ledger.Transaction_Category != empty]", true},
+		{"association !=empty, no spaces", "[Ledger.Transaction_Category!=empty]", true},
+		{"path form is fine", "[Ledger.Transaction_Category/Ledger.Category]", false},
+		{"bare attribute != empty is fine", "[Description != empty]", false},
+		{"attribute over association != empty is fine", "[Ledger.Transaction_Category/Ledger.Name != empty]", false},
 		{"negation form is fine", "[not(Ledger.Transaction_Category/Ledger.Category)]", false},
 		{"bare attribute = empty is fine", "[Description = empty]", false},
 		{"attribute over association is fine", "[Ledger.Transaction_Category/Ledger.Name = empty]", false},
@@ -81,6 +87,23 @@ func TestValidateMicroflow_XPathAssociationEmpty(t *testing.T) {
 				t.Errorf("MDL047 fired=%v, want %v (where: %q)", got, tc.wantMDL, tc.where)
 			}
 		})
+	}
+}
+
+// TestXPathAssociationEmptySuggestion pins the rewrite per operator: `= empty`
+// becomes a negated path, `!= empty` a bare path. Suggesting `not(...)` for
+// `!= empty` would invert the constraint.
+func TestXPathAssociationEmptySuggestion(t *testing.T) {
+	ms := xpathAssociationEmptyMatches("[UserGroups.Group_Guests != empty and M.A_B = empty]")
+	if len(ms) != 2 {
+		t.Fatalf("matches = %d, want 2: %+v", len(ms), ms)
+	}
+	if ms[0].Op != "!=" || strings.Contains(ms[0].Suggestion(), "not(") ||
+		!strings.Contains(ms[0].Suggestion(), "[UserGroups.Group_Guests/<Module.TargetEntity>]") {
+		t.Errorf("!= suggestion wrong: %+v %q", ms[0], ms[0].Suggestion())
+	}
+	if ms[1].Op != "=" || !strings.Contains(ms[1].Suggestion(), "not(M.A_B/") {
+		t.Errorf("= suggestion wrong: %+v %q", ms[1], ms[1].Suggestion())
 	}
 }
 
@@ -208,6 +231,7 @@ func TestValidateDatasourceXPathAssociationEmpty(t *testing.T) {
 		want   bool
 	}{
 		{"association = empty", dg("[Ledger.Transaction_Category = empty]"), true},
+		{"association != empty", dg("[UserGroups.Group_Guests != empty]"), true},
 		{"negation is fine", dg("[not(Ledger.Transaction_Category/Ledger.Category)]"), false},
 		{"attribute = empty is fine", dg("[Description = empty]"), false},
 		{"no where clause", dg(""), false},

@@ -249,14 +249,14 @@ func validateDatasourceXPathAssociationEmpty(w *ast.WidgetV3, locationPrefix str
 		return nil
 	}
 	var out []linter.Violation
-	for _, assoc := range xpathAssociationEmptyMatches(ds.Where) {
+	for _, m := range xpathAssociationEmptyMatches(ds.Where) {
 		out = append(out, linter.Violation{
 			RuleID:   "MDL047",
 			Severity: linter.SeverityError,
 			Message: fmt.Sprintf(
-				"%s: widget `%s` datasource constraint tests association `%s = empty`, which Mendix XPath does not support (CE0161 \"Error(s) in XPath constraint\") — `= empty` works on attributes, not associations",
-				locationPrefix, w.Name, assoc),
-			Suggestion: fmt.Sprintf("Test for the absence of the associated object with negation: `[not(%s/<Module.TargetEntity>)]`.", assoc),
+				"%s: widget `%s` datasource constraint tests association `%s`, which Mendix XPath does not support (CE0161 \"Error(s) in XPath constraint\") — `empty` comparisons work on attributes, not associations",
+				locationPrefix, w.Name, m.Test()),
+			Suggestion: m.Suggestion(),
 		})
 	}
 	return out

@@ -675,36 +675,57 @@ func exprHasSlashDivision(expr ast.Expression) bool {
 }
 
 // xpathAssocEmptyRe matches a module-qualified association compared directly to
-// `empty` in an XPath constraint (`Ledger.Transaction_Category = empty`). The
-// leading boundary class excludes a `/` (so an attribute-over-association path
-// like `Assoc/Ledger.Category = empty` is NOT matched — that is a valid
-// attribute nullability test) and a `.`/word char (so it captures the whole
-// qualified name, not the tail of a 3-part enum literal).
-var xpathAssocEmptyRe = regexp.MustCompile(`(^|[^\w./])([A-Za-z_]\w*\.[A-Za-z_]\w*)\s*=\s*empty\b`)
+// `empty` in an XPath constraint (`Ledger.Transaction_Category = empty`, or its
+// negation `!= empty`). The leading boundary class excludes a `/` (so an
+// attribute-over-association path like `Assoc/Ledger.Category = empty` is NOT
+// matched — that is a valid attribute nullability test) and a `.`/word char (so
+// it captures the whole qualified name, not the tail of a 3-part enum literal).
+// Both operators fail the same way (CE0161); `!=` was missed until the
+// marketplace-rnd build hit `[UserGroups.Group_Guests != empty]`.
+var xpathAssocEmptyRe = regexp.MustCompile(`(^|[^\w./])([A-Za-z_]\w*\.[A-Za-z_]\w*)\s*(!=|=)\s*empty\b`)
 
-// xpathAssociationEmptyMatches returns the module-qualified association names an
+// xpathAssocEmptyMatch is one association compared to `empty`, with the operator
+// used, because the rewrite differs: `= empty` → `not(A/T)`, `!= empty` → `A/T`.
+type xpathAssocEmptyMatch struct {
+	Assoc string
+	Op    string // "=" or "!="
+}
+
+// Test renders the comparison as written, for the message.
+func (m xpathAssocEmptyMatch) Test() string { return m.Assoc + " " + m.Op + " empty" }
+
+// Suggestion is the supported XPath spelling of the same test.
+func (m xpathAssocEmptyMatch) Suggestion() string {
+	if m.Op == "!=" {
+		return fmt.Sprintf("Test for the presence of the associated object with a path: `[%s/<Module.TargetEntity>]`.", m.Assoc)
+	}
+	return fmt.Sprintf("Test for the absence of the associated object with negation: `[not(%s/<Module.TargetEntity>)]`.", m.Assoc)
+}
+
+// xpathAssociationEmptyMatches returns the module-qualified associations an
 // XPath constraint compares directly to `empty` (`Ledger.Transaction_Category =
-// empty`). Shared by the microflow-retrieve check (MDL047) and the page/widget
-// datasource check. Empty result → nothing to flag.
-func xpathAssociationEmptyMatches(xpath string) []string {
-	var out []string
+// empty` / `!= empty`). Shared by the microflow-retrieve check (MDL047) and the
+// page/widget datasource check. Empty result → nothing to flag.
+func xpathAssociationEmptyMatches(xpath string) []xpathAssocEmptyMatch {
+	var out []xpathAssocEmptyMatch
 	for _, m := range xpathAssocEmptyRe.FindAllStringSubmatch(xpath, -1) {
-		out = append(out, m[2])
+		out = append(out, xpathAssocEmptyMatch{Assoc: m[2], Op: m[3]})
 	}
 	return out
 }
 
-// checkXPathAssociationEmpty flags `[Module.Association = empty]` in a retrieve
-// constraint. Mendix XPath has no `= empty` test for an association — it fails
-// the build with CE0161; the nullability test is `not(Module.Association/Module.Target)`.
+// checkXPathAssociationEmpty flags `[Module.Association = empty]` (and `!=`) in a
+// retrieve constraint. Mendix XPath has no `empty` comparison for an association
+// — it fails the build with CE0161; the nullability tests are
+// `not(Module.Association/Module.Target)` and `Module.Association/Module.Target`.
 // A bare attribute (`Name = empty`) is valid and is not module-qualified, so it
 // never matches. (ledger finding #25)
 func (v *microflowValidator) checkXPathAssociationEmpty(variable, xpath string) {
-	for _, assoc := range xpathAssociationEmptyMatches(xpath) {
+	for _, m := range xpathAssociationEmptyMatches(xpath) {
 		v.addViolation("MDL047", linter.SeverityError,
-			fmt.Sprintf("retrieve '$%s' constraint tests association `%s = empty`, which Mendix XPath does not support "+
-				"(CE0161 \"Error(s) in XPath constraint\") — `= empty` works on attributes, not associations", variable, assoc),
-			fmt.Sprintf("Test for the absence of the associated object with negation: `[not(%s/<Module.TargetEntity>)]`.", assoc))
+			fmt.Sprintf("retrieve '$%s' constraint tests association `%s`, which Mendix XPath does not support "+
+				"(CE0161 \"Error(s) in XPath constraint\") — `empty` comparisons work on attributes, not associations", variable, m.Test()),
+			m.Suggestion())
 	}
 }
 

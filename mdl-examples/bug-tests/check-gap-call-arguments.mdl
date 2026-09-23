@@ -1,0 +1,28 @@
+-- check --references gap (marketplace-rnd): a CALL MICROFLOW that passes a
+-- string literal for an enumeration parameter and leaves parameters unmapped.
+--
+-- `exec` writes the call as given. mxbuild then reports CE0117 ("The expression
+-- is of type String but should be of type Enumeration") for Kind = 'Removed',
+-- and CE0115 ("the arguments do not match the expected parameters") for the
+-- missing $App and $Note.
+--
+-- The rule reads the callee's signature from the project or from this script,
+-- so it runs only with a project: this passes a project-less `check` and fails
+-- `mxcli check <this file> -p app.mpr --references`.
+-- Fix: `call microflow GapCall.SUB_Register (Kind = GapCall.Kinds.Removed,
+-- App = $App, Note = '')`.
+
+create or modify module GapCall;
+
+create enumeration GapCall.Kinds (Added 'Added', Removed 'Removed');
+
+create microflow GapCall.SUB_Register ($Kind: enum GapCall.Kinds, $App: System.User, $Note: String)
+begin
+end;
+/
+
+create microflow GapCall.MF_Caller ($App: System.User)
+begin
+  call microflow GapCall.SUB_Register (Kind = 'Removed');
+end;
+/

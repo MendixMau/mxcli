@@ -564,6 +564,19 @@ func validateWithContext(ctx *ExecContext, stmt ast.Statement, sc *scriptContext
 			return mdlerrors.NewValidationf("microflow '%s' has reference errors:\n  - %s",
 				s.Name.String(), strings.Join(refErrors, "\n  - "))
 		}
+		if !s.Excluded {
+			// Call arguments against the called flow's signature: missing
+			// parameters (CE0115) and string literals for enumeration
+			// parameters (CE0117) pass exec and fail only at build.
+			if argErrors := validateFlowCallArguments(ctx, s.Body, sc); len(argErrors) > 0 {
+				return mdlerrors.NewValidationf("microflow '%s' has call argument errors:\n  - %s",
+					s.Name.String(), strings.Join(argErrors, "\n  - "))
+			}
+			if assocErrors := validateReverseReferenceRetrieves(ctx, s, sc); len(assocErrors) > 0 {
+				return mdlerrors.NewValidationf("microflow '%s' has retrieve errors:\n  - %s",
+					s.Name.String(), strings.Join(assocErrors, "\n  - "))
+			}
+		}
 	case *ast.CreateRuleStmt:
 		if s.Name.Module != "" && !sc.modules[s.Name.Module] {
 			if _, err := findModule(ctx, s.Name.Module); err != nil {
@@ -602,12 +615,25 @@ func validateWithContext(ctx *ExecContext, stmt ast.Statement, sc *scriptContext
 				return mdlerrors.NewValidationf("nanoflow '%s' has reference errors:\n  - %s",
 					s.Name.String(), strings.Join(refErrors, "\n  - "))
 			}
+			if argErrors := validateFlowCallArguments(ctx, s.Body, sc); len(argErrors) > 0 {
+				return mdlerrors.NewValidationf("nanoflow '%s' has call argument errors:\n  - %s",
+					s.Name.String(), strings.Join(argErrors, "\n  - "))
+			}
 		}
 	case *ast.CreatePageStmtV3:
 		if s.Name.Module != "" && !sc.modules[s.Name.Module] {
 			if _, err := findModule(ctx, s.Name.Module); err != nil {
 				return mdlerrors.NewNotFound("module", s.Name.Module)
 			}
+		}
+		// The layout is resolved at write time: exec refuses a page with widgets
+		// whose layout does not exist, and a page without them is written with no
+		// layout call at all (CE1613 at build). Resolve it here the same way
+		// resolveLayout does, so `check --references` reports it first.
+		if s.Layout != "" && !pageLayoutResolves(ctx, s.Layout, sc.layouts) {
+			return mdlerrors.NewValidationf(
+				"page '%s' references layout '%s', which does not exist in the project or this script. List the layouts with `show catalog table layouts` (e.g. Atlas_Core.Atlas_Default, Atlas_Core.PopupLayout).",
+				s.Name.String(), s.Layout)
 		}
 		// Every widget-bearing field, not just the bare body — see pageWidgets.
 		pageWidgets := allPageWidgets(s)
@@ -1354,6 +1380,56 @@ func (sc *scriptContext) recordFlowParams(qualifiedName string, params []ast.Mic
 // neighbourhood: validateIconRefs (mendixlabs/mxcli#1008) and forEachWidget
 // both had to grow the placeholder arm separately. Collecting the roots once,
 // here, is what stops the fourth.
+// pageLayoutResolves resolves a page's layout against the project and script.
+// When the project's layouts cannot be listed — or the listing is empty, which
+// no real project is (every app carries Atlas_Core's) — it answers true: "could
+// not look" is not evidence the layout is missing, and a check that failed
+// every page on a listing error would be noise.
+func pageLayoutResolves(ctx *ExecContext, ref string, script map[string]bool) bool {
+	if ctx == nil || ctx.Backend == nil {
+		return true
+	}
+	h, err := getHierarchy(ctx)
+	if err != nil {
+		return true
+	}
+	layouts, err := ctx.Backend.ListLayouts()
+	if err != nil || len(layouts) == 0 {
+		return true
+	}
+	project := make(map[string]bool, len(layouts))
+	for _, l := range layouts {
+		if l != nil {
+			project[h.GetQualifiedName(l.ContainerID, l.Name)] = true
+		}
+	}
+	return layoutResolves(ref, project, script)
+}
+
+// layoutResolves reports whether a page's `Layout:` value names a layout the
+// project or the script defines, matching pageBuilder.resolveLayout: a
+// qualified name must match module and name, a bare name matches in any module.
+func layoutResolves(ref string, project, script map[string]bool) bool {
+	ref = strings.TrimSpace(ref)
+	if project[ref] || script[ref] {
+		return true
+	}
+	parts := strings.Split(ref, ".")
+	mod, name := "", parts[len(parts)-1]
+	if len(parts) >= 2 {
+		mod = parts[0]
+	}
+	for _, set := range []map[string]bool{project, script} {
+		for qn := range set {
+			qp := strings.Split(qn, ".")
+			if qp[len(qp)-1] == name && (mod == "" || qp[0] == mod) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func allPageWidgets(s *ast.CreatePageStmtV3) []*ast.WidgetV3 {
 	if len(s.Placeholders) == 0 {
 		return s.Widgets

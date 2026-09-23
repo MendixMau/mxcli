@@ -1,0 +1,20 @@
+-- check --references gap (marketplace-rnd): an association compared to empty in
+-- an XPath constraint.
+--
+-- `[Mod.Assoc != empty]` is not valid XPath in Mendix: mxbuild rejects it as
+-- CE0161. Before the fix, `mxcli check` and `exec` both accepted it. Write the
+-- path to the associated entity instead: `[Mod.Assoc/Mod.Target]`, or
+-- `[not(Mod.Assoc/Mod.Target)]` for the "= empty" form.
+
+create or modify module GapXPath;
+
+create or modify persistent entity GapXPath.Team (Name: String(100));
+create or modify persistent entity GapXPath.Member (Name: String(100));
+create association GapXPath.Member_Team from GapXPath.Member to GapXPath.Team;
+
+create microflow GapXPath.MF_MembersInATeam () returns list of GapXPath.Member as $L
+begin
+  retrieve $L from GapXPath.Member where [GapXPath.Member_Team != empty];
+  return $L;
+end;
+/

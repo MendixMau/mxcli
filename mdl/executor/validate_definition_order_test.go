@@ -124,6 +124,37 @@ begin declare $O Boolean = true; return $O; end;`,
 			want: "R.MF",
 		},
 		{
+			// marketplace-rnd: `check --references` passed, exec failed with
+			// "resolve microflow" after the earlier statements were written.
+			name: "page button microflow action",
+			script: `create module R;
+create page R.P ( Title: 'P', Layout: 'Atlas_Core.Atlas_Default' ) {
+  container c1 { actionbutton btnGo ( Caption: 'Go', Action: MICROFLOW R.ACT_Go ) }
+};
+create microflow R.ACT_Go () begin end;`,
+			want: "R.ACT_Go",
+		},
+		{
+			name: "page microflow datasource",
+			script: `create module R;
+create persistent entity R.Thing (Name: String(100));
+create page R.P ( Title: 'P', Layout: 'Atlas_Core.Atlas_Default' ) {
+  datagrid dg (datasource: microflow R.DS_Things) { column cName (Attribute: Name, Caption: 'Name') }
+};
+create microflow R.DS_Things () returns list of R.Thing as $L
+begin retrieve $L from R.Thing; return $L; end;`,
+			want: "R.DS_Things",
+		},
+		{
+			name: "snippet button nanoflow action",
+			script: `create module R;
+create snippet R.S {
+  container c1 { actionbutton btnGo ( Caption: 'Go', Action: NANOFLOW R.NF_Go ) }
+};
+create nanoflow R.NF_Go () begin end;`,
+			want: "R.NF_Go",
+		},
+		{
 			name: "call inside a loop body is reached",
 			script: `create module R;
 create microflow R.Caller () returns Boolean as $O
@@ -219,6 +250,22 @@ begin declare $O String = 'x'; return $O; end;`,
 			script: `create module R;
 create microflow R.MF () returns Boolean as $O
 begin $X = call microflow R.MF (); declare $O Boolean = true; return $O; end;`,
+		},
+		{
+			name: "page button microflow created earlier",
+			script: `create module R;
+create microflow R.ACT_Go () begin end;
+create page R.P ( Title: 'P', Layout: 'Atlas_Core.Atlas_Default' ) {
+  container c1 { actionbutton btnGo ( Caption: 'Go', Action: MICROFLOW R.ACT_Go ) }
+};`,
+		},
+		{
+			name: "page button microflow later CREATE OR MODIFY",
+			script: `create module R;
+create page R.P ( Title: 'P', Layout: 'Atlas_Core.Atlas_Default' ) {
+  container c1 { actionbutton btnGo ( Caption: 'Go', Action: MICROFLOW R.ACT_Go ) }
+};
+create or modify microflow R.ACT_Go () begin end;`,
 		},
 		{
 			name: "reference to a document not created in this script at all",

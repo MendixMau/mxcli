@@ -23,6 +23,7 @@ package executor
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/mendixlabs/mxcli/mdl/ast"
 	"github.com/mendixlabs/mxcli/mdl/linter"
@@ -217,6 +218,11 @@ func eagerDefRefs(stmt ast.Statement) []defRef {
 		}
 		return out
 
+	case *ast.CreatePageStmtV3:
+		return widgetFlowDefRefs("page "+s.Name.String(), allPageWidgets(s))
+	case *ast.CreateSnippetStmtV3:
+		return widgetFlowDefRefs("snippet "+s.Name.String(), s.Widgets)
+
 	case *ast.GrantEntityAccessStmt:
 		return oneDefRef(s.Entity, defEntity, "grant on entity "+s.Entity.String())
 	case *ast.GrantMicroflowAccessStmt:
@@ -234,6 +240,35 @@ func oneDefRef(name ast.QualifiedName, kind, site string) []defRef {
 		return nil
 	}
 	return []defRef{{name: name.String(), kinds: []string{kind}, site: site}}
+}
+
+// widgetFlowDefRefs collects the microflows and nanoflows a page or snippet's
+// widgets call — button actions and microflow/nanoflow datasources. The page
+// builder resolves each one while it writes the widget (resolveMicroflow /
+// resolveNanoflowByName), so a forward one fails `exec` with "resolve
+// microflow" after the statements before it have been written. Page targets of
+// a widget are MDL-PAGE01's business and are not repeated here.
+func widgetFlowDefRefs(site string, widgets []*ast.WidgetV3) []defRef {
+	var c widgetRefCollector
+	c.collectFromWidgets(widgets)
+	c.dedupe()
+	var out []defRef
+	for _, mf := range c.microflows {
+		out = append(out, qualifiedStringDefRef(mf, defMicroflow, site)...)
+	}
+	for _, nf := range c.nanoflows {
+		out = append(out, qualifiedStringDefRef(nf, defNanoflow, site)...)
+	}
+	return out
+}
+
+// qualifiedStringDefRef is oneDefRef for a name the widget AST holds as a string.
+// An unqualified name is ignored, as everywhere in this rule.
+func qualifiedStringDefRef(name, kind, site string) []defRef {
+	if !strings.Contains(name, ".") {
+		return nil
+	}
+	return []defRef{{name: name, kinds: []string{kind}, site: site}}
 }
 
 // flowDefRefs collects the eager references of a microflow, nanoflow or rule:

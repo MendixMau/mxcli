@@ -104,6 +104,9 @@ type flowParam struct {
 	Name   string
 	Entity string // entity qualified name, "" when unknown or not an object
 	Object bool   // takes an object or a list of objects
+	// Enum is the enumeration qualified name of an enumeration-typed
+	// parameter, "" otherwise. A string literal passed there is CE0117.
+	Enum string
 }
 
 // flowSignature is a flow's parameters plus the entity it returns — the return
@@ -602,6 +605,7 @@ func sdkFlowSignature(params []*microflows.MicroflowParameter, ret microflows.Da
 			Name:   p.Name,
 			Entity: entity,
 			Object: entity != "",
+			Enum:   sdkDataTypeEnum(p.Type),
 		})
 	}
 	return sig
@@ -623,6 +627,18 @@ func sdkDataTypeEntity(dt microflows.DataType) string {
 	return ""
 }
 
+// sdkDataTypeEnum returns the enumeration qualified name behind an enumeration
+// data type, and "" for everything else.
+func sdkDataTypeEnum(dt microflows.DataType) string {
+	switch t := dt.(type) {
+	case *microflows.EnumerationType:
+		return t.EnumerationQualifiedName
+	case microflows.EnumerationType:
+		return t.EnumerationQualifiedName
+	}
+	return ""
+}
+
 // astFlowSignature builds a signature from a CREATE MICROFLOW / CREATE NANOFLOW
 // statement, for a flow this script has not written yet.
 func astFlowSignature(params []ast.MicroflowParam, ret *ast.MicroflowReturnType) *flowSignature {
@@ -633,11 +649,17 @@ func astFlowSignature(params []ast.MicroflowParam, ret *ast.MicroflowReturnType)
 	}
 	for _, p := range params {
 		entity := astDataTypeEntity(p.Type)
-		sig.Params = append(sig.Params, flowParam{
+		fp := flowParam{
 			Name:   p.Name,
 			Entity: entity,
 			Object: entity != "",
-		})
+		}
+		// Only the unambiguous `enum Module.Name` form: a bare Module.Name may
+		// be an entity, and is already recorded as one above.
+		if p.Type.Kind == ast.TypeEnumeration && p.Type.ExplicitEnum && p.Type.EnumRef != nil {
+			fp.Enum = p.Type.EnumRef.String()
+		}
+		sig.Params = append(sig.Params, fp)
 	}
 	return sig
 }

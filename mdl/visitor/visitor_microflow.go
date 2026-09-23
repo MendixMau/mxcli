@@ -189,7 +189,7 @@ func buildMicroflowDataType(ctx parser.IDataTypeContext) ast.DataType {
 	if dtCtx.ENUMERATION() != nil || dtCtx.ENUM_TYPE() != nil {
 		if qn := dtCtx.QualifiedName(); qn != nil {
 			name := buildQualifiedName(qn)
-			return ast.DataType{Kind: ast.TypeEnumeration, EnumRef: &name}
+			return ast.DataType{Kind: ast.TypeEnumeration, EnumRef: &name, ExplicitEnum: true}
 		}
 	}
 
@@ -249,7 +249,7 @@ func buildNonListDataType(ctx parser.INonListDataTypeContext) ast.DataType {
 	if dtCtx.ENUMERATION() != nil || dtCtx.ENUM_TYPE() != nil {
 		if qn := dtCtx.QualifiedName(); qn != nil {
 			name := buildQualifiedName(qn)
-			return ast.DataType{Kind: ast.TypeEnumeration, EnumRef: &name}
+			return ast.DataType{Kind: ast.TypeEnumeration, EnumRef: &name, ExplicitEnum: true}
 		}
 	}
 
