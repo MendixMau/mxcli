@@ -314,6 +314,18 @@ alterPageAssignment
     | ACTION EQUALS actionExprV3                       // Action = MICROFLOW Module.MF | SHOW_PAGE Module.Page | SAVE_CHANGES CLOSE_PAGE
     | VISIBLE EQUALS xpathConstraint                   // Visible = [Name != ''] (conditional visibility)
     | EDITABLE EQUALS xpathConstraint                  // Editable = [Status = 'Open'] (conditional editability)
+    // A pluggable widget's NAMED action slot, addressed by the widget's own key:
+    // `set 'createFileAction' = microflow M.F on fileUploader1`. The ALTER-level
+    // twin of widgetPropertyV3's `key: actionExprV3` (#956); without it the value
+    // fell to propertyValueV3, which has no `microflow <name>` form, and the only
+    // way to retarget one slot was to REPLACE the whole widget
+    // (mendixlabs/mxcli#995). Placed before the scalar alternatives, as on CREATE,
+    // so a bare action keyword (`close_page`) is an action; unlike CREATE there is
+    // no datasource overlap to yield to, since DataSource is its own alternative.
+    // Whether the key IS an action slot is the stored widget's call, not the
+    // grammar's — the mutator refuses one that is not.
+    | STRING_LITERAL EQUALS actionExprV3                // 'createFileAction' = MICROFLOW Module.MF
+    | identifierOrKeyword EQUALS actionExprV3           // createFileAction = MICROFLOW Module.MF
     | identifierOrKeyword EQUALS propertyValueV3       // Caption = 'Save'
     | STRING_LITERAL EQUALS propertyValueV3             // 'showLabel' = false
     ;
