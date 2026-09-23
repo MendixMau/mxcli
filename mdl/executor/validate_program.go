@@ -84,6 +84,8 @@ func ValidateProgram(prog *ast.Program, projectPath string) []linter.Violation {
 		// Parameter annotations for the two flow flavours that do not go through
 		// ValidateMicroflow but share the parameter grammar.
 		if nfStmt, ok := stmt.(*ast.CreateNanoflowStmt); ok {
+			// MDL044 over the body (mendixlabs/mxcli#1033).
+			violations = append(violations, ValidateNanoflow(nfStmt)...)
 			violations = append(violations,
 				ValidateFlowParameterAnnotations("nanoflow '"+nfStmt.Name.String()+"'", nfStmt.Parameters)...)
 		}
