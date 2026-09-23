@@ -160,6 +160,14 @@ func applySetPropertyMutator(ctx *ExecContext, mutator backend.PageMutator, op *
 
 	for _, propName := range propNames {
 		value := op.Properties[propName]
+		if _, isAction := value.(*ast.ActionV3); isAction && propName != "Action" &&
+			(op.Target.Widget == "" || op.Target.IsColumn()) {
+			// A named action slot belongs to a pluggable widget. The column and
+			// page-level setters would stringify the action into a scalar.
+			return mdlerrors.NewValidationf(
+				"`set %s = <action>` needs a pluggable widget target: `set '%s' = … on <widgetName>`",
+				propName, propName)
+		}
 		if op.Target.IsColumn() {
 			if err := mutator.SetColumnProperty(op.Target.Widget, op.Target.Column, propName, value); err != nil {
 				return mdlerrors.NewBackend("set "+propName+" on "+op.Target.Name(), err)
@@ -182,6 +190,19 @@ func applySetPropertyMutator(ctx *ExecContext, mutator backend.PageMutator, op *
 			}
 			if err := mutator.SetWidgetAction(op.Target.Widget, action); err != nil {
 				return mdlerrors.NewBackend("set Action on "+op.Target.Name(), err)
+			}
+		} else if _, isAction := value.(*ast.ActionV3); isAction {
+			// Any other key carrying an action is a pluggable widget's NAMED
+			// action slot — `set 'createFileAction' = microflow M.F` (#995).
+			// Same builder as `Action`; the mutator checks the key is an
+			// action-typed property of the stored widget. Through
+			// SetWidgetProperty it would be stringified into a PrimitiveValue.
+			action, err := convertASTAction(ctx, value, moduleName, moduleID)
+			if err != nil {
+				return err
+			}
+			if err := mutator.SetWidgetNamedAction(op.Target.Widget, propName, action); err != nil {
+				return mdlerrors.NewBackend("set "+propName+" on "+op.Target.Name(), err)
 			}
 		} else if p := designPropertyForStoredWidget(
 			ctx.GetThemeRegistry(), mutator, op.Target.Widget, propName); p != nil {

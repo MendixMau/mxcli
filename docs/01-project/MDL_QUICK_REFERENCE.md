@@ -1647,6 +1647,7 @@ Modify an existing page or snippet's widget tree in-place without full `create o
 | Drop widgets | `drop widget name1, name2` | Remove widgets by name |
 | Replace widget | `replace widgetName with { widgets }` | Replace widget subtree |
 | Pluggable prop | `set 'showLabel' = false on cbStatus` | Quoted name for pluggable widgets |
+| Named action slot | `set 'createFileAction' = microflow M.ACT_Create on fileUploader1` | A pluggable widget's action-typed property, by its own key; any `create page` action form. Refused on a key that is not action-typed |
 | Set column prop | `set caption = 'New' on dgGrid.colName` | Dotted ref targets DataGrid column |
 | Drop column | `drop widget dgGrid.colName` | Remove a DataGrid column |
 | Insert column | `insert after dgGrid.colName { column ... }` | Add column to DataGrid |
