@@ -1285,7 +1285,8 @@ var execEnforcedMicroflowRules = map[string]bool{
 	// exprcheck's funcTable is now a write barrier, so a name missing from it
 	// blocks valid MDL rather than merely warning about it: three genuine
 	// built-ins (isNew/isSynced/isSyncing) were found missing and added — each
-	// built at 0 errors — before this line was added.
+	// built at 0 errors — before this line was added. validateNanoflowRules
+	// applies the same entry to nanoflow bodies (mendixlabs/mxcli#1033).
 	"MDL044": true,
 	// #884: an unknown annotation is silently dropped, so exec must refuse it too —
 	// otherwise `check` catches the typo and the write that follows does not.
