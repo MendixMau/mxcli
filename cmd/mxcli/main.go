@@ -101,6 +101,21 @@ Examples:
 `,
 	Version: version,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// Record the invocation before anything can reject it. `diag loop-report`
+		// reports "mxcli invocations: N", and it used to count only the commands
+		// that happened to build a logged executor — 14 files of 53 registered
+		// commands — and only when the run survived long enough to reach that
+		// code. A `check` without -p was invisible, and so was every run that
+		// exited on a bad argument, which is exactly the agent failure the report
+		// exists to show (ako/mxcli#617). Init is a per-process singleton, so the
+		// commands that call it later get this same logger.
+		//
+		// diag is excluded: a report that counted its own runs would climb every
+		// time it was read.
+		if !strings.HasPrefix(cmd.CommandPath(), cmd.Root().Name()+" diag") {
+			_ = diaglog.Init(version, cmd.CommandPath())
+		}
+
 		projectPath, _ := cmd.Flags().GetString("project")
 		if projectPath == "" {
 			if discovered := discoverProjectPath(); discovered != "" {
@@ -119,6 +134,12 @@ Examples:
 		globalMCPVerbose, _ = cmd.Flags().GetBool("mcp-verbose")
 		globalMCPTrace, _ = cmd.Flags().GetBool("mcp-trace")
 		globalEngineFlag, _ = cmd.Flags().GetString("engine")
+	},
+	PersistentPostRun: func(cmd *cobra.Command, args []string) {
+		// Closes the session opened in PersistentPreRun. Cobra skips this when a
+		// command exits through os.Exit, which is how almost every failure path
+		// ends — so "no session_end" stays the tell for a non-zero exit.
+		diaglog.CloseCurrent()
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		// Get flags

@@ -101,6 +101,11 @@ type ExecContext struct {
 	// in sync"; see report_mutation.go.
 	lastWriteStats backend.WriteStats
 
+	// tally collapses a program run's "Unchanged" reports into one summary
+	// line. Shared with the Executor (a pointer, so it survives across the
+	// per-statement contexts) and nil outside a program run.
+	tally *mutationTally
+
 	// ScriptDepth tracks the current EXECUTE SCRIPT nesting level.
 	// Incremented on each recursive call; execExecuteScript rejects calls
 	// that exceed maxScriptDepth to prevent infinite self-referencing scripts.
