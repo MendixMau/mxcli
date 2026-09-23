@@ -43,11 +43,16 @@ type flowBuilder struct {
 	// textLang is the language a bare message/caption string is stored under
 	// (mendixlabs/mxcli#970). Empty means en_US, which keeps a zero-value
 	// flowBuilder — validateFlowBody builds one — behaving as before.
-	textLang            string
-	declaredVars        map[string]string // Declared primitive variables: name -> type (e.g., "$IsValid" -> "Boolean")
-	errors              []string          // Validation errors collected during build
-	measurer            *layoutMeasurer   // For measuring statement dimensions
-	nextConnectionPoint model.ID          // For compound statements: the exit point differs from entry point
+	textLang     string
+	declaredVars map[string]string // Declared primitive variables: name -> type (e.g., "$IsValid" -> "Boolean")
+	errors       []string          // Validation errors collected during build
+	// memberWrite, when set, is called by the validation walk for every member
+	// a CREATE or CHANGE writes, with the entity the written object has. The
+	// association-ownership check (validate_association_writes.go) installs it;
+	// every other flowBuilder leaves it nil.
+	memberWrite         func(varName, entityQN string, ch ast.ChangeItem)
+	measurer            *layoutMeasurer // For measuring statement dimensions
+	nextConnectionPoint model.ID        // For compound statements: the exit point differs from entry point
 	// incomingRedirect, when set, instructs the next enclosing flow emission to
 	// terminate at this merge/activity ID instead of the most recently emitted
 	// activity. Used by retry-loop error handlers (where a merge is inserted

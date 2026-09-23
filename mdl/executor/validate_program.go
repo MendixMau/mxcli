@@ -218,6 +218,12 @@ func ValidateProgram(prog *ast.Program, projectPath string) []linter.Violation {
 	// says it before the first write (#955).
 	violations = append(violations, ValidateScriptDefinitionOrder(prog)...)
 
+	// Flag a CREATE/CHANGE member that writes an association from the end that
+	// does not own it (CE0854), or adds to / removes from a plain reference —
+	// for associations the script declares. The project-stored half runs under
+	// --references and before exec (validateFlowAssociationWrites).
+	violations = append(violations, ValidateAssociationWrites(prog)...)
+
 	// Flag a document-access GRANT naming a role from another module — Mendix
 	// rejects it with CE0148. Needs no project, so it runs here rather than
 	// under --references, where it would only fire with -p (#836).

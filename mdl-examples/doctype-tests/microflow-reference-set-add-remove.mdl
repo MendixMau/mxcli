@@ -1,0 +1,52 @@
+-- ============================================================================
+-- Reference-set member changes: Set, Add and Remove, written from the owner
+-- ============================================================================
+--
+-- `Assoc = $x` is Mendix's member change type Set: for a reference set it
+-- REPLACES the set. `add $x to Assoc` / `remove $x from Assoc` are the Add and
+-- Remove types, which change the set in place. Before these existed every
+-- member change was written as Set, and DESCRIBE printed an Add or Remove made
+-- in Studio Pro as `Assoc = $x`, so describe -> exec turned it into a Set.
+--
+-- Every write below is on GuestGroup, the association's owner (FROM end under
+-- owner Default). The same write on a Guest is CE0854 — see
+-- mdl-examples/bug-tests/refset-write-from-non-owner.fail.mdl.
+--
+-- Verified: exec'd into a Mendix 11.12 project, `mx check` reports 0 errors,
+-- and DESCRIBE MICROFLOW prints the add/remove forms back.
+-- ============================================================================
+
+CREATE MODULE RefSetAddRemove;
+
+CREATE OR MODIFY PERSISTENT ENTITY RefSetAddRemove.GuestGroup ( Name: String(100) );
+
+CREATE OR MODIFY PERSISTENT ENTITY RefSetAddRemove.Guest ( Email: String(200) );
+
+CREATE OR MODIFY ASSOCIATION RefSetAddRemove.GuestGroup_Guests
+  FROM RefSetAddRemove.GuestGroup TO RefSetAddRemove.Guest TYPE ReferenceSet OWNER Default;
+
+/** Add a new guest to a group without replacing the group's other guests. */
+CREATE OR MODIFY MICROFLOW RefSetAddRemove.ACT_AddGuest ($GuestGroup: RefSetAddRemove.GuestGroup, $Email: String)
+RETURNS RefSetAddRemove.Guest AS $NewGuest
+BEGIN
+  $NewGuest = CREATE RefSetAddRemove.Guest (Email = $Email) COMMIT;
+  CHANGE $GuestGroup (ADD $NewGuest TO RefSetAddRemove.GuestGroup_Guests) COMMIT;
+  RETURN $NewGuest;
+END;
+/
+
+/** Move a guest between groups: remove from one set, add to the other. */
+CREATE OR MODIFY MICROFLOW RefSetAddRemove.ACT_MoveGuest ($Guest: RefSetAddRemove.Guest, $From: RefSetAddRemove.GuestGroup, $To: RefSetAddRemove.GuestGroup)
+BEGIN
+  CHANGE $From (REMOVE $Guest FROM RefSetAddRemove.GuestGroup_Guests) COMMIT;
+  CHANGE $To (ADD $Guest TO GuestGroup_Guests) COMMIT;
+END;
+/
+
+/** A new group seeded with a list of guests (Add accepts a list), and a Set for contrast. */
+CREATE OR MODIFY MICROFLOW RefSetAddRemove.ACT_NewGroup ($Guests: List of RefSetAddRemove.Guest, $Only: RefSetAddRemove.Guest)
+BEGIN
+  $Group = CREATE RefSetAddRemove.GuestGroup (Name = 'VIP', ADD $Guests TO RefSetAddRemove.GuestGroup_Guests) COMMIT;
+  $Solo = CREATE RefSetAddRemove.GuestGroup (Name = 'Solo', RefSetAddRemove.GuestGroup_Guests = $Only) COMMIT;
+END;
+/

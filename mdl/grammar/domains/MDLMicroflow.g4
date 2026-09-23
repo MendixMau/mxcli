@@ -371,13 +371,13 @@ setStatement
 // $NewProduct = CREATE MfTest.Product (Name = $Name) COMMIT;
 // $NewProduct = CREATE MfTest.Product (Name = $Name) REFRESH;
 createObjectStatement
-    : (VARIABLE EQUALS)? CREATE nonListDataType (LPAREN memberAssignmentList? RPAREN)? commitClause? REFRESH? onErrorClause?
+    : (VARIABLE EQUALS)? CREATE nonListDataType (LPAREN memberChangeList? RPAREN)? commitClause? REFRESH? onErrorClause?
     ;
 
 // CHANGE $Product (Name = $NewName, ModifiedDate = [%CurrentDateTime%]);
 // CHANGE $Product (Name = $NewName) COMMIT WITHOUT EVENTS REFRESH;
 changeObjectStatement
-    : CHANGE VARIABLE (LPAREN memberAssignmentList? RPAREN)? commitClause? REFRESH? onErrorClause?
+    : CHANGE VARIABLE (LPAREN memberChangeList? RPAREN)? commitClause? REFRESH? onErrorClause?
     ;
 
 // The Commit flag on a create/change activity: Mendix's Microflows$Commit enum.
@@ -967,6 +967,21 @@ memberAssignmentList
 
 memberAssignment
     : memberAttributeName EQUALS expression
+    ;
+
+// Member changes for CREATE and CHANGE. Besides `Member = expr` (Mendix's
+// "Set"), a reference-set association can have objects added to or removed from
+// it without replacing its contents — Studio Pro's "Add" and "Remove" member
+// change types:
+//   change $Group (add $Guest to Mod.Group_Guests, remove $Old from Mod.Group_Guests)
+memberChangeList
+    : memberChange (COMMA memberChange)*
+    ;
+
+memberChange
+    : memberAttributeName EQUALS expression
+    | ADD expression TO memberAttributeName
+    | REMOVE expression FROM memberAttributeName
     ;
 
 // Allow keywords and qualified names as member attribute names

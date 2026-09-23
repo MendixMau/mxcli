@@ -757,6 +757,46 @@ func buildMemberAssignmentList(ctx parser.IMemberAssignmentListContext) []ast.Ch
 	return items
 }
 
+// buildMemberChangeList converts a CREATE/CHANGE memberChangeList context to a
+// ChangeItem slice. It differs from buildMemberAssignmentList (which SHOW PAGE
+// ... WITH still uses) only in accepting the add/remove forms.
+func buildMemberChangeList(ctx parser.IMemberChangeListContext) []ast.ChangeItem {
+	if ctx == nil {
+		return nil
+	}
+	listCtx := ctx.(*parser.MemberChangeListContext)
+	var items []ast.ChangeItem
+
+	allChanges := listCtx.AllMemberChange()
+	for i, changeCtx := range allChanges {
+		mc := changeCtx.(*parser.MemberChangeContext)
+		ci := ast.ChangeItem{}
+		switch {
+		case mc.ADD() != nil:
+			ci.Kind = ast.MemberChangeAdd
+		case mc.REMOVE() != nil:
+			ci.Kind = ast.MemberChangeRemove
+		}
+
+		if name := mc.MemberAttributeName(); name != nil {
+			ci.Attribute = memberAttributeNameText(name)
+		}
+		if expr := mc.Expression(); expr != nil {
+			value := buildSourceExpression(expr)
+			if ci.Kind == ast.MemberChangeSet {
+				// Only the Set form ends its expression at a comma or the
+				// closing parenthesis; add/remove end it at TO/FROM.
+				value = appendExpressionListTrailingWhitespace(listCtx, nextParserRuleContext(allChanges, i), expr, value)
+			}
+			ci.Value = value
+		}
+
+		items = append(items, ci)
+	}
+
+	return items
+}
+
 // buildChangeList converts changeList context to ChangeItem slice.
 func buildChangeList(ctx parser.IChangeListContext) []ast.ChangeItem {
 	if ctx == nil {

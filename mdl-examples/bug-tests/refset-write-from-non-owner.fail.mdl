@@ -1,0 +1,37 @@
+-- ============================================================================
+-- Association written from its NON-OWNER end — must FAIL `mxcli check`
+-- ============================================================================
+--
+-- GuestGroup_Guests runs FROM GuestGroup TO Guest, owner Default, so only a
+-- GuestGroup can write it. Both microflows below write it on a Guest, which
+-- mxbuild rejects:
+--
+--   CE0854 Association 'RefSetNonOwner.GuestGroup_Guests' is not reachable
+--   from entity 'RefSetNonOwner.Guest'.
+--
+-- Before MDL-ASSOC01, `mxcli check --references` passed this (the association
+-- NAME resolves) and `exec` wrote it as authored. The fix is to write it from
+-- the owner — `change $GuestGroup (add $NewGuest to ...GuestGroup_Guests)` —
+-- as in mdl-examples/doctype-tests/microflow-reference-set-add-remove.mdl.
+-- ============================================================================
+
+CREATE MODULE RefSetNonOwner;
+
+CREATE OR MODIFY PERSISTENT ENTITY RefSetNonOwner.GuestGroup ( Name: String(100) );
+
+CREATE OR MODIFY PERSISTENT ENTITY RefSetNonOwner.Guest ( Email: String(200) );
+
+CREATE OR MODIFY ASSOCIATION RefSetNonOwner.GuestGroup_Guests
+  FROM RefSetNonOwner.GuestGroup TO RefSetNonOwner.Guest TYPE ReferenceSet OWNER Default;
+
+CREATE OR MODIFY MICROFLOW RefSetNonOwner.ACT_AddGuest ($GuestGroup: RefSetNonOwner.GuestGroup, $Email: String)
+BEGIN
+  $NewGuest = CREATE RefSetNonOwner.Guest (Email = $Email, GuestGroup_Guests = $GuestGroup) COMMIT;
+END;
+/
+
+CREATE OR MODIFY MICROFLOW RefSetNonOwner.ACT_MoveGuest ($Guest: RefSetNonOwner.Guest, $Remaining: RefSetNonOwner.GuestGroup)
+BEGIN
+  CHANGE $Guest (GuestGroup_Guests = $Remaining) COMMIT;
+END;
+/

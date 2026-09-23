@@ -70,6 +70,11 @@ type scriptContext struct {
 	associations  map[string]string          // Association (unqualified) -> Module.Association
 	entityAttrs   map[string]map[string]bool // Module.Entity -> attribute names
 	ambiguousAssc map[string]bool            // names defined in more than one module
+
+	// assocEnds holds each script-declared association's ends, type and owner,
+	// keyed by lower-cased Module.Association — for the association-write check
+	// (validate_association_writes.go), which has to know which side may write.
+	assocEnds map[string]*assocWriteEnds
 }
 
 // newScriptContext creates a new script context.
@@ -92,6 +97,7 @@ func newScriptContext() *scriptContext {
 		associations:      map[string]string{},
 		entityAttrs:       map[string]map[string]bool{},
 		ambiguousAssc:     map[string]bool{},
+		assocEnds:         map[string]*assocWriteEnds{},
 		flowParams:        make(map[string]*flowSignature),
 
 		pageParams:            make(map[string][]string),
@@ -122,6 +128,13 @@ func (sc *scriptContext) recordEntityAttrs(s *ast.CreateEntityStmt) {
 func (sc *scriptContext) recordAssociation(s *ast.CreateAssociationStmt) {
 	if s.Name.Module == "" || s.Name.Name == "" {
 		return
+	}
+	sc.assocEnds[strings.ToLower(s.Name.String())] = &assocWriteEnds{
+		QN:        s.Name.String(),
+		From:      s.Parent.String(),
+		To:        s.Child.String(),
+		IsSet:     s.Type == ast.AssocReferenceSet,
+		OwnerBoth: s.Owner == ast.OwnerBoth,
 	}
 	if prev, ok := sc.associations[s.Name.Name]; ok && prev != s.Name.String() {
 		sc.ambiguousAssc[s.Name.Name] = true
@@ -559,6 +572,14 @@ func validateWithContext(ctx *ExecContext, stmt ast.Statement, sc *scriptContext
 			return mdlerrors.NewValidationf("microflow '%s' has validation errors:\n  - %s",
 				s.Name.String(), strings.Join(validationErrors, "\n  - "))
 		}
+		// An association written from its non-owner end (CE0854), checked
+		// against the project's stored associations.
+		if !s.Excluded {
+			if assocErrors := validateFlowAssociationWrites(ctx, s.Parameters, s.Body, sc); len(assocErrors) > 0 {
+				return mdlerrors.NewValidationf("microflow '%s' has association errors:\n  - %s",
+					s.Name.String(), strings.Join(assocErrors, "\n  - "))
+			}
+		}
 		// Validate references inside microflow body (pages, microflows, java actions, entities)
 		if refErrors := validateMicroflowReferences(ctx, s, sc); len(refErrors) > 0 {
 			return mdlerrors.NewValidationf("microflow '%s' has reference errors:\n  - %s",
@@ -579,6 +600,14 @@ func validateWithContext(ctx *ExecContext, stmt ast.Statement, sc *scriptContext
 			return mdlerrors.NewValidationf("rule '%s' has validation errors:\n  - %s",
 				s.Name.String(), strings.Join(validationErrors, "\n  - "))
 		}
+		// An association written from its non-owner end (CE0854), checked
+		// against the project's stored associations.
+		if !s.Excluded {
+			if assocErrors := validateFlowAssociationWrites(ctx, s.Parameters, s.Body, sc); len(assocErrors) > 0 {
+				return mdlerrors.NewValidationf("rule '%s' has association errors:\n  - %s",
+					s.Name.String(), strings.Join(assocErrors, "\n  - "))
+			}
+		}
 		if !s.Excluded {
 			if refErrors := validateFlowBodyReferences(ctx, s.Body, sc); len(refErrors) > 0 {
 				return mdlerrors.NewValidationf("rule '%s' has reference errors:\n  - %s",
@@ -595,6 +624,14 @@ func validateWithContext(ctx *ExecContext, stmt ast.Statement, sc *scriptContext
 		if validationErrors := ValidateNanoflowBody(s); len(validationErrors) > 0 {
 			return mdlerrors.NewValidationf("nanoflow '%s' has validation errors:\n  - %s",
 				s.Name.String(), strings.Join(validationErrors, "\n  - "))
+		}
+		// An association written from its non-owner end (CE0854), checked
+		// against the project's stored associations.
+		if !s.Excluded {
+			if assocErrors := validateFlowAssociationWrites(ctx, s.Parameters, s.Body, sc); len(assocErrors) > 0 {
+				return mdlerrors.NewValidationf("nanoflow '%s' has association errors:\n  - %s",
+					s.Name.String(), strings.Join(assocErrors, "\n  - "))
+			}
 		}
 		// Validate references inside nanoflow body (skip excluded nanoflows)
 		if !s.Excluded {

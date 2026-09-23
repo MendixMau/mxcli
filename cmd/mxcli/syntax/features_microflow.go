@@ -309,9 +309,11 @@ func init() {
 			"create object", "change object", "commit", "rollback",
 			"delete", "save", "persist", "modify object",
 			"with events", "refresh", "commit flag", "without events",
+			"add to reference set", "remove from reference set", "reference set", "member change type",
 		},
 		Syntax: "$Obj = CREATE Module.Entity (Attr = value) [COMMIT [WITHOUT EVENTS]] [REFRESH];\n" +
 			"CHANGE $Obj (Attr = value) [COMMIT [WITHOUT EVENTS]] [REFRESH];\n" +
+			"CHANGE $Owner (ADD $Obj TO Module.Assoc, REMOVE $Other FROM Module.Assoc);\n" +
 			"COMMIT $Obj [WITHOUT EVENTS] [REFRESH];\n" +
 			"DELETE $Obj [REFRESH];\n" +
 			"ROLLBACK $Obj [REFRESH];\n\n" +
@@ -328,8 +330,17 @@ func init() {
 			"-- COMMIT is the one whose default is ON, so WITHOUT EVENTS is the form\n" +
 			"-- that changes anything; WITH EVENTS parses and means the default. The\n" +
 			"-- COMMIT modifier on CREATE/CHANGE is the activity's Commit setting\n" +
-			"-- (omitted = No), not the standalone COMMIT $Obj activity.",
-		Example: "$NewOrder = CREATE MyModule.Order (\n  OrderNumber = 'ORD-001',\n  Quantity = $Quantity,\n  CreateDate = [%CurrentDateTime%]\n) COMMIT;\n\nCHANGE $NewOrder (MyModule.Order_Customer = $Customer) COMMIT REFRESH;\nCHANGE $Draft (Status = 'Imported') COMMIT WITHOUT EVENTS;\n\nCOMMIT $NewOrder;                  -- runs the commit event handlers\nCOMMIT $Staging WITHOUT EVENTS;    -- bulk import: skip them deliberately\nCOMMIT $NewOrder REFRESH;          -- and repaint it on the open page\n\nDELETE $OldOrder REFRESH;\nROLLBACK $DraftOrder;",
+			"-- (omitted = No), not the standalone COMMIT $Obj activity.\n" +
+			"--\n" +
+			"-- A member is changed in one of three ways (Mendix's member change Type):\n" +
+			"--   Assoc = $x             Set: replace the reference / the whole set\n" +
+			"--   ADD $x TO Assoc        Add: add object(s) to a reference SET\n" +
+			"--   REMOVE $x FROM Assoc   Remove: take object(s) out of a reference SET\n" +
+			"-- ADD/REMOVE take an object or a list, and apply to reference sets only.\n" +
+			"-- An association is written on its OWNER - the FROM entity under\n" +
+			"-- `owner Default`, either end under `owner Both`. Writing it from the other\n" +
+			"-- end is CE0854; mxcli check reports it as MDL-ASSOC01.",
+		Example: "$NewOrder = CREATE MyModule.Order (\n  OrderNumber = 'ORD-001',\n  Quantity = $Quantity,\n  CreateDate = [%CurrentDateTime%]\n) COMMIT;\n\nCHANGE $NewOrder (MyModule.Order_Customer = $Customer) COMMIT REFRESH;\nCHANGE $Draft (Status = 'Imported') COMMIT WITHOUT EVENTS;\n\nCOMMIT $NewOrder;                  -- runs the commit event handlers\nCOMMIT $Staging WITHOUT EVENTS;    -- bulk import: skip them deliberately\nCOMMIT $NewOrder REFRESH;          -- and repaint it on the open page\n\nDELETE $OldOrder REFRESH;\nROLLBACK $DraftOrder;\n\n-- reference set, owned by GuestGroup (the FROM end)\nCHANGE $GuestGroup (ADD $NewGuest TO UserGroups.GuestGroup_Guests);\nCHANGE $GuestGroup (REMOVE $Guest FROM UserGroups.GuestGroup_Guests);",
 		SeeAlso: []string{"microflow.retrieve", "microflow.variables"},
 	})
 

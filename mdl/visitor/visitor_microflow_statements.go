@@ -1161,8 +1161,8 @@ func buildCreateObjectStatement(ctx parser.ICreateObjectStatementContext) *ast.C
 	}
 
 	// Get SET member assignments
-	if memberList := createCtx.MemberAssignmentList(); memberList != nil {
-		stmt.Changes = buildMemberAssignmentList(memberList)
+	if memberList := createCtx.MemberChangeList(); memberList != nil {
+		stmt.Changes = buildMemberChangeList(memberList)
 	}
 
 	stmt.Commit = buildCommitClause(createCtx.CommitClause())
@@ -1205,8 +1205,8 @@ func buildChangeObjectStatement(ctx parser.IChangeObjectStatementContext) *ast.C
 	}
 
 	// Get SET member assignments
-	if memberList := changeCtx.MemberAssignmentList(); memberList != nil {
-		stmt.Changes = buildMemberAssignmentList(memberList)
+	if memberList := changeCtx.MemberChangeList(); memberList != nil {
+		stmt.Changes = buildMemberChangeList(memberList)
 	}
 	stmt.Commit = buildCommitClause(changeCtx.CommitClause())
 	stmt.RefreshInClient = changeCtx.REFRESH() != nil

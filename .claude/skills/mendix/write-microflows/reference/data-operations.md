@@ -386,3 +386,37 @@ end if;
 -- Combine with operators
 set $TotalPrice = $Product/Price * $Quantity;
 ```
+
+## Writing Associations: Owner Side, and Add/Remove on a Reference Set
+
+A member change on an association writes the reference **on the object being
+created or changed**, and Mendix stores an association only on its **owner**:
+the FROM entity under `owner Default`, or either end under `owner Both`. For
+`create association M.GuestGroup_Guests from M.GuestGroup to M.Guest type ReferenceSet`:
+
+```mdl
+-- ❌ CE0854 "Association 'M.GuestGroup_Guests' is not reachable from entity 'M.Guest'"
+$NewGuest = create M.Guest (Email = $Email, GuestGroup_Guests = $GuestGroup);
+change $Guest (GuestGroup_Guests = $Remaining);
+
+-- ✅ write it from the owner (GuestGroup)
+$NewGuest = create M.Guest (Email = $Email);
+change $GuestGroup (add $NewGuest to M.GuestGroup_Guests);
+change $OldGroup (remove $Guest from M.GuestGroup_Guests);
+```
+
+`mxcli check` reports the non-owner write as **MDL-ASSOC01** when the script
+declares the association, and `check --references` / `exec` report it against
+associations stored in the project.
+
+The three member-change forms map onto Mendix's member change **Type**:
+
+| MDL | Type | Effect |
+|-----|------|--------|
+| `Assoc = $x` | Set | Replaces the reference — for a reference set, **the whole set** |
+| `add $x to Assoc` | Add | Adds the object (or every object in a list) to the set |
+| `remove $x from Assoc` | Remove | Removes the object (or list) from the set |
+
+`add`/`remove` apply to **reference sets only** — on a plain reference, or on
+an attribute, they are refused. Use `Assoc = $x` when you mean "replace":
+`change $GuestGroup (GuestGroup_Guests = $NewGuest)` leaves one guest in the group.

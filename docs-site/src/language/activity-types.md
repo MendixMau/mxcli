@@ -31,6 +31,26 @@ CHANGE $Order (
 
 Multiple attributes can be changed in a single `CHANGE` statement.
 
+#### Associations: owner side, and adding to a reference set
+
+An association member is written on the object being created or changed, and
+Mendix stores an association on its **owner** — the `FROM` entity under
+`OWNER Default`, either end under `OWNER Both`. Writing it from the other end is
+rejected by the build with **CE0854** ("not reachable from entity"), and
+`mxcli check` reports it as **MDL-ASSOC01**.
+
+For a reference set, `Assoc = $x` **replaces** the whole set. To add objects to
+it, or take them out, use `ADD … TO` and `REMOVE … FROM` (Mendix's member change
+types Add and Remove). Both take an object or a list, and apply to reference
+sets only:
+
+```sql
+-- GuestGroup_Guests runs FROM GuestGroup TO Guest, so GuestGroup owns it
+CHANGE $GuestGroup (ADD $NewGuest TO UserGroups.GuestGroup_Guests);
+CHANGE $OldGroup (REMOVE $Guest FROM UserGroups.GuestGroup_Guests);
+$Group = CREATE UserGroups.GuestGroup (Name = 'VIP', ADD $Guests TO UserGroups.GuestGroup_Guests);
+```
+
 ### COMMIT
 
 Persists an object (or its changes) to the database:

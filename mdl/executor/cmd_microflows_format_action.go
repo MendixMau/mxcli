@@ -313,7 +313,7 @@ func formatAction(
 						memberName = parts[len(parts)-1]
 					}
 				}
-				members = append(members, fmt.Sprintf("%s = %s", memberName, escapeExpressionValue(m.Value)))
+				members = append(members, formatMemberChange(memberName, m))
 			}
 			return fmt.Sprintf("$%s = create %s (%s)%s%s;", outputVar, entityName, strings.Join(members, ", "), commitModifier(a.Commit), refreshModifier(a.RefreshInClient))
 		}
@@ -343,7 +343,7 @@ func formatAction(
 						memberName = parts[len(parts)-1]
 					}
 				}
-				members = append(members, fmt.Sprintf("%s = %s", memberName, escapeExpressionValue(m.Value)))
+				members = append(members, formatMemberChange(memberName, m))
 			}
 			return fmt.Sprintf("change $%s (%s)%s%s;", varName, strings.Join(members, ", "), commitModifier(a.Commit), refreshModifier(a.RefreshInClient))
 		}
@@ -2018,5 +2018,22 @@ func mdlAggregateKeyword(fn microflows.AggregateFunction) (string, bool) {
 		return "any", true
 	default:
 		return "", false
+	}
+}
+
+// formatMemberChange renders one member change of a create/change activity.
+// The change type decides the form: Set is `Member = value`, Add and Remove are
+// `add value to Member` / `remove value from Member`. Rendering Add/Remove as
+// `=` (as DESCRIBE did before these forms existed) made describe → exec turn
+// "add this object to the set" into "replace the set with this object".
+func formatMemberChange(memberName string, m *microflows.MemberChange) string {
+	value := escapeExpressionValue(m.Value)
+	switch m.Type {
+	case microflows.MemberChangeTypeAdd:
+		return fmt.Sprintf("add %s to %s", value, memberName)
+	case microflows.MemberChangeTypeRemove:
+		return fmt.Sprintf("remove %s from %s", value, memberName)
+	default:
+		return fmt.Sprintf("%s = %s", memberName, value)
 	}
 }

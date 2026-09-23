@@ -535,6 +535,7 @@ Before executing a microflow script, verify:
 - [ ] No code appears after `return` statements
 - [ ] Division uses `div` operator (not `/`)
 - [ ] All entity/association names are fully qualified
+- [ ] **Associations are written from the owner side** (FROM entity unless `owner Both`) — the other end is CE0854 (MDL-ASSOC01); use `add … to` / `remove … from` to change a reference set without replacing it ([details](reference/data-operations.md#writing-associations-owner-side-and-addremove-on-a-reference-set))
 - [ ] **CALL MICROFLOW parameter names exactly match target signature** (use `describe microflow` to verify)
 - [ ] Microflow ends with `/` separator
 - [ ] Parameters start with `$` prefix

@@ -5,6 +5,7 @@ package executor
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/mendixlabs/mxcli/mdl/ast"
 )
@@ -141,6 +142,11 @@ func (fb *flowBuilder) validateStatement(stmt ast.MicroflowStatement) {
 
 	case *ast.CreateObjectStmt:
 		fb.validateOutputVariable(s.Variable, "create")
+		if fb.memberWrite != nil && s.EntityType.Module != "" {
+			for _, ch := range s.Changes {
+				fb.memberWrite(s.Variable, s.EntityType.Module+"."+s.EntityType.Name, ch)
+			}
+		}
 		// Register created variable as entity type
 		if s.Variable != "" && s.EntityType.Module != "" {
 			fb.varTypes[s.Variable] = s.EntityType.Module + "." + s.EntityType.Name
@@ -279,6 +285,18 @@ func (fb *flowBuilder) validateStatement(stmt ast.MicroflowStatement) {
 		if s.ErrorHandling != nil && len(s.ErrorHandling.Body) > 0 {
 			fb.validateStatements(s.ErrorHandling.Body)
 		}
+
+	case *ast.ChangeObjectStmt:
+		if fb.memberWrite != nil {
+			if entityQN := fb.varTypes[s.Variable]; entityQN != "" && !strings.HasPrefix(entityQN, "List of ") {
+				for _, ch := range s.Changes {
+					fb.memberWrite(s.Variable, entityQN, ch)
+				}
+			}
+		}
+		// The error-handler body is deliberately not walked here: it never was
+		// for CHANGE, and doing so would widen what the undeclared-variable
+		// checks report, which is a separate change.
 
 	case *ast.MfCommitStmt:
 		// Validate error handler body if present

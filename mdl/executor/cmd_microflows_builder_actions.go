@@ -167,10 +167,11 @@ func (fb *flowBuilder) addCreateObjectAction(s *ast.CreateObjectStmt) model.ID {
 	for _, change := range s.Changes {
 		memberChange := &microflows.MemberChange{
 			BaseElement: model.BaseElement{ID: model.ID(types.GenerateID())},
-			Type:        microflows.MemberChangeTypeSet,
+			Type:        memberChangeTypeOf(change.Kind),
 			Value:       fb.memberExpressionToString(change.Value, entityQN, change.Attribute),
 		}
 		fb.resolveMemberChange(memberChange, change.Attribute, entityQN)
+		fb.checkAddRemoveTarget(memberChange, change)
 		action.InitialMembers = append(action.InitialMembers, memberChange)
 	}
 
@@ -194,6 +195,36 @@ func (fb *flowBuilder) addCreateObjectAction(s *ast.CreateObjectStmt) model.ID {
 	fb.finishCustomErrorHandler(activity.ID, activityX, s.ErrorHandling, s.Variable)
 
 	return activity.ID
+}
+
+// memberChangeTypeOf maps the MDL member-change form onto Mendix's
+// Microflows$MemberChange.Type. Before add/remove existed every change was
+// written as Set, which silently turned "add this guest to the set" into
+// "replace the set with this guest".
+func memberChangeTypeOf(k ast.MemberChangeKind) microflows.MemberChangeType {
+	switch k {
+	case ast.MemberChangeAdd:
+		return microflows.MemberChangeTypeAdd
+	case ast.MemberChangeRemove:
+		return microflows.MemberChangeTypeRemove
+	default:
+		return microflows.MemberChangeTypeSet
+	}
+}
+
+// checkAddRemoveTarget refuses `add`/`remove` on a member that resolved to an
+// attribute: Add and Remove exist only for associations, and an attribute
+// member change of type Add is a document Mendix does not produce.
+func (fb *flowBuilder) checkAddRemoveTarget(mc *microflows.MemberChange, change ast.ChangeItem) {
+	if change.Kind == ast.MemberChangeSet || mc.AssociationQualifiedName != "" {
+		return
+	}
+	form := "add ... to"
+	if change.Kind == ast.MemberChangeRemove {
+		form = "remove ... from"
+	}
+	fb.addError("'%s %s': add/remove applies only to a reference-set association, and '%s' is not an association — use '%s = <value>' to set an attribute",
+		form, change.Attribute, change.Attribute, change.Attribute)
 }
 
 // freshCreateVariable returns the output-variable name for a CREATE the script
@@ -351,10 +382,11 @@ func (fb *flowBuilder) addChangeObjectAction(s *ast.ChangeObjectStmt) model.ID {
 	for _, change := range s.Changes {
 		memberChange := &microflows.MemberChange{
 			BaseElement: model.BaseElement{ID: model.ID(types.GenerateID())},
-			Type:        microflows.MemberChangeTypeSet,
+			Type:        memberChangeTypeOf(change.Kind),
 			Value:       fb.memberExpressionToString(change.Value, entityQN, change.Attribute),
 		}
 		fb.resolveMemberChange(memberChange, change.Attribute, entityQN)
+		fb.checkAddRemoveTarget(memberChange, change)
 		action.Changes = append(action.Changes, memberChange)
 	}
 

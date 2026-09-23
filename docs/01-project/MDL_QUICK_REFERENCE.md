@@ -507,6 +507,7 @@ it is for pages.
 | Assignment | `set $Var = expression;` | Variable must be declared first |
 | Create object | `$Var = create Module.Entity (attr = value) [commit [without events]] [refresh];` | `commit` = Commit Yes, `commit without events` = YesWithoutEvents; omitted = No (the default) |
 | Change object | `change $entity (attr = value) [commit [without events]] [refresh];` | `commit` as above, before `refresh`; `refresh` updates the changed object in the client |
+| Add to / remove from a reference set | `change $owner (add $obj to Module.Assoc, remove $other from Module.Assoc);` | Mendix's member change type Add/Remove (`assoc = $x` is Set, which **replaces** the set). Also in `create … (…)`. Takes an object or a list; reference sets only. An association is written on its **owner** (FROM entity under `owner Default`, either end under `owner Both`) — the other end is CE0854, reported by `mxcli check` as MDL-ASSOC01 |
 | Commit | `commit $entity [without events] [refresh];` | **Omitted = with events**, matching Studio Pro's default. `without events` is the deviation and the only form that changes the stored value; `with events` still parses and means the default |
 | Delete | `delete $entity [refresh];` | |
 | Rollback | `rollback $entity [refresh];` | Reverts uncommitted changes |
