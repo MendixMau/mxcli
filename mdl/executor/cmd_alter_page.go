@@ -595,7 +595,16 @@ func buildWidgetsFromAST(ctx *ExecContext, widgets []*ast.WidgetV3, moduleName s
 
 	var result []pages.Widget
 	for _, w := range widgets {
-		widget, err := pb.buildWidgetV3(w)
+		var widget pages.Widget
+		var err error
+		if strings.EqualFold(w.Type, "tabpage") {
+			// A top-level tabpage body targets an existing tab container
+			// (INSERT BEFORE/AFTER a tab page, INSERT INTO the container,
+			// REPLACE a tab page); the mutator refuses it anywhere else.
+			widget, err = pb.buildTabPageV3(w)
+		} else {
+			widget, err = pb.buildWidgetV3(w)
+		}
 		if err != nil {
 			return nil, mdlerrors.NewBackend("build widget "+w.Name, err)
 		}

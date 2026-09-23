@@ -257,8 +257,17 @@ Inserted widgets use the same syntax as `create page`. Multiple widgets can be i
 only way to fill an **empty** container, and handy for adding to a container/dataview
 without needing a sibling to anchor to. Widgets inserted into a dataview take that
 dataview's entity as their context. Supported on simple containers (container,
-dataview, groupbox, scroll-container region); for a layout grid or tab container,
-insert relative to a widget inside the target column/tab instead.
+dataview, groupbox, scroll-container region, tab page); for a layout grid,
+insert relative to a widget inside the target column instead.
+
+**Tab pages are addressable by the name DESCRIBE prints** (`tabPage2`): `drop
+widget`, `set Caption`/`Visible`, `insert into tabPage2 { … }`, and
+`insert before|after tabPage2 { tabpage tabNew (Caption: '…') { … } }`
+(`insert into tabContainer1 { tabpage … }` appends one). Only tab pages may sit
+beside a tab page, and a tab page nowhere else. Dropping the last tab page is
+refused (drop the tab container); dropping or replacing the default one moves
+the default to its successor. `set Class`/`Style` on a tab page is refused — it
+has no Appearance; use `Visible`, or style the tab container.
 
 **The context comes from the nearest enclosing data source, whatever kind it is**
 — a database or association source, a microflow/nanoflow source (the entity is

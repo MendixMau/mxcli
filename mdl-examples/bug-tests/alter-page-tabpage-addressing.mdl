@@ -1,0 +1,66 @@
+-- ALTER PAGE could not address a tab page by the name DESCRIBE PAGE prints.
+--
+-- DESCRIBE shows `tabpage tabPage2 (Caption: 'Guests') { … }`, yet every one of
+--   alter page M.P { drop widget tabPage2 }
+--   alter page M.P { set Visible = 'false' on tabPage2 }
+--   alter page M.P { set Class = 'hidden' on tabPage2 }
+-- failed with `widget "tabPage2" not found. DataGrid2 columns are addressed by
+-- a derived name …` — while a widget INSIDE the tab page resolved fine.
+--
+-- Cause: the page mutator's finder descended into TabPages[].Widgets but never
+-- compared the tab page's own Name. The not-found message then led with
+-- DataGrid2 column addressing whenever the page happened to hold a data grid.
+--
+-- After the fix a tab page is addressable for DROP, SET Caption/Visible,
+-- INSERT BEFORE/AFTER (tab pages only), INSERT INTO (ordinary widgets), and
+-- REPLACE. Rules the mutator enforces, because each alternative is a document
+-- Studio Pro cannot open or a silent no-op:
+--   * dropping the LAST tab page is refused — drop the tab container instead;
+--   * dropping/replacing the DEFAULT tab page repoints DefaultPagePointer;
+--   * a tab page may only sit in a tab container, and a tab container holds
+--     only tab pages;
+--   * `set Class`/`Style`/`DynamicClasses` on a tab page is refused (a tab page
+--     has no Appearance; the setter used to report success and write nothing).
+--
+-- Verified: exec on a copy of a real 11.12.2 app, then `mx check` 0 errors.
+
+create module TabAlter;
+
+create persistent entity TabAlter.Group (
+  "Name": String(100)
+);
+
+create page TabAlter.Group_Detail (
+  Title: 'Group',
+  Layout: Atlas_Core.Atlas_Default,
+  Params: { $Group: TabAlter.Group }
+) {
+  dataview dvGroup (DataSource: $Group) {
+    tabcontainer tabContainer1 {
+      tabpage tabPage1 (Caption: 'Members') {
+        dynamictext txtMembers (Content: 'Members')
+      }
+      tabpage tabPage2 (Caption: 'Guests') {
+        dynamictext txtGuests (Content: 'Guests')
+      }
+      tabpage tabPage3 (Caption: 'Settings') {
+        dynamictext txtSettings (Content: 'Settings')
+      }
+    }
+  }
+}
+
+-- Each of these reported `widget "tabPageN" not found` before the fix.
+alter page TabAlter.Group_Detail {
+  set Visible = 'false' on tabPage3;
+  set Caption = 'Visitors' on tabPage2;
+  insert into tabPage2 {
+    dynamictext txtGuestsNote (Content: 'Visitors can only read')
+  }
+  insert after tabPage2 {
+    tabpage tabPage4 (Caption: 'History') {
+      dynamictext txtHistory (Content: 'History')
+    }
+  }
+  drop widget tabPage1
+};

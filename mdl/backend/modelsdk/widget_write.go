@@ -285,11 +285,41 @@ func init() {
 	})
 }
 
+// tabPageToGen converts a pages.TabPage to its Forms$TabPage gen element.
+func tabPageToGen(tp *pages.TabPage) (*genPg.TabPage, error) {
+	tpg := genPg.NewTabPage()
+	if tp.ID != "" {
+		tpg.SetID(element.ID(tp.ID))
+	}
+	assignID(tpg)
+	tpg.SetName(tp.Name)
+	tpg.SetRefreshOnShow(tp.RefreshOnShow)
+	// Caption defaults to the tab name when unset (matches legacy).
+	capText := tp.Caption
+	if capText == nil {
+		capText = &model.Text{Translations: map[string]string{model.AuthoringLanguage(): tp.Name}}
+	}
+	tpg.SetCaption(captionToGen(capText))
+	for _, c := range tp.Widgets {
+		cg, err := widgetToGen(c)
+		if err != nil {
+			return nil, err
+		}
+		tpg.AddWidgets(cg)
+	}
+	return tpg, nil
+}
+
 // widgetToGen converts a model widget to its gen element, recursing into
 // containers. Unsupported widget types are refused loudly (ADR-0005) so a page
 // is never written with a silently-dropped widget.
 func widgetToGen(w pages.Widget) (element.Element, error) {
 	switch x := w.(type) {
+	case *pages.TabPage:
+		// A lone tab page: ALTER PAGE inserting or replacing one inside an
+		// existing tab container. The mutator refuses it anywhere else.
+		return tabPageToGen(x)
+
 	case *pages.Container:
 		g := genPg.NewDivContainer()
 		applyWidgetBase(g, &x.BaseWidget)
@@ -316,25 +346,9 @@ func widgetToGen(w pages.Widget) (element.Element, error) {
 		g.SetActivePageOnChangeAction(noActionGen())
 		var defaultID element.ID
 		for i, tp := range x.TabPages {
-			tpg := genPg.NewTabPage()
-			if tp.ID != "" {
-				tpg.SetID(element.ID(tp.ID))
-			}
-			assignID(tpg)
-			tpg.SetName(tp.Name)
-			tpg.SetRefreshOnShow(tp.RefreshOnShow)
-			// Caption defaults to the tab name when unset (matches legacy).
-			capText := tp.Caption
-			if capText == nil {
-				capText = &model.Text{Translations: map[string]string{model.AuthoringLanguage(): tp.Name}}
-			}
-			tpg.SetCaption(captionToGen(capText))
-			for _, c := range tp.Widgets {
-				cg, err := widgetToGen(c)
-				if err != nil {
-					return nil, err
-				}
-				tpg.AddWidgets(cg)
+			tpg, err := tabPageToGen(tp)
+			if err != nil {
+				return nil, err
 			}
 			g.AddTabPages(tpg)
 			if i == 0 {
