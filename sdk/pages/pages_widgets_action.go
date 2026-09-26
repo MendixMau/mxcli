@@ -220,6 +220,18 @@ type MicroflowClientAction struct {
 	MicroflowID       model.ID                     `json:"microflowId"`
 	MicroflowName     string                       `json:"microflowName,omitempty"` // Qualified name for BSON serialization
 	ParameterMappings []*MicroflowParameterMapping `json:"parameterMappings,omitempty"`
+	// Confirmation is Studio Pro's "Ask confirmation" (Forms$ConfirmationInfo in
+	// the MicroflowSettings). Nil stores the null Studio Pro writes when unset.
+	Confirmation *ConfirmationInfo `json:"confirmation,omitempty"`
+}
+
+// ConfirmationInfo is Forms$ConfirmationInfo — the dialog a call-microflow or
+// call-nanoflow action shows before it runs. Each caption is a plain Texts$Text
+// (no parameters), exactly as Studio Pro stores it.
+type ConfirmationInfo struct {
+	Question       string `json:"question"`
+	ProceedCaption string `json:"proceedCaption"`
+	CancelCaption  string `json:"cancelCaption"`
 }
 
 func (MicroflowClientAction) isClientAction() {}
@@ -243,6 +255,9 @@ type NanoflowClientAction struct {
 	NanoflowID        model.ID                    `json:"nanoflowId"`
 	NanoflowName      string                      `json:"nanoflowName,omitempty"` // Qualified name for BSON serialization
 	ParameterMappings []*NanoflowParameterMapping `json:"parameterMappings,omitempty"`
+	// Confirmation is Studio Pro's "Ask confirmation" (Forms$ConfirmationInfo
+	// directly on the action). Nil stores null.
+	Confirmation *ConfirmationInfo `json:"confirmation,omitempty"`
 }
 
 func (NanoflowClientAction) isClientAction() {}

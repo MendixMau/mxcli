@@ -400,6 +400,7 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 		if w.Action != "" {
 			props = append(props, actionProp("Action", w.Action))
 		}
+		props = append(props, w.ActionConfirmation...)
 		if len(w.Children) > 0 {
 			formatWidgetProps(ctx.Output, prefix, header, props, " {\n")
 			for _, child := range w.Children {
@@ -504,6 +505,7 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 		if w.Action != "" {
 			props = append(props, actionProp("Action", w.Action))
 		}
+		props = append(props, w.ActionConfirmation...)
 		if w.ButtonStyle != "" && w.ButtonStyle != "Default" {
 			props = append(props, fmt.Sprintf("ButtonStyle: %s", w.ButtonStyle))
 		}

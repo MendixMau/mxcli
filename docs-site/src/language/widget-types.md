@@ -369,6 +369,27 @@ ACTIONBUTTON btnProcess (
 )
 ```
 
+**Asking for confirmation** — Studio Pro's "Ask confirmation". A microflow or
+nanoflow action can show a question before it runs. `ConfirmationProceed` and
+`ConfirmationCancel` set the two button captions and default to `Proceed` and
+`Cancel`:
+
+```sql
+ACTIONBUTTON btnDelete (
+  Caption: 'Delete',
+  Action: MICROFLOW Sales.ACT_DeleteOrder(Order: $Order),
+  ButtonStyle: Danger,
+  Confirmation: 'Delete this order?',
+  ConfirmationProceed: 'Delete'
+)
+```
+
+The same properties work on a `LINKBUTTON` and on a clickable `CONTAINER`.
+Mendix stores a confirmation on the call-microflow and call-nanoflow actions
+only, so `Confirmation:` on `DELETE`, `SAVE_CHANGES`, `CLOSE_PAGE` or any other
+action is an error (**MDL-WIDGET35**). To confirm a delete, call a microflow that
+deletes and put the confirmation on that call.
+
 **Icon** — `Icon: 'Module.IconCollection.IconName'` gives the button an icon from
 an icon collection (the modern Atlas icon set). The name must exist in the
 collection, or MxBuild rejects it (CE1613):

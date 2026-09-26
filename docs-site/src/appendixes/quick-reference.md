@@ -355,6 +355,7 @@ MDL uses explicit property declarations for pages:
 | Variable binding | `DataSource: $Var` | `DATAVIEW dv (DataSource: $Product) { ... }` |
 | Action binding | `Action: TYPE` | `ACTIONBUTTON btn (Caption: 'Save', Action: SAVE_CHANGES)` |
 | Microflow action | `Action: MICROFLOW Name(Param: val)` | `Action: MICROFLOW Mod.ACT_Process(Order: $Order)` |
+| Ask confirmation | `Confirmation: 'question'` (+ `ConfirmationProceed:`, `ConfirmationCancel:`) | `ACTIONBUTTON btn (Caption: 'Delete', Action: MICROFLOW Mod.ACT_Delete(Order: $Order), Confirmation: 'Delete this order?')` — microflow / nanoflow actions only (MDL-WIDGET35 elsewhere) |
 | Database source | `DataSource: DATABASE Entity` | `DATAGRID dg (DataSource: DATABASE Module.Entity)` |
 | Selection binding | `DataSource: SELECTION widget` | `DATAVIEW dv (DataSource: SELECTION galleryList)` |
 | CSS class | `Class: 'classes'` | `CONTAINER c (Class: 'card mx-spacing-top-large')` |

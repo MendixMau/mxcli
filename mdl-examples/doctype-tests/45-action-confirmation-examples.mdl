@@ -1,0 +1,145 @@
+-- ============================================================================
+-- Action confirmation — Studio Pro's "Ask confirmation"
+-- ============================================================================
+--
+-- A call-microflow or call-nanoflow action can ask the user before it runs:
+-- Studio Pro's "Ask confirmation" checkbox, stored as Forms$ConfirmationInfo
+-- (question, proceed caption, cancel caption).
+--
+--   Confirmation: 'question'          -- turns it on; the question text
+--   ConfirmationProceed: 'caption'    -- optional, defaults to 'Proceed'
+--   ConfirmationCancel: 'caption'     -- optional, defaults to 'Cancel'
+--
+-- Works on an action button, a link button, and a clickable container — any
+-- widget whose Action: / OnClick: calls a microflow or a nanoflow. `describe`
+-- prints the properties back, leaving out captions equal to the defaults.
+--
+-- Mendix stores NO confirmation on the other client actions (Delete, Save,
+-- Close page, Show page, …), so `Confirmation:` there is refused — by `check`
+-- as MDL-WIDGET35 and by `exec` — instead of being dropped. To confirm a delete,
+-- call a microflow that deletes, as the pages below do.
+--
+-- ============================================================================
+
+create module ConfirmTest;
+
+create persistent entity ConfirmTest.Item (
+  Name: string(200) not null,
+  IsArchived: boolean default false
+);
+
+/**
+ * Deletes one item. Called from the pages below with a confirmation, which is
+ * how a delete asks first: the Delete client action itself cannot.
+ *
+ * @param $Item The item to delete
+ */
+create microflow ConfirmTest.ACT_Item_Delete (
+  $Item: ConfirmTest.Item
+)
+begin
+  delete $Item;
+end;
+/
+
+/**
+ * Archives one item, client-side.
+ *
+ * @param $Item The item to archive
+ */
+create nanoflow ConfirmTest.ACT_Item_Archive (
+  $Item: ConfirmTest.Item
+)
+begin
+  change $Item (IsArchived = true) refresh;
+end;
+/
+
+-- MARK: Buttons
+
+/**
+ * Action buttons and a link button with a confirmation.
+ *
+ * - btnDelete: question plus a custom proceed caption; cancel keeps Studio
+ *   Pro's default 'Cancel'.
+ * - btnArchive: a nanoflow action; both captions custom.
+ * - lnkDelete: the same on a link button, captions left at their defaults.
+ *
+ * @param $Item The item shown on the page
+ */
+create page ConfirmTest.Item_Detail
+(
+  params: { $Item: ConfirmTest.Item },
+  title: 'Item',
+  layout: Atlas_Core.PopupLayout
+)
+{
+  layoutgrid lgItem {
+    row row1 {
+      column col1 (desktopwidth: autofill) {
+        dataview dvItem (datasource: $Item) {
+          textbox txtName (label: 'Name', attribute: Name)
+          footer footer1 {
+            actionbutton btnDelete (
+              caption: 'Delete',
+              action: microflow ConfirmTest.ACT_Item_Delete(Item: $Item),
+              buttonstyle: danger,
+              confirmation: 'Delete this item? This cannot be undone.',
+              confirmationproceed: 'Delete'
+            )
+            actionbutton btnArchive (
+              caption: 'Archive',
+              action: nanoflow ConfirmTest.ACT_Item_Archive(Item: $Item),
+              confirmation: 'Archive this item?',
+              confirmationproceed: 'Archive',
+              confirmationcancel: 'Keep'
+            )
+            linkbutton lnkDelete (
+              caption: 'Delete (link)',
+              action: microflow ConfirmTest.ACT_Item_Delete(Item: $Item),
+              confirmation: 'Delete this item?'
+            )
+            actionbutton btnClose (caption: 'Close', action: close_page)
+          }
+        }
+      }
+    }
+  }
+}
+
+-- MARK: Clickable container
+
+/**
+ * A clickable container asks the same way: the confirmation goes on the
+ * container that carries the action.
+ */
+create page ConfirmTest.Item_Overview
+(
+  title: 'Items',
+  layout: Atlas_Core.Atlas_Default
+)
+{
+  listview lvItems (datasource: database ConfirmTest.Item) {
+    container cntItem (
+      class: 'card clickable',
+      action: microflow ConfirmTest.ACT_Item_Delete(Item: $currentObject),
+      confirmation: 'Delete this item?',
+      confirmationproceed: 'Delete'
+    ) {
+      dynamictext txtItemName (content: '{1}', contentparams: [{1} = Name])
+    }
+  }
+}
+
+-- MARK: Describe
+
+-- Prints the Confirmation / ConfirmationProceed / ConfirmationCancel lines back.
+describe page ConfirmTest.Item_Detail;
+describe page ConfirmTest.Item_Overview;
+
+-- Refused — Mendix has no confirmation on a Delete client action (MDL-WIDGET35):
+--
+--   actionbutton btnDeleteDirect (caption: 'Delete', action: delete,
+--                                 confirmation: 'Delete this item?')
+--
+-- Call a microflow that deletes instead, as btnDelete above does.

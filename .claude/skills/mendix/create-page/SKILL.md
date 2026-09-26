@@ -71,6 +71,7 @@ Both are optional and can be changed later with `alter page … { set Class = '�
 | Widget validation | `Validation: '<expr>'` + `ValidationMessage: '<text>'` | `Validation: 'length(toString($value)) > 0'` — quoted, not `[bracketed]` |
 | Variable binding | `datasource: $Var` | `dataview dv (datasource: $Product) { ... }` |
 | Action binding | `action: type` | `actionbutton btn (caption: 'Save', action: save_changes)` |
+| Ask confirmation | `confirmation: 'question'` (+ optional `confirmationproceed:` / `confirmationcancel:`) | `actionbutton btn (caption: 'Delete', action: microflow M.ACT_Delete(Item: $Item), confirmation: 'Delete this item?')` — microflow / nanoflow actions only (MDL-WIDGET35 elsewhere) |
 | Database source | `datasource: database entity` | `datagrid dg (datasource: database Module.Entity)` |
 | Selection binding | `datasource: selection widget` | `dataview dv (datasource: selection galleryList)` |
 | CSS class | `class: 'classes'` | `container c (class: 'card mx-spacing-top-large')` |

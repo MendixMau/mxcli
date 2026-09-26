@@ -159,6 +159,19 @@ DATAGRID dgOrders (DataSource: DATABASE FROM Sales.Order, Selection: Single) {
 
 `mxcli check -p <app.mpr>` reports a missing argument before mxbuild does.
 
+A microflow or nanoflow action can **ask for confirmation** first (Studio Pro's
+"Ask confirmation"): `Confirmation: 'question'`, with optional
+`ConfirmationProceed:` and `ConfirmationCancel:` captions that default to
+`Proceed` and `Cancel`. It works on buttons and clickable containers alike.
+Mendix has no confirmation on the other actions, so there it is refused
+(**MDL-WIDGET35**). Call a microflow that performs the action instead:
+
+```sql
+ACTIONBUTTON btnDelete (Caption: 'Delete',
+  Action: MICROFLOW Sales.ACT_DeleteOrder(Order: $Order),
+  Confirmation: 'Delete this order?', ConfirmationProceed: 'Delete')
+```
+
 ### ButtonStyle Values
 
 `Primary`, `Default`, `Success`, `Danger`, `Warning`, `Info`.

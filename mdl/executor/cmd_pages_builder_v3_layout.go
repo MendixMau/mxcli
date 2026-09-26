@@ -212,6 +212,9 @@ func (pb *pageBuilder) buildContainerV3(w *ast.WidgetV3) (*pages.Container, erro
 		}
 		container.OnClickAction = clientAction
 	}
+	if err := applyActionConfirmation(w, container.OnClickAction); err != nil {
+		return nil, err
+	}
 
 	// Build child widgets
 	for _, child := range w.Children {

@@ -1872,7 +1872,13 @@ func clientActionToGen(a pages.ClientAction) (element.Element, error) {
 		}
 		assignID(g)
 		g.SetDisabledDuringExecution(true)
-		g.SetMicroflowSettings(microflowSettingsToGen(x.MicroflowName, x.ParameterMappings))
+		settings := microflowSettingsToGen(x.MicroflowName, x.ParameterMappings)
+		if x.Confirmation != nil {
+			if s, ok := settings.(*genPg.MicroflowSettings); ok {
+				s.SetConfirmationInfo(confirmationInfoToGen(x.Confirmation))
+			}
+		}
+		g.SetMicroflowSettings(settings)
 		return g, nil
 	case *pages.NanoflowClientAction:
 		// call_nanoflow → Forms$CallNanoflowClientAction. Unlike the microflow
@@ -1887,6 +1893,9 @@ func clientActionToGen(a pages.ClientAction) (element.Element, error) {
 		g.SetDisabledDuringExecution(true)
 		g.SetNanoflowQualifiedName(x.NanoflowName)
 		g.SetProgressBar("None")
+		if x.Confirmation != nil {
+			g.SetConfirmationInfo(confirmationInfoToGen(x.Confirmation))
+		}
 		for _, pm := range x.ParameterMappings {
 			m := genPg.NewNanoflowParameterMapping()
 			assignID(m)
@@ -1974,4 +1983,17 @@ func menuSourceToGen(widget, menu, profile string) (element.Element, error) {
 	assignID(src)
 	src.SetNavigationProfileQualifiedName(orDefaultStr(profile, "Responsive"))
 	return src, nil
+}
+
+// confirmationInfoToGen builds a Forms$ConfirmationInfo — Studio Pro's "Ask
+// confirmation" on a call-microflow / call-nanoflow action. Pinned against
+// ConversationalUI.Snippet_Agent_Details (11.14.0): three Texts$Text parts,
+// Question, ProceedButtonCaption and CancelButtonCaption.
+func confirmationInfoToGen(c *pages.ConfirmationInfo) element.Element {
+	ci := genPg.NewConfirmationInfo()
+	assignID(ci)
+	ci.SetQuestion(captionToGen(textFromString(c.Question)))
+	ci.SetProceedButtonCaption(captionToGen(textFromString(c.ProceedCaption)))
+	ci.SetCancelButtonCaption(captionToGen(textFromString(c.CancelCaption)))
+	return ci
 }

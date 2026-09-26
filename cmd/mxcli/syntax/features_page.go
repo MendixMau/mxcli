@@ -144,7 +144,12 @@ CREATE PAGE Sales.Detail (Title: 'Detail', Layout: Atlas_Core.Atlas_Default) {
 			"--   container the grid declares — it used to be dropped on write with no\n" +
 			"--   diagnostic, and is now refused (MDL-WIDGET30).\n\n" +
 			"-- Inputs\nTEXTBOX name (Label: 'L', Attribute: Attr)\nTEXTAREA | DATEPICKER | COMBOBOX | CHECKBOX | RADIOBUTTONS\n\n" +
-			"-- Actions\nACTIONBUTTON name (Caption: 'C', Action: SAVE_CHANGES, ButtonStyle: Primary)\nLINKBUTTON name (Caption: 'C', Action: ...)\n\n" +
+			"-- Actions\nACTIONBUTTON name (Caption: 'C', Action: SAVE_CHANGES, ButtonStyle: Primary)\nLINKBUTTON name (Caption: 'C', Action: ...)\n" +
+			"--   Studio Pro's \"Ask confirmation\" — call-microflow / call-nanoflow actions only\n" +
+			"--   (Mendix stores none on Delete/Save/Close; call a microflow that deletes).\n" +
+			"--   ConfirmationProceed / ConfirmationCancel default to 'Proceed' / 'Cancel':\n" +
+			"ACTIONBUTTON btnDelete (Caption: 'Delete', Action: MICROFLOW M.ACT_Delete(Item: $currentObject),\n" +
+			"                        Confirmation: 'Delete this item?', ConfirmationProceed: 'Delete')\n\n" +
 			"-- Display\nDYNAMICTEXT name (Content: 'Hello, {1}!', ContentParams: [{1} = Name])\nTITLE name (Content: 'Heading')\nIMAGE name (Image: 'Module.Collection.ImageName')\nIMAGE name (ImageType: imageUrl, ImageUrl: 'https://…')\n" +
 			"--   IMAGE needs a source. Its default, `ImageType: image`, shows an entry from an\n" +
 			"--   image collection, named as three parts: Module.Collection.ImageName.\n" +

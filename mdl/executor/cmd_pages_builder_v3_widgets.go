@@ -1046,6 +1046,9 @@ func (pb *pageBuilder) buildButtonV3(w *ast.WidgetV3) (*pages.ActionButton, erro
 		}
 		btn.Action = act
 	}
+	if err := applyActionConfirmation(w, btn.Action); err != nil {
+		return nil, err
+	}
 
 	// Handle Icon (#602, #1059): one of Mendix's three icon elements.
 	icon, err := buildWidgetIcon(w)

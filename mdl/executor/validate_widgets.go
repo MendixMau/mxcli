@@ -203,6 +203,7 @@ func validateWidgetTreeIn(widgets []*ast.WidgetV3, registry *WidgetRegistry, loc
 		out = append(out, validateImageSource(w, locationPrefix)...)
 		out = append(out, validateStaticWidget(w, locationPrefix)...)
 		out = append(out, validateDynamicTextFormatting(w, locationPrefix)...)
+		out = append(out, validateActionConfirmation(w, locationPrefix)...)
 		out = append(out, validateDatasourceXPathAssociationEmpty(w, locationPrefix)...)
 		out = append(out, validateComboBoxAssociation(w, locationPrefix)...)
 		// #631: inputs inside a list view that will be written read-only.
@@ -687,6 +688,8 @@ var staticWidgetKnownProps = func() map[string]bool {
 		"CaptionAttribute", "Collapsible", "DatabaseHost", "DefaultLanguage", "Footer",
 		"FormOrientation", "HeaderMode", "LabelWidth", "Prefix", "ShowContentAs", "Title",
 		"Widget", "WidgetType", "ShowLabel", "VisibleIf", "VisibleWhen", "EditableIf", "DynamicClasses",
+		// Studio Pro's "Ask confirmation" on a call-microflow / call-nanoflow action
+		"Confirmation", "ConfirmationProceed", "ConfirmationCancel",
 		// vocabulary describe page emits (native widgets + datagrid columns)
 		"Alignment", "AlternativeText", "ColumnClass", "ColumnWidth", "DesktopColumns",
 		"DisplayAs", "Draggable", "DynamicCellClass", "HeightUnit", "Hidable", "ImageType",

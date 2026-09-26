@@ -235,6 +235,7 @@ func parseRawWidget(ctx *ExecContext, w map[string]any, parentEntityContext ...s
 		if typeName == "Forms$DivContainer" || typeName == "Pages$DivContainer" {
 			if onClick := asActionMap(w["OnClickAction"]); onClick != nil {
 				widget.Action = extractButtonAction(ctx, map[string]any{"Action": onClick})
+				widget.ActionConfirmation = extractActionConfirmation(ctx, onClick)
 			}
 		}
 		// Extract GroupBox-specific properties
@@ -322,6 +323,7 @@ func parseRawWidget(ctx *ExecContext, w map[string]any, parentEntityContext ...s
 		widget.Parameters = extractButtonCaptionParameters(ctx, w)
 		widget.ButtonStyle = extractButtonStyle(ctx, w)
 		widget.Action = extractButtonAction(ctx, w)
+		widget.ActionConfirmation = extractActionConfirmation(ctx, actionMapForKey(w, "Action"))
 		// RenderType "Link" is a linkbutton; the emitter uses this to choose the
 		// `linkbutton` keyword over `actionbutton` for a clean DESCRIBE roundtrip.
 		if rt, ok := w["RenderType"].(string); ok {

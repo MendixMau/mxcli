@@ -674,7 +674,10 @@ type rawWidget struct {
 	ValidationExpression string
 	ValidationMessage    string
 	OnChange             string // MDL rendering of the OnChangeAction client action
-	OnClick              string // MDL rendering of a pluggable widget's onClick action (e.g. DataGrid2)
+	// ActionConfirmation is the widget action's Forms$ConfirmationInfo as MDL
+	// properties (Confirmation / ConfirmationProceed / ConfirmationCancel).
+	ActionConfirmation []string
+	OnClick            string // MDL rendering of a pluggable widget's onClick action (e.g. DataGrid2)
 	// Filter widget properties
 	FilterAttributes []string // Attributes to filter on
 	FilterExpression string   // Default filter expression (contains, startsWith, etc.)

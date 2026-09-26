@@ -162,6 +162,14 @@ describe icon collection Atlas_Core.Atlas_Filled   -- every icon + its reference
   `action: nothing` when a control really is meant to be inert, so a dead one
   always means a mistake.
 - The same forms serve `onclick:` (an alias of `action:`) and `onchange:`.
+- **Ask confirmation first** (Studio Pro's "Ask confirmation"): add
+  `confirmation: 'question'` to a widget whose action is `microflow …` or
+  `nanoflow …` — a button, a link button or a clickable container. Optional
+  `confirmationproceed:` / `confirmationcancel:` set the two button captions
+  (default `Proceed` / `Cancel`). Mendix has **no** confirmation on `delete`,
+  `save_changes`, `close_page`, `show_page` or any other action, so there it is
+  **MDL-WIDGET35** rather than dropped: to confirm a delete, call a microflow
+  that deletes and put the confirmation on that call.
 
 **Button Styles:** `default`, `primary`, `success`, `info`, `warning`, `danger`, `inverse`
 - Case-insensitive (`primary` and `Primary` both work).
@@ -183,6 +191,10 @@ actionbutton btnProcess (caption: 'Process', action: microflow Module.ACT_Proces
 
 -- Call microflow with $currentObject (inside DATAGRID/LISTVIEW column)
 actionbutton btnDelete (caption: 'Delete', action: microflow Module.ACT_Delete(Target: $currentObject), buttonstyle: danger)
+
+-- Ask for confirmation before the microflow runs (microflow / nanoflow actions only)
+actionbutton btnDelete (caption: 'Delete', action: microflow Module.ACT_Delete(Target: $currentObject), buttonstyle: danger,
+  confirmation: 'Delete this item?', confirmationproceed: 'Delete')
 
 -- Create object and show page
 actionbutton btnNew (caption: 'New', action: create_object Module.Product then show_page Module.Product_Edit, buttonstyle: primary)
