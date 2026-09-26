@@ -287,6 +287,13 @@ func actionFromGen(el element.Element) microflows.MicroflowAction {
 					out.PageParameterMappings = append(out.PageParameterMappings, pm)
 				}
 			}
+			// "Override page title": a Microflows$TextTemplate whose Text holds
+			// the translations. Null when the page keeps its own title. Not
+			// reading it made DESCRIBE lose `with Title = '…'` and a rewrite
+			// through the reader drop the override.
+			if tt, ok := fs.Lookup("TitleOverride").DocumentOK(); ok {
+				out.OverridePageTitle = rawTextsText(tt.Lookup("Text"))
+			}
 		}
 		return out
 
@@ -1484,4 +1491,33 @@ func queueSettingsFromRaw(raw bson.Raw) *microflows.QueueSettings {
 		qs.Retry = v
 	}
 	return qs
+}
+
+// rawTextsText reads a raw Texts$Text value (Items: [marker, Translation…])
+// into a model.Text, or nil when it holds no translation.
+func rawTextsText(v bson.RawValue) *model.Text {
+	doc, ok := v.DocumentOK()
+	if !ok {
+		return nil
+	}
+	arr, ok := doc.Lookup("Items").ArrayOK()
+	if !ok {
+		return nil
+	}
+	vals, _ := arr.Values()
+	trans := map[string]string{}
+	for _, it := range vals {
+		td, ok := it.DocumentOK()
+		if !ok {
+			continue // the leading list marker
+		}
+		trans[rawStr(td, "LanguageCode")] = rawStr(td, "Text")
+	}
+	if len(trans) == 0 {
+		return nil
+	}
+	return &model.Text{
+		BaseElement:  model.BaseElement{ID: model.ID(rawStr(doc, "$ID")), TypeName: "Texts$Text"},
+		Translations: trans,
+	}
 }

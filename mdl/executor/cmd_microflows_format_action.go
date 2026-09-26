@@ -760,6 +760,13 @@ func formatAction(
 		if len(params) > 0 {
 			paramStr = "(" + strings.Join(params, ", ") + ")"
 		}
+		// "Override page title" — the per-mode popup title. Printed so a
+		// describe→exec round trip keeps it.
+		if a.OverridePageTitle != nil {
+			if title := pickTextTranslation(a.OverridePageTitle, describeDefaultLanguage(ctx)); title != "" {
+				return fmt.Sprintf("show page %s%s with Title = %s;", pageName, paramStr, mdlQuote(title))
+			}
+		}
 		return fmt.Sprintf("show page %s%s;", pageName, paramStr)
 
 	case *microflows.ClosePageAction:
