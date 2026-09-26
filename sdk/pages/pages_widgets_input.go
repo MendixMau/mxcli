@@ -40,6 +40,9 @@ type TextArea struct {
 	Rows              int                `json:"rows,omitempty"`
 	ReadOnly          bool               `json:"readOnly,omitempty"`
 	OnChangeAction    ClientAction       `json:"onChangeAction,omitempty"`
+	// Forms$WidgetValidation, as on TextBox — Studio Pro's Validation group.
+	ValidationExpression string `json:"validationExpression,omitempty"`
+	ValidationMessage    string `json:"validationMessage,omitempty"`
 }
 
 // FormattingInfo represents formatting configuration.
@@ -63,6 +66,9 @@ type DatePicker struct {
 	DateFormat        string             `json:"dateFormat,omitempty"`
 	ReadOnly          bool               `json:"readOnly,omitempty"`
 	OnChangeAction    ClientAction       `json:"onChangeAction,omitempty"`
+	// Forms$WidgetValidation, as on TextBox — Studio Pro's Validation group.
+	ValidationExpression string `json:"validationExpression,omitempty"`
+	ValidationMessage    string `json:"validationMessage,omitempty"`
 }
 
 // DropDown represents a drop-down selection widget.

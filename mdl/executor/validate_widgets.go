@@ -772,6 +772,12 @@ func validateStaticWidgetUnknownProps(w *ast.WidgetV3, locationPrefix string) []
 		if suggestion := nearestKey(key, staticWidgetKnownPropList); suggestion != "" {
 			hint = fmt.Sprintf(" — did you mean `%s`?", suggestion)
 		}
+		// Studio Pro's Validation "Required" is not a flag: it is a preset
+		// that stores the expression `$value != empty` in the widget's
+		// Forms$WidgetValidation. Name that spelling rather than a near miss.
+		if l := strings.ToLower(key); l == "required" || l == "requiredmessage" || l == "isrequired" {
+			hint = " — Studio Pro's \"Required\" validation is stored as an expression: write `Validation: '$value != empty', ValidationMessage: '…'`"
+		}
 		out = append(out, linter.Violation{
 			RuleID:   "MDL-WIDGET07",
 			Severity: linter.SeverityWarning,

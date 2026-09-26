@@ -68,7 +68,7 @@ Both are optional and can be changed later with `alter page … { set Class = '�
 | Attribute binding | `attribute: AttrName` | `textbox txt (label: 'Name', attribute: Name)` |
 | Attribute over an association | `attribute: Assoc/Attr` (bare association name, multi-hop OK) | `textbox txt (label: 'Rule', attribute: RuleAction_BusinessRule/Name)` |
 | Password field | `Password: true` | `textbox tbPw (attribute: Secret, Password: true)` |
-| Widget validation | `Validation: '<expr>'` + `ValidationMessage: '<text>'` | `Validation: 'length(toString($value)) > 0'` — quoted, not `[bracketed]` |
+| Widget validation | `Validation: '<expr>'` + `ValidationMessage: '<text>'` | `Validation: 'length(toString($value)) > 0'` — quoted, not `[bracketed]`; on `textbox`, `textarea`, `datepicker`. "Required" is `Validation: '$value != empty'` (no `Required:` key) |
 | Variable binding | `datasource: $Var` | `dataview dv (datasource: $Product) { ... }` |
 | Action binding | `action: type` | `actionbutton btn (caption: 'Save', action: save_changes)` |
 | Database source | `datasource: database entity` | `datagrid dg (datasource: database Module.Entity)` |

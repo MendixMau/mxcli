@@ -469,6 +469,16 @@ textbox txtName (label: 'Label', attribute: attributename)
 textarea txtDescription (label: 'Description', attribute: description)
 ```
 
+**Validation** — `textbox`, `textarea` and `datepicker` take Studio Pro's
+Validation group: `Validation:` is a Mendix expression over `$value`, quoted, and
+`ValidationMessage:` the text shown when it is false. Studio Pro's "Required" is
+not a flag but a preset of the expression `$value != empty`, so there is no
+`Required:` key (it is MDL-WIDGET07):
+```sql
+datepicker dpDue (label: 'Due date', attribute: DueDate,
+  Validation: '$value != empty', ValidationMessage: 'Pick a due date.')
+```
+
 **CHECKBOX** - Boolean checkbox:
 ```sql
 checkbox cbActive (label: 'Active', attribute: IsActive)

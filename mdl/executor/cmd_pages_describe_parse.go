@@ -370,6 +370,7 @@ func parseRawWidget(ctx *ExecContext, w map[string]any, parentEntityContext ...s
 		widget.Caption = extractLabelText(ctx, w)
 		widget.Content = extractAttributeRef(ctx, w)
 		widget.Editable = extractEditable(ctx, w)
+		widget.ValidationExpression, widget.ValidationMessage = extractWidgetValidation(ctx, w)
 		widget.OnChange = extractOnChangeAction(ctx, w)
 		return []rawWidget{widget}
 
@@ -377,6 +378,7 @@ func parseRawWidget(ctx *ExecContext, w map[string]any, parentEntityContext ...s
 		widget.Caption = extractLabelText(ctx, w)
 		widget.Content = extractAttributeRef(ctx, w)
 		widget.Editable = extractEditable(ctx, w)
+		widget.ValidationExpression, widget.ValidationMessage = extractWidgetValidation(ctx, w)
 		widget.OnChange = extractOnChangeAction(ctx, w)
 		return []rawWidget{widget}
 

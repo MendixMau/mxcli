@@ -574,7 +574,7 @@ func widgetToGen(w pages.Widget) (element.Element, error) {
 		g.SetReadOnlyStyle("Inherit")
 		g.SetSubmitBehaviour("OnEndEditing")
 		g.SetSubmitOnInputDelay(300)
-		g.SetValidation(widgetValidationToGen())
+		g.SetValidation(widgetValidationToGenWith(x.ValidationExpression, x.ValidationMessage))
 		return g, nil
 
 	case *pages.DatePicker:
@@ -597,7 +597,7 @@ func widgetToGen(w pages.Widget) (element.Element, error) {
 		g.SetOnEnterAction(noActionGen())
 		g.SetPlaceholderTemplate(textAsClientTemplate(x.Placeholder))
 		g.SetReadOnlyStyle("Inherit")
-		g.SetValidation(widgetValidationToGen())
+		g.SetValidation(widgetValidationToGenWith(x.ValidationExpression, x.ValidationMessage))
 		return g, nil
 
 	case *pages.RadioButtons:

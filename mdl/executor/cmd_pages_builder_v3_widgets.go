@@ -527,6 +527,9 @@ func (pb *pageBuilder) buildTextAreaV3(w *ast.WidgetV3) (*pages.TextArea, error)
 	if label := w.GetLabel(); label != "" {
 		ta.Label = label
 	}
+	// Forms$WidgetValidation — the same Validation group as a text box.
+	ta.ValidationExpression = w.GetStringProp("Validation")
+	ta.ValidationMessage = w.GetStringProp("ValidationMessage")
 
 	// Handle OnChange (the "On change" client action)
 	if err := pb.applyOnChangeV3(w, &ta.OnChangeAction); err != nil {
@@ -563,6 +566,9 @@ func (pb *pageBuilder) buildDatePickerV3(w *ast.WidgetV3) (*pages.DatePicker, er
 	if label := w.GetLabel(); label != "" {
 		dp.Label = label
 	}
+	// Forms$WidgetValidation — the same Validation group as a text box.
+	dp.ValidationExpression = w.GetStringProp("Validation")
+	dp.ValidationMessage = w.GetStringProp("ValidationMessage")
 
 	// Handle OnChange (the "On change" client action)
 	if err := pb.applyOnChangeV3(w, &dp.OnChangeAction); err != nil {
