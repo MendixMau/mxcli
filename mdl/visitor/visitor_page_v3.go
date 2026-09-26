@@ -1103,13 +1103,17 @@ func buildActionV3(ctx parser.IActionExprV3Context) *ast.ActionV3 {
 	} else if actCtx.CANCEL_CHANGES() != nil {
 		action.Type = "cancel"
 		action.ClosePage = actCtx.CLOSE_PAGE() != nil
-	} else if actCtx.CLOSE_PAGE() != nil && actCtx.SAVE_CHANGES() == nil && actCtx.CANCEL_CHANGES() == nil {
-		action.Type = "close"
 	} else if actCtx.DELETE_OBJECT() != nil {
 		action.Type = "delete"
+		action.ClosePage = actCtx.CLOSE_PAGE() != nil
 	} else if actCtx.DELETE() != nil {
+		// Before the bare CLOSE_PAGE branch: `DELETE CLOSE_PAGE` carries a
+		// CLOSE_PAGE token too, and testing that first read the delete as a
+		// plain close — the button closed the page without deleting.
 		action.Type = "delete"
 		action.ClosePage = actCtx.CLOSE_PAGE() != nil
+	} else if actCtx.CLOSE_PAGE() != nil {
+		action.Type = "close"
 	} else if actCtx.CREATE_OBJECT() != nil {
 		action.Type = "create"
 		if qn := actCtx.QualifiedName(); qn != nil {

@@ -122,6 +122,7 @@ describe icon collection Atlas_Core.Atlas_Filled   -- every icon + its reference
 - `action: cancel_changes` - Cancel changes
 - `action: close_page` - Close the page
 - `action: delete` - Delete object
+- `action: delete close_page` - Delete object, then close the page (`describe` prints it `delete_object close_page`; both spellings parse)
 - `action: microflow Module.MicroflowName` - Call microflow
 - `action: microflow Module.MicroflowName(Param: $value)` - Call microflow with parameters
 - `action: nanoflow Module.NanoflowName` - Call nanoflow (client-side)

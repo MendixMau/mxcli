@@ -126,6 +126,7 @@ values, including the argument list.
 | Page | `Action: PAGE Module.PageName` | Opens a page |
 | Close | `Action: CLOSE_PAGE` | Closes the current page |
 | Delete | `Action: DELETE` | Deletes the context object |
+| Delete and close | `Action: DELETE CLOSE_PAGE` | Deletes the context object, then closes the page (`describe` prints `DELETE_OBJECT CLOSE_PAGE`, which parses too) |
 | Nothing | `Action: NOTHING` | Deliberately no action — a decorative button, a card that is not clickable |
 
 The set is closed. Anything else in an action slot is an error

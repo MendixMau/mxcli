@@ -1476,11 +1476,15 @@ func (pb *pageBuilder) buildClientActionV3(action *ast.ActionV3) (pages.ClientAc
 		}, nil
 
 	case "delete":
+		// ClosePage is Forms$DeleteClientAction.ClosePage ("Close page" on the
+		// delete action). It was parsed and never copied, so DELETE CLOSE_PAGE
+		// deleted and left the page open.
 		return &pages.DeleteClientAction{
 			BaseElement: model.BaseElement{
 				ID:       model.ID(types.GenerateID()),
 				TypeName: "Forms$DeleteClientAction",
 			},
+			ClosePage: action.ClosePage,
 		}, nil
 
 	case "create":

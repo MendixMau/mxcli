@@ -644,7 +644,7 @@ actionExprV3
     | SAVE_CHANGES (CLOSE_PAGE)?                      // SAVE_CHANGES or SAVE_CHANGES CLOSE_PAGE
     | CANCEL_CHANGES (CLOSE_PAGE)?                    // CANCEL_CHANGES
     | CLOSE_PAGE                                      // CLOSE_PAGE
-    | DELETE_OBJECT                                   // DELETE_OBJECT
+    | DELETE_OBJECT (CLOSE_PAGE)?                     // DELETE_OBJECT or DELETE_OBJECT CLOSE_PAGE (what DESCRIBE prints)
     | DELETE (CLOSE_PAGE)?                            // DELETE (legacy)
     | CREATE_OBJECT qualifiedName (THEN actionExprV3)? // CREATE_OBJECT Entity THEN SHOW_PAGE ...
     | SHOW_PAGE qualifiedName microflowArgsV3?        // SHOW_PAGE Module.Page (Param: val)

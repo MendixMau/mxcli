@@ -343,6 +343,7 @@ ACTIONBUTTON btnDelete (Caption: 'Delete', Action: DELETE, ButtonStyle: Danger)
 | `SAVE_CHANGES` | Commit and close the page |
 | `CANCEL_CHANGES` | Roll back and close the page |
 | `DELETE` | Delete the current object |
+| `DELETE CLOSE_PAGE` | Delete the current object, then close the page |
 | `CLOSE_PAGE` | Close the page without saving |
 | `MICROFLOW Module.MF_Name` | Call a microflow |
 | `NANOFLOW Module.NF_Name` | Call a nanoflow |
