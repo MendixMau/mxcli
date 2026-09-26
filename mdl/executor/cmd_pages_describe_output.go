@@ -717,6 +717,9 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 			if w.Selection != "" {
 				props = append(props, fmt.Sprintf("Selection: %s", w.Selection))
 			}
+			if w.OnClick != "" {
+				props = append(props, actionProp("OnClick", w.OnClick))
+			}
 			props = appendAppearanceProps(props, w)
 			// Output filter and content widgets
 			hasContent := len(w.Children) > 0 || len(w.FilterWidgets) > 0

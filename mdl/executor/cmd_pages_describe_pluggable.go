@@ -856,6 +856,29 @@ func extractGallerySelection(ctx *ExecContext, w map[string]any) string {
 	return ""
 }
 
+// customWidgetPropertySelection returns the Selection stored on the named
+// CustomWidget property ("None", "Single", "Multiple"), or "" when the widget
+// has no such property. Every property value carries a Selection field, None on
+// all but the selection property itself, so it must be looked up by key.
+func customWidgetPropertySelection(w map[string]any, propertyKey string) string {
+	obj, ok := w["Object"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	propTypeKeyMap := buildPropertyTypeKeyMap(w, true)
+	for _, prop := range getBsonArrayElements(obj["Properties"]) {
+		propMap, ok := prop.(map[string]any)
+		if !ok || propTypeKeyMap[extractBinaryID(propMap["TypePointer"])] != propertyKey {
+			continue
+		}
+		if value, ok := propMap["Value"].(map[string]any); ok {
+			sel, _ := value["Selection"].(string)
+			return sel
+		}
+	}
+	return ""
+}
+
 // extractFilterAttributes extracts the filter attributes from a TextFilter/NumberFilter widget.
 func extractFilterAttributes(ctx *ExecContext, w map[string]any) []string {
 	// Use the generic property extraction helper

@@ -205,6 +205,7 @@ func validateWidgetTreeIn(widgets []*ast.WidgetV3, registry *WidgetRegistry, loc
 		out = append(out, validateDynamicTextFormatting(w, locationPrefix)...)
 		out = append(out, validateDatasourceXPathAssociationEmpty(w, locationPrefix)...)
 		out = append(out, validateComboBoxAssociation(w, locationPrefix)...)
+		out = append(out, validateGalleryOnClickSelection(w, locationPrefix)...)
 		// #631: inputs inside a list view that will be written read-only.
 		out = append(out, validateListViewEditableInputs(w, locationPrefix)...)
 		// A show_page argument naming anything but the context object is dropped.

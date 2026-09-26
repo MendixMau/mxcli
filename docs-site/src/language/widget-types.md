@@ -224,6 +224,22 @@ GALLERY galBoard (
 }
 ```
 
+**Click action** — `OnClick:` runs when an item is clicked, with the clicked item
+as `$currentObject`. It takes any action form, as a button does. A click also
+selects an item, so Mendix accepts an item click action only on a gallery with
+`Selection: None`. Selection defaults to `Single`, so an `OnClick:` without
+`Selection: None` is refused (**MDL-WIDGET35**):
+
+```sql
+GALLERY galOrders (
+  DataSource: DATABASE MyModule.Order,
+  Selection: None,
+  OnClick: MICROFLOW MyModule.ACT_Order_Open(Order: $currentObject)
+) {
+  DYNAMICTEXT txtNr (Content: '{1}', Attribute: Number)
+}
+```
+
 ## Input Widgets
 
 All input widgets share common properties:

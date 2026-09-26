@@ -571,6 +571,24 @@ gallery productGallery (datasource: database Module.Product, selection: single) 
 }
 ```
 
+**With a click action** — `onclick:` on the gallery runs when an item is clicked,
+with the clicked item as `$currentObject` (the gallery's "On click action", the
+same slot as a Data grid 2 row click). Any action form works. It needs
+`selection: none`: the click that runs the action is the click that would select
+the item, and Mendix rejects the pair as ambiguous — the default selection is
+`Single`, so leaving it out is **MDL-WIDGET35**:
+```sql
+gallery orderGallery (
+  datasource: database Module.Order,
+  selection: none,
+  onclick: microflow Module.ACT_Order_Open(Order: $currentObject)
+) {
+  template template1 {
+    dynamictext orderNr (content: '{1}', contentparams: [{1} = Number])
+  }
+}
+```
+
 ### Filter Widgets
 
 A filter widget lives in one of two places: **inside a DATA GRID column's own braces**,

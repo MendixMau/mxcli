@@ -471,6 +471,12 @@ func parseRawWidget(ctx *ExecContext, w map[string]any, parentEntityContext ...s
 		if widget.RenderMode == "gallery" {
 			widget.DataSource = extractGalleryDataSource(ctx, w)
 			widget.Selection = extractGallerySelection(ctx, w)
+			// A stored None must be printed: the Gallery definition's default is
+			// Single, so leaving it out turned None into Single on describe ->
+			// exec — and a gallery with OnClick needs None (MDL-WIDGET35).
+			if widget.Selection == "" && customWidgetPropertySelection(w, "itemSelection") == "None" {
+				widget.Selection = "None"
+			}
 			widget.DesktopColumns = extractCustomWidgetPropertyString(ctx, w, "desktopItems")
 			widget.TabletColumns = extractCustomWidgetPropertyString(ctx, w, "tabletItems")
 			widget.PhoneColumns = extractCustomWidgetPropertyString(ctx, w, "phoneItems")
@@ -483,6 +489,9 @@ func parseRawWidget(ctx *ExecContext, w map[string]any, parentEntityContext ...s
 				return extractGalleryContent(ctx, w, widget.EntityContext)
 			})
 			widget.FilterWidgets = extractGalleryFilters(ctx, w)
+			// The gallery's own click action — written from `OnClick:` since the
+			// definition maps it; read back by source like DataGrid2's.
+			widget.OnClick = renderClientActionMDL(ctx, customWidgetActionForSource(ctx, w, "OnClick"))
 		}
 		// For filter widgets, extract filter attributes and expression
 		if widget.RenderMode == "textfilter" || widget.RenderMode == "numberfilter" || widget.RenderMode == "dropdownfilter" || widget.RenderMode == "datefilter" {
