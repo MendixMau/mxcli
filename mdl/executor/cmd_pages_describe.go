@@ -720,6 +720,9 @@ type rawWidget struct {
 	Specialization string
 	// Conditional visibility/editability
 	VisibleIf string // Expression from ConditionalVisibilitySettings
+	// VisibleForRoles is ConditionalVisibilitySettings.ModuleRoles — Studio Pro's
+	// "Visible: based on module roles", by-name Module.Role references.
+	VisibleForRoles []string
 	// "Visible: based on attribute value": the attribute's short name and the
 	// values that SHOW the widget, as MDL spells them (`empty` for "(empty)").
 	VisibleAttr   string

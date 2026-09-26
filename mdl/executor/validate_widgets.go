@@ -687,6 +687,8 @@ var staticWidgetKnownProps = func() map[string]bool {
 		"CaptionAttribute", "Collapsible", "DatabaseHost", "DefaultLanguage", "Footer",
 		"FormOrientation", "HeaderMode", "LabelWidth", "Prefix", "ShowContentAs", "Title",
 		"Widget", "WidgetType", "ShowLabel", "VisibleIf", "VisibleWhen", "EditableIf", "DynamicClasses",
+		// Studio Pro's "Visible: based on module roles" (ConditionalVisibilitySettings.ModuleRoles)
+		"VisibleForRoles",
 		// vocabulary describe page emits (native widgets + datagrid columns)
 		"Alignment", "AlternativeText", "ColumnClass", "ColumnWidth", "DesktopColumns",
 		"DisplayAs", "Draggable", "DynamicCellClass", "HeightUnit", "Hidable", "ImageType",

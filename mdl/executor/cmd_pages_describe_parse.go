@@ -32,6 +32,11 @@ func extractConditionalSettings(ctx *ExecContext, widget *rawWidget, w map[strin
 		if expr, ok := cvs["Expression"].(string); ok && expr != "" {
 			widget.VisibleIf = expr
 		}
+		for _, r := range getBsonArrayElements(cvs["ModuleRoles"]) {
+			if s, ok := r.(string); ok && s != "" {
+				widget.VisibleForRoles = append(widget.VisibleForRoles, s)
+			}
+		}
 		// Attribute-based: one Enumerations$Condition per value. Without this the
 		// setting was never read, so describe → exec wrote the widget always
 		// visible (Administration.Account_Edit: 8 conditions → 0).

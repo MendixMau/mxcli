@@ -1020,6 +1020,15 @@ func conditionalVisibilityToGen(cvs *pages.ConditionalVisibilitySettings) elemen
 	assignID(g)
 	g.SetExpression(cvs.Expression)
 	g.SetIgnoreSecurity(false)
+	// "Visible: based on module roles" — by-name Module.Role references, the
+	// marker-1 list Studio Pro writes (WorkflowCommons.WorkflowAttachment_New).
+	if len(cvs.ModuleRoles) > 0 {
+		roles := make([]string, 0, len(cvs.ModuleRoles))
+		for _, r := range cvs.ModuleRoles {
+			roles = append(roles, string(r))
+		}
+		g.SetModuleRolesQualifiedNames(roles)
+	}
 	// "Visible: based on attribute value": the attribute plus one condition per
 	// value it can hold (ako/mxcli attribute-condition visibility).
 	if cvs.Attribute != "" {

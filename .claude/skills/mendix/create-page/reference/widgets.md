@@ -849,6 +849,24 @@ actionbutton btnSubmit (
 )
 ```
 
+To show a button to some **module roles** only — Studio Pro's "Visible: based on
+module roles" — list them with `visibleforroles:`. It works on every built-in
+widget (buttons, containers, inputs, text, data views) and combines with
+`visible:`: the widget shows when the user has one of the roles **and** the
+expression holds.
+
+```sql
+actionbutton btnDelete (
+  caption: 'Delete', action: microflow Mod.ACT_Delete(Item: $currentObject),
+  visibleforroles: [Mod.Admin, Mod.Manager]
+)
+```
+
+Write each role qualified, `Module.Role`; an unknown one is CE1613 at `mx check`.
+Pluggable widgets (Data grid 2, Gallery, …) take no conditional visibility from
+mxcli — wrap one in a `container` and put the roles there. Hiding a button is not
+security: grant execute on the microflow to the same roles.
+
 ### Inputs in a List View Need `editable: true` on the List View
 
 A list view has an `Editable` of its own, default **false** (Mendix's default),

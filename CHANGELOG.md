@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **`VisibleForRoles: [Module.Role, …]` — Studio Pro's "Visible: based on module roles"** on any built-in widget (buttons, containers, inputs, …). There was no MDL for it: the key was MDL-WIDGET07 "silently dropped", so hiding a Delete button or a menu from a role meant Studio Pro. It is stored in the widget's `ConditionalVisibilitySettings.ModuleRoles`, the shape Studio Pro writes (WorkflowCommons.WorkflowAttachment_New), combines with `Visible: [expression]` as it does there, and `describe` prints it back. An unknown role is reported by mx check (CE1613), as for any by-name reference. Pluggable widgets still get no conditional visibility from mxcli; wrap one in a container.
+
 ### Changed
 
 - **`DynamicClasses` and a column's `DynamicCellClass` are written as Mendix expressions** (mendixlabs/mxcli#750) — the expression is written as-is, so the doubled-quote spelling is gone: `dynamicclasses: if $currentObject/Featured then 'is-featured' else ''`, and `dynamicclasses: 'is-featured'` is the string — the class `is-featured`. The same rule as the OData client's credentials. `create page`, `alter page … set` and `describe` all use it, and a describe → exec round trip stores identical values (measured on a Mendix 11.14.0 project). **Migrating a script:** the old spelling, the expression's text in quotes (`'if … then ''a'' else '''''`), still parses but would now store that text as a class name, so `check` and `exec` refuse it as **MDL-WIDGET33** and give the unquoted expression. An expression in any other widget property is an error rather than an empty value; a pluggable property whose schema kind is Expression (a column's `Visible`, for one) keeps the quoted form until a following change.

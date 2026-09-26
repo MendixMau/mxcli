@@ -193,6 +193,7 @@ These properties are available on most widget types:
 | `DynamicClasses` | Runtime-computed CSS classes (expression; stacks on `Class`) | `DynamicClasses: if $currentObject/IsActive then 'is-active' else ''` |
 | `Editable` | Edit control | `Editable: NEVER` or `Editable: ALWAYS` |
 | `Visible` | Visibility expression | `Visible: '$showField'` |
+| `VisibleForRoles` | Module roles that see the widget (with `Visible`, both must hold) | `VisibleForRoles: [Sales.Administrator]` |
 | `DesignProperties` | Atlas design properties | `DesignProperties: ['Spacing top': 'Large']` |
 
 ## Parameters

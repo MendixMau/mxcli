@@ -1,0 +1,107 @@
+-- ============================================================================
+-- Role-based widget visibility — Studio Pro's "Visible: based on module roles"
+-- ============================================================================
+--
+-- A widget can be shown to some module roles only:
+--
+--   VisibleForRoles: [Module.Role, Module.OtherRole]
+--
+-- It is stored in the widget's ConditionalVisibilitySettings.ModuleRoles, the
+-- same element that holds a `Visible: [expression]` condition, and the two
+-- combine as they do in Studio Pro: the widget shows when the user has one of
+-- the roles AND the expression holds. `describe` prints the list back.
+--
+-- Works on the built-in widgets — buttons, containers, inputs, text, data
+-- views, … Each name is a by-name reference written Module.Role; an unknown
+-- role is reported by mx check (CE1613), like any other by-name reference.
+-- Pluggable widgets (Data grid 2, Gallery, …) get no conditional visibility
+-- from mxcli: wrap one in a container and put the roles on the container.
+--
+-- Hiding a widget is not security: a hidden button's microflow can still be
+-- called. Grant execute on the microflow to the same roles.
+--
+-- ============================================================================
+
+create module RoleVisTest;
+
+create module role RoleVisTest.Admin;
+create module role RoleVisTest.Editor;
+create module role RoleVisTest.Viewer;
+
+create persistent entity RoleVisTest.Document (
+  Title: string(200) not null,
+  IsLocked: boolean default false
+);
+
+/**
+ * Deletes one document.
+ *
+ * @param $Document The document to delete
+ */
+create microflow RoleVisTest.ACT_Document_Delete (
+  $Document: RoleVisTest.Document
+)
+begin
+  delete $Document;
+end;
+/
+
+grant execute on microflow RoleVisTest.ACT_Document_Delete to RoleVisTest.Admin;
+
+/**
+ * - btnEdit: shown to editors and admins.
+ * - btnDelete: shown to admins only.
+ * - btnUnlock: roles AND an expression — shown to admins, and only while the
+ *   document is locked.
+ * - txtTitle / cntAdmin: any built-in widget takes the property, a container
+ *   included, which also hides everything inside it.
+ *
+ * @param $Document The document shown on the page
+ */
+create page RoleVisTest.Document_Detail
+(
+  params: { $Document: RoleVisTest.Document },
+  title: 'Document',
+  layout: Atlas_Core.PopupLayout
+)
+{
+  layoutgrid lgDocument {
+    row row1 {
+      column col1 (desktopwidth: autofill) {
+        dataview dvDocument (datasource: $Document) {
+          textbox txtTitle (
+            label: 'Title',
+            attribute: Title,
+            visibleforroles: [RoleVisTest.Admin, RoleVisTest.Editor]
+          )
+          container cntAdmin (class: 'card', visibleforroles: [RoleVisTest.Admin]) {
+            dynamictext txtAdminNote (content: 'Visible to administrators only')
+          }
+          footer footer1 {
+            actionbutton btnEdit (
+              caption: 'Save',
+              action: save_changes,
+              visibleforroles: [RoleVisTest.Admin, RoleVisTest.Editor]
+            )
+            actionbutton btnDelete (
+              caption: 'Delete',
+              action: microflow RoleVisTest.ACT_Document_Delete(Document: $Document),
+              buttonstyle: danger,
+              visibleforroles: [RoleVisTest.Admin]
+            )
+            actionbutton btnUnlock (
+              caption: 'Unlock',
+              action: save_changes,
+              visible: [IsLocked],
+              visibleforroles: [RoleVisTest.Admin]
+            )
+            actionbutton btnClose (caption: 'Close', action: close_page)
+          }
+        }
+      }
+    }
+  }
+}
+
+-- Prints the VisibleForRoles lists back.
+describe page RoleVisTest.Document_Detail;

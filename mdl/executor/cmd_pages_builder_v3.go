@@ -501,6 +501,9 @@ func (pb *pageBuilder) buildWidgetV3(w *ast.WidgetV3) (pages.Widget, error) {
 	if err := pb.applyVisibleWhen(widget, w); err != nil {
 		return nil, err
 	}
+	if err := applyVisibleForRoles(widget, w); err != nil {
+		return nil, err
+	}
 
 	return widget, nil
 }
@@ -2967,4 +2970,62 @@ func missingWidgetMessage(projectDir, widgetID string) string {
 		" 'mxcli widget init' cannot help: it scans widgets/, and the package is not there." +
 		" Install the widget or its module from the Marketplace; that puts the .mpk in widgets/," +
 		" after which mxcli picks it up automatically."
+}
+
+// applyVisibleForRoles writes `VisibleForRoles: [Module.Role, …]` — Studio Pro's
+// "Visible: based on module roles" — into the widget's
+// ConditionalVisibilitySettings.ModuleRoles, creating the settings element when
+// the widget has no expression or attribute condition. The role conditions
+// combine with an expression condition exactly as they do in Studio Pro.
+//
+// Before, there was no MDL for it: the key was MDL-WIDGET07 "silently dropped"
+// and the settings element always carried an empty role list, so gating a
+// Delete button or a menu to a role meant Studio Pro. The names are by-name
+// references; an unknown role is refused by mx check, like any other by-name
+// reference, so only the Module.Role shape is enforced here.
+func applyVisibleForRoles(widget pages.Widget, w *ast.WidgetV3) error {
+	raw, ok := lookupPropCI(w, "VisibleForRoles")
+	if !ok {
+		return nil
+	}
+	var names []string
+	switch v := raw.(type) {
+	case []string:
+		names = v
+	case []any:
+		for _, e := range v {
+			names = append(names, fmt.Sprint(e))
+		}
+	default:
+		return mdlerrors.NewValidationf("widget %s: VisibleForRoles takes a list of module roles, e.g. VisibleForRoles: [MyModule.Admin]", w.Name)
+	}
+	if len(names) == 0 {
+		return mdlerrors.NewValidationf("widget %s: VisibleForRoles is empty — name at least one module role, e.g. [MyModule.Admin], or leave the property out", w.Name)
+	}
+	roles := make([]model.ID, 0, len(names))
+	for _, n := range names {
+		n = strings.TrimSpace(n)
+		if parts := strings.Split(n, "."); len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return mdlerrors.NewValidationf("widget %s: VisibleForRoles entry %q is not a module role — write it qualified, Module.Role", w.Name, n)
+		}
+		roles = append(roles, model.ID(n))
+	}
+	type baseWidgetGetter interface {
+		GetBaseWidget() *pages.BaseWidget
+	}
+	bwg, ok := widget.(baseWidgetGetter)
+	if !ok {
+		return mdlerrors.NewValidationf("widget %s: VisibleForRoles is not supported on this widget type", w.Name)
+	}
+	bw := bwg.GetBaseWidget()
+	if bw.ConditionalVisibility == nil {
+		bw.ConditionalVisibility = &pages.ConditionalVisibilitySettings{
+			BaseElement: model.BaseElement{
+				ID:       model.ID(types.GenerateID()),
+				TypeName: "Forms$ConditionalVisibilitySettings",
+			},
+		}
+	}
+	bw.ConditionalVisibility.ModuleRoles = roles
+	return nil
 }

@@ -234,6 +234,7 @@ All input widgets share common properties:
 | `Attribute` | Entity attribute to bind to | `Attribute: Name` |
 | `Editable` | Editability mode | `Editable: ReadOnly` |
 | `Visible` | Visibility expression | `Visible: '$showField'` |
+| `VisibleForRoles` | Module roles that see the widget (with `Visible`, both must hold) | `VisibleForRoles: [Sales.Administrator]` |
 
 ### TEXTBOX
 
@@ -569,6 +570,7 @@ These properties are shared across many widget types:
 | `DynamicClasses` | Runtime-computed CSS classes (expression; stacks on `Class`) | `DynamicClasses: if $currentObject/IsActive then 'is-active' else ''` |
 | `DesignProperties` | Atlas design properties | `DesignProperties: ['Spacing top': 'Large', 'Full width': ON]` |
 | `Visible` | Visibility expression | `Visible: '$showSection'` |
+| `VisibleForRoles` | Module roles that see the widget (with `Visible`, both must hold) | `VisibleForRoles: [Sales.Administrator]` |
 | `Editable` | Editability mode | `Editable: ReadOnly` |
 
 ## See Also

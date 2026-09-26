@@ -114,6 +114,22 @@ mxcli writes one condition per value of the attribute, as Studio Pro does, so a
 value not listed hides the widget. `describe page` emits this form for widgets
 set up that way in Studio Pro.
 
+Studio Pro's **"based on module roles"** form shows a widget to the listed
+module roles only:
+
+```sql
+ACTIONBUTTON btnDelete (Caption: 'Delete', Action: MICROFLOW Sales.ACT_Delete(Order: $Order),
+  VisibleForRoles: [Sales.Administrator, Sales.Manager])
+```
+
+Every built-in widget takes it. It combines with an expression the way Studio
+Pro combines them: with `Visible: [IsOpen]` added as well, the widget shows only
+to those roles and only while the expression holds. Write each role qualified,
+`Module.Role`; `mx check` reports an unknown one (CE1613). Pluggable widgets get
+no conditional visibility from mxcli, so wrap one in a `CONTAINER` and put the
+roles there. Hiding a widget is not access control: grant execute on the
+microflow it calls to the same roles.
+
 ### Conditional Editability
 
 Input widgets can be conditionally editable:

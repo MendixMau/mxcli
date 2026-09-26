@@ -124,6 +124,9 @@ func appendConditionalProps(props []string, w rawWidget) []string {
 	if prop := visibleWhenProp(w); prop != "" {
 		props = append(props, prop)
 	}
+	if len(w.VisibleForRoles) > 0 {
+		props = append(props, visibleForRolesProp(w.VisibleForRoles))
+	}
 	if w.EditableIf != "" {
 		props = append(props, fmt.Sprintf("Editable: [%s]", w.EditableIf))
 	}
@@ -191,6 +194,9 @@ func appendAppearanceProps(props []string, w rawWidget) []string {
 	}
 	if prop := visibleWhenProp(w); prop != "" {
 		props = append(props, prop)
+	}
+	if len(w.VisibleForRoles) > 0 {
+		props = append(props, visibleForRolesProp(w.VisibleForRoles))
 	}
 	if w.EditableIf != "" {
 		props = append(props, fmt.Sprintf("Editable: [%s]", w.EditableIf))
@@ -2092,4 +2098,10 @@ func visibleWhenProp(w rawWidget) string {
 		attr = w.VisibleAttr
 	}
 	return fmt.Sprintf("Visible: %s in (%s)", attr, strings.Join(vals, ", "))
+}
+
+// visibleForRolesProp renders ConditionalVisibilitySettings.ModuleRoles as the
+// `VisibleForRoles: [Module.Role, …]` property the builder reads.
+func visibleForRolesProp(roles []string) string {
+	return fmt.Sprintf("VisibleForRoles: [%s]", strings.Join(roles, ", "))
 }

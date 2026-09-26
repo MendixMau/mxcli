@@ -1554,6 +1554,7 @@ create page MyModule.Customer_Edit
 | TabletWidth | `column col (tabletwidth: 6)` | 1-12 or AutoFill (default: auto) |
 | PhoneWidth | `column col (phonewidth: 12)` | 1-12 or AutoFill (default: auto) |
 | Visible | `textbox txt (visible: [IsActive])` | Conditional visibility (XPath expression) |
+| VisibleForRoles | `actionbutton btn (visibleforroles: [Mod.Admin, Mod.Editor])` | Studio Pro's "Visible: based on module roles" — any built-in widget; combines with `visible:` (both must hold). Qualified `Module.Role` names; an unknown role is CE1613 at mx check. Not on pluggable widgets — wrap one in a container |
 | Editable | `textbox txt (editable: [status != 'Closed'])` | Conditional editability (XPath expression) |
 | Image | `staticimage img (Image: 'Mod.Images.logo')` | Image-collection entry, `Module.Collection.Image`. Omitted → CE0436 "No image selected." |
 | DataSource (dynamicimage) | `dynamicimage img (DataSource: database from Mod.Photo)` | The entity holding the image. Omitted → CE0489 "Select an entity for the data source of this dynamic image." |

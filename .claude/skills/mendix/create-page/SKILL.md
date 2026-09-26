@@ -280,6 +280,14 @@ textbox txtEmail (label: 'Email', attribute: Email,
 textbox txtReadOnly (label: 'Read Only', attribute: Name, editable: Never)
 textbox txtHidden (label: 'Hidden', attribute: Name, visible: false)
 
+-- Visible to some module roles only (Studio Pro's "based on module roles").
+-- Any built-in widget; combines with visible: — both must hold.
+actionbutton btnDelete (caption: 'Delete', action: microflow MES.ACT_Delete(Item: $currentObject),
+  visibleforroles: [MES.Administrator])
+container ctnAdmin (visibleforroles: [MES.Administrator, MES.Supervisor], visible: [IsActive]) {
+  dynamictext t (content: 'Admin tools')
+}
+
 -- A quoted-string expression is also accepted (CREATE and ALTER). Unlike the
 -- bracket form, it is NOT auto-rooted — write $currentObject/ yourself.
 dynamictext ovChip (content: 'chip', visible: '$currentObject/Name != empty')
