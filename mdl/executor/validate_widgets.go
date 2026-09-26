@@ -505,6 +505,19 @@ func widgetValueMap(w *ast.WidgetV3, def *WidgetDefinition) (values map[string]s
 			values[key] = val
 		}
 	}
+	// An explicit attribute list forces a filter's attrChoice to "linked" on
+	// write (widgetobj.Builder.SetAttributeObjects), whatever the definition's
+	// fixed value says. Read the value the writer stores, or MDL-WIDGET10 judges
+	// "attributes is hidden when attrChoice is auto" against a configuration that
+	// is never written — and tells the author a list that IS stored "will be
+	// ignored".
+	for _, m := range mappings {
+		if m.Operation == "attributeObjects" && explicit[strings.ToLower(m.PropertyKey)] {
+			if _, ok := values["attrchoice"]; ok {
+				values["attrchoice"] = "linked"
+			}
+		}
+	}
 	// Direct MDL properties named after a widget key (not covered by a mapping).
 	for k, raw := range w.Properties {
 		lk := strings.ToLower(k)
