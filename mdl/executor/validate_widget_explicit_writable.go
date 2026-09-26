@@ -3,10 +3,12 @@
 package executor
 
 import (
+	"path/filepath"
 	"strings"
 	"sync"
 
 	mwidgets "github.com/mendixlabs/mxcli/modelsdk/widgets"
+	"github.com/mendixlabs/mxcli/modelsdk/widgets/mpk"
 )
 
 // explicitPassWritableTypes are the property value types the widget engine's
@@ -52,6 +54,47 @@ func widgetPropertyTypes(widgetID string) map[string]string {
 //
 // An unknown type keeps the warning: saying "not persisted" for something that
 // is, is the lesser error than the reverse.
-func persistedByExplicitPass(widgetID, lowerKey string) bool {
-	return explicitPassWritableTypes[widgetPropertyTypes(widgetID)[lowerKey]]
+//
+// The type comes from the embedded template first and, failing that, from the
+// project's INSTALLED package — the one the writer builds from. A property newer
+// than the embedded template (File Uploader 2.5.0's `maxFilesPerUpload`, an
+// expression) is written by the explicit pass, and was still warned "will be
+// dropped" because only the embedded template was consulted.
+func persistedByExplicitPass(widgetID, lowerKey, projectPath string) bool {
+	t := widgetPropertyTypes(widgetID)[lowerKey]
+	if t == "" {
+		t = installedWidgetPropertyTypes(projectPath, widgetID)[lowerKey]
+	}
+	return explicitPassWritableTypes[t]
+}
+
+var installedPropertyTypesCache sync.Map // projectPath\x00widgetID → map[lowercased key]lowercased type
+
+// installedWidgetPropertyTypes returns each top-level property's declared type
+// from the widget's .mpk in the project's widgets/ folder. Empty without a
+// project or a package.
+func installedWidgetPropertyTypes(projectPath, widgetID string) map[string]string {
+	if projectPath == "" || widgetID == "" {
+		return nil
+	}
+	cacheKey := projectPath + "\x00" + widgetID
+	if v, ok := installedPropertyTypesCache.Load(cacheKey); ok {
+		return v.(map[string]string)
+	}
+	out := map[string]string{}
+	projectDir := projectPath
+	if strings.EqualFold(filepath.Ext(projectDir), ".mpr") {
+		projectDir = filepath.Dir(projectDir)
+	}
+	if mpkPath, err := mpk.FindMPK(projectDir, widgetID); err == nil && mpkPath != "" {
+		if wd, err := mpk.ParseMPKForWidget(mpkPath, widgetID); err == nil && wd != nil {
+			for _, p := range wd.Properties {
+				if p.Key != "" && p.Type != "" {
+					out[strings.ToLower(p.Key)] = strings.ToLower(p.Type)
+				}
+			}
+		}
+	}
+	installedPropertyTypesCache.Store(cacheKey, out)
+	return out
 }

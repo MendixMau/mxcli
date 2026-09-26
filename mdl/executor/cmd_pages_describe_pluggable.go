@@ -1209,6 +1209,22 @@ func extractExplicitProperties(ctx *ExecContext, w map[string]any) []rawExplicit
 			continue
 		}
 
+		// An expression-typed property (File Uploader `maxFilesPerUpload`, …).
+		// The explicit pass writes it from `key: 'expr'`, but describe never
+		// read it back, so replaying describe output reset it to the default.
+		// A value equal to the package's declared default is left out, so an
+		// untouched widget describes as before.
+		if valueTypes[typePointerID] == "Expression" {
+			if expr := extractString(value["Expression"]); expr != "" && expr != expressionDefault(ctx, w, propKey) {
+				result = append(result, rawExplicitProp{
+					Key:       propKey,
+					Value:     expr,
+					ValueType: "Expression",
+				})
+			}
+			continue
+		}
+
 		// Check for a PrimitiveValue.
 		//
 		// Booleans used to be dropped here as "common defaults". They are not:
@@ -1535,3 +1551,14 @@ var embeddedDefinitionWidgetIDs = sync.OnceValue(func() map[string]bool {
 	}
 	return ids
 })
+
+// expressionDefault returns the installed package's declared default for a
+// widget's top-level property, or "" when there is no project or package.
+func expressionDefault(ctx *ExecContext, w map[string]any, propKey string) string {
+	if ctx == nil || ctx.MprPath == "" {
+		return ""
+	}
+	wt, _ := w["Type"].(map[string]any)
+	widgetID := extractString(wt["WidgetId"])
+	return widgetPropertyDefaults(ctx.MprPath, widgetID)[defaultsKey("", propKey)]
+}
