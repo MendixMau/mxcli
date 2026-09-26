@@ -276,6 +276,16 @@ Date and/or time input:
 DATEPICKER dpBirthDate (Label: 'Birth Date', Attribute: BirthDate)
 ```
 
+A `TEXTBOX` and a `DATEPICKER` have Studio Pro's **Formatting** group. The keys
+are those of a `DYNAMICTEXT` parameter's `format (…)`: `DecimalPrecision` and
+`GroupDigits` for a number in a text box, and `DateFormat` (`Date`, `DateTime`,
+`Time` or `Custom`) with `CustomDateFormat` for a date in a date picker:
+
+```sql
+TEXTBOX txtAmount (Label: 'Amount', Attribute: Amount, GroupDigits: true, DecimalPrecision: 2)
+DATEPICKER dpDue (Label: 'Due', Attribute: DueDate, DateFormat: Custom, CustomDateFormat: 'd MMM yyyy')
+```
+
 ### COMBOBOX
 
 Dropdown selection for enumeration values or associations. Uses the pluggable ComboBox widget:

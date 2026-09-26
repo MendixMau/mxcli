@@ -203,6 +203,7 @@ func validateWidgetTreeIn(widgets []*ast.WidgetV3, registry *WidgetRegistry, loc
 		out = append(out, validateImageSource(w, locationPrefix)...)
 		out = append(out, validateStaticWidget(w, locationPrefix)...)
 		out = append(out, validateDynamicTextFormatting(w, locationPrefix)...)
+		out = append(out, validateInputFormatting(w, locationPrefix)...)
 		out = append(out, validateDatasourceXPathAssociationEmpty(w, locationPrefix)...)
 		out = append(out, validateComboBoxAssociation(w, locationPrefix)...)
 		// #631: inputs inside a list view that will be written read-only.
@@ -764,8 +765,10 @@ func validateStaticWidgetUnknownProps(w *ast.WidgetV3, locationPrefix string) []
 		}
 		// Dynamic-text format keys placed at the widget level are reported by
 		// MDL-WIDGET18 (with actionable move-into-format-block guidance); don't
-		// also warn about them here.
-		if paramFormatKeys[strings.ToLower(key)] {
+		// also warn about them here. A text box and a date picker consume them
+		// into their own FormattingInfo. On any other built-in widget there is no
+		// FormattingInfo to put them in, so they are dropped and warned about.
+		if paramFormatKeys[strings.ToLower(key)] && (strings.EqualFold(w.Type, "dynamictext") || inputFormattingWidgets[strings.ToUpper(w.Type)]) {
 			continue
 		}
 		hint := ""
@@ -880,6 +883,22 @@ func violation18(locationPrefix string, w *ast.WidgetV3, msg string) linter.Viol
 		Severity: linter.SeverityError,
 		Message:  fmt.Sprintf("%s: widget `%s`: %s", locationPrefix, w.Name, msg),
 	}
+}
+
+// validateInputFormatting (MDL-WIDGET18) reports a bad format value on a text
+// box or date picker at check time — the builder refuses the same value at exec.
+func validateInputFormatting(w *ast.WidgetV3, locationPrefix string) []linter.Violation {
+	if w == nil || !inputFormattingWidgets[strings.ToUpper(w.Type)] {
+		return nil
+	}
+	if _, err := inputFormattingFromWidget(w); err != nil {
+		return []linter.Violation{{
+			RuleID:   "MDL-WIDGET18",
+			Severity: linter.SeverityError,
+			Message:  fmt.Sprintf("%s: %v", locationPrefix, err),
+		}}
+	}
+	return nil
 }
 
 // validateStaticWidget checks value-level constraints on built-in (non-pluggable)

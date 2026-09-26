@@ -61,8 +61,11 @@ type DatePicker struct {
 	AttributeRefSteps []AttributeRefStep `json:"attributeRefSteps,omitempty"` // association hops when the attribute is reached over associations (AttributeRef.EntityRef)
 	Placeholder       *model.Text        `json:"placeholder,omitempty"`
 	DateFormat        string             `json:"dateFormat,omitempty"`
-	ReadOnly          bool               `json:"readOnly,omitempty"`
-	OnChangeAction    ClientAction       `json:"onChangeAction,omitempty"`
+	// FormattingInfo is the picker's own Forms$FormattingInfo (Studio Pro's
+	// "Date format"). Nil writes the default Date format.
+	FormattingInfo *FormattingInfo `json:"formattingInfo,omitempty"`
+	ReadOnly       bool            `json:"readOnly,omitempty"`
+	OnChangeAction ClientAction    `json:"onChangeAction,omitempty"`
 }
 
 // DropDown represents a drop-down selection widget.

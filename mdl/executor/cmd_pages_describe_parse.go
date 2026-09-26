@@ -363,6 +363,7 @@ func parseRawWidget(ctx *ExecContext, w map[string]any, parentEntityContext ...s
 		widget.Editable = extractEditable(ctx, w)
 		widget.IsPassword, _ = w["IsPasswordBox"].(bool)
 		widget.ValidationExpression, widget.ValidationMessage = extractWidgetValidation(ctx, w)
+		widget.InputFormat = extractInputFormatting(w)
 		widget.OnChange = extractOnChangeAction(ctx, w)
 		return []rawWidget{widget}
 
@@ -377,6 +378,7 @@ func parseRawWidget(ctx *ExecContext, w map[string]any, parentEntityContext ...s
 		widget.Caption = extractLabelText(ctx, w)
 		widget.Content = extractAttributeRef(ctx, w)
 		widget.Editable = extractEditable(ctx, w)
+		widget.InputFormat = extractInputFormatting(w)
 		widget.OnChange = extractOnChangeAction(ctx, w)
 		return []rawWidget{widget}
 

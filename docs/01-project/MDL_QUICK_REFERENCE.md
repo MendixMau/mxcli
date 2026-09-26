@@ -1437,6 +1437,7 @@ MDL uses explicit property declarations for pages:
 | Widget name | Required after type | `textbox txtName (...)` |
 | Attribute binding | `attribute: AttrName` | `textbox txt (label: 'Name', attribute: Name)` |
 | Attribute over an association | `attribute: Assoc/Attr` (bare association name, multi-hop OK) | `textbox txt (label: 'Rule', attribute: RuleAction_BusinessRule/Name)` — works on textbox, textarea, datepicker, dropdown, checkbox and radiobuttons, the same as on a data grid column |
+| Input formatting | `DecimalPrecision: n`, `GroupDigits: bool` (textbox); `DateFormat: Date\|DateTime\|Time\|Custom`, `CustomDateFormat: 'pattern'` (datepicker) | `textbox t (attribute: Amount, GroupDigits: true, DecimalPrecision: 2)`, `datepicker d (attribute: DueDate, DateFormat: Custom, CustomDateFormat: 'd MMM yyyy')` — the widget's own Formatting, the same keys as a `dynamictext` parameter's `format (…)`. A bad value is **MDL-WIDGET18**; on a widget with no formatting (textarea, checkbox) the keys are **MDL-WIDGET07** |
 | Password field | `Password: true` on a textbox | `textbox tbPw (attribute: Secret, Password: true)` — omitted when false. Without it a describe → exec round trip turns a password field into a plaintext one |
 | Widget validation | `Validation: '<expression>'`, `ValidationMessage: '<text>'` | `Validation: 'length(toString($value)) > 0'` — a Mendix expression over `$value`, QUOTED not bracketed (`[...]` is the XPath spelling and parses as an array) |
 | Variable binding | `datasource: $Var` | `dataview dv (datasource: $Product) { ... }` |

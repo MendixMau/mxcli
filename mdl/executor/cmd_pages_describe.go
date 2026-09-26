@@ -673,8 +673,11 @@ type rawWidget struct {
 	// input widgets.
 	ValidationExpression string
 	ValidationMessage    string
-	OnChange             string // MDL rendering of the OnChangeAction client action
-	OnClick              string // MDL rendering of a pluggable widget's onClick action (e.g. DataGrid2)
+	// InputFormat is a text box's / date picker's own Forms$FormattingInfo, as
+	// the MDL properties that differ from the unformatted default.
+	InputFormat []string
+	OnChange    string // MDL rendering of the OnChangeAction client action
+	OnClick     string // MDL rendering of a pluggable widget's onClick action (e.g. DataGrid2)
 	// Filter widget properties
 	FilterAttributes []string // Attributes to filter on
 	FilterExpression string   // Default filter expression (contains, startsWith, etc.)

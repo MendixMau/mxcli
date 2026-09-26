@@ -484,6 +484,18 @@ radiobuttons rbStatus (label: 'Status', attribute: status)
 datepicker dpCreated (label: 'Created Date', attribute: CreatedDate)
 ```
 
+**Formatting** — a `textbox` and a `datepicker` carry Studio Pro's own
+Formatting group, with the same keys a `dynamictext` parameter's `format (…)`
+takes: `DecimalPrecision` (integer) and `GroupDigits` (boolean) on a text box
+over a number, `DateFormat` (`Date` | `DateTime` | `Time` | `Custom`) and
+`CustomDateFormat` (a pattern; implies `Custom`) on a date picker — a text box
+cannot bind a date (CE2421). A bad value is MDL-WIDGET18. Other inputs (textarea, checkbox, …)
+have no formatting, and the keys there are MDL-WIDGET07:
+```sql
+textbox tbAmount (label: 'Amount', attribute: Amount, GroupDigits: true, DecimalPrecision: 2)
+datepicker dpDue (label: 'Due', attribute: DueDate, DateFormat: Custom, CustomDateFormat: 'd MMM yyyy')
+```
+
 **COMBOBOX** - Combo box (pluggable widget):
 ```sql
 -- Enumeration mode (attribute is an enum type):

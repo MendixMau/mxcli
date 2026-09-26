@@ -67,6 +67,7 @@ Both are optional and can be changed later with `alter page … { set Class = '�
 | Widget name | Required after type | `textbox txtName (...)` |
 | Attribute binding | `attribute: AttrName` | `textbox txt (label: 'Name', attribute: Name)` |
 | Attribute over an association | `attribute: Assoc/Attr` (bare association name, multi-hop OK) | `textbox txt (label: 'Rule', attribute: RuleAction_BusinessRule/Name)` |
+| Input formatting | `GroupDigits:`, `DecimalPrecision:` (textbox); `DateFormat:`, `CustomDateFormat:` (datepicker) | `datepicker d (attribute: DueDate, DateFormat: Custom, CustomDateFormat: 'd MMM yyyy')` |
 | Password field | `Password: true` | `textbox tbPw (attribute: Secret, Password: true)` |
 | Widget validation | `Validation: '<expr>'` + `ValidationMessage: '<text>'` | `Validation: 'length(toString($value)) > 0'` — quoted, not `[bracketed]` |
 | Variable binding | `datasource: $Var` | `dataview dv (datasource: $Product) { ... }` |

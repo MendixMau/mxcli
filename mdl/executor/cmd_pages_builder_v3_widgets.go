@@ -476,6 +476,13 @@ func (pb *pageBuilder) buildTextBoxV3(w *ast.WidgetV3) (*pages.TextBox, error) {
 	tb.ValidationExpression = w.GetStringProp("Validation")
 	tb.ValidationMessage = w.GetStringProp("ValidationMessage")
 
+	// Forms$FormattingInfo — Decimal precision / Group digits / date format.
+	fi, err := inputFormattingFromWidget(w)
+	if err != nil {
+		return nil, err
+	}
+	tb.FormattingInfo = fi
+
 	// Handle Label
 	if label := w.GetLabel(); label != "" {
 		tb.Label = label
@@ -563,6 +570,13 @@ func (pb *pageBuilder) buildDatePickerV3(w *ast.WidgetV3) (*pages.DatePicker, er
 	if label := w.GetLabel(); label != "" {
 		dp.Label = label
 	}
+
+	// Forms$FormattingInfo — the picker's "Date format".
+	fi, err := inputFormattingFromWidget(w)
+	if err != nil {
+		return nil, err
+	}
+	dp.FormattingInfo = fi
 
 	// Handle OnChange (the "On change" client action)
 	if err := pb.applyOnChangeV3(w, &dp.OnChangeAction); err != nil {

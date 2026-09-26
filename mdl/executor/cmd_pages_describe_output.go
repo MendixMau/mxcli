@@ -583,6 +583,7 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 			props = append(props, actionProp("OnChange", w.OnChange))
 		}
 		props = appendInputValidationProps(props, w)
+		props = append(props, w.InputFormat...)
 		props = appendAppearanceProps(props, w)
 		formatWidgetProps(ctx.Output, prefix, header, props, "\n")
 
@@ -613,6 +614,7 @@ func outputWidgetMDLV3(ctx *ExecContext, w rawWidget, indent int) {
 		if w.OnChange != "" {
 			props = append(props, actionProp("OnChange", w.OnChange))
 		}
+		props = append(props, w.InputFormat...)
 		props = appendAppearanceProps(props, w)
 		formatWidgetProps(ctx.Output, prefix, header, props, "\n")
 

@@ -143,7 +143,12 @@ CREATE PAGE Sales.Detail (Title: 'Detail', Layout: Atlas_Core.Atlas_Default) {
 			"--   A FILTER block written on a DATAGRID is not a column filter and not a\n" +
 			"--   container the grid declares — it used to be dropped on write with no\n" +
 			"--   diagnostic, and is now refused (MDL-WIDGET30).\n\n" +
-			"-- Inputs\nTEXTBOX name (Label: 'L', Attribute: Attr)\nTEXTAREA | DATEPICKER | COMBOBOX | CHECKBOX | RADIOBUTTONS\n\n" +
+			"-- Inputs\nTEXTBOX name (Label: 'L', Attribute: Attr)\nTEXTAREA | DATEPICKER | COMBOBOX | CHECKBOX | RADIOBUTTONS\n" +
+			"--   The widget's own Formatting: DecimalPrecision / GroupDigits on a TEXTBOX,\n" +
+			"--   DateFormat (Date | DateTime | Time | Custom) + CustomDateFormat on a\n" +
+			"--   DATEPICKER (a TEXTBOX cannot bind a date: CE2421):\n" +
+			"TEXTBOX t (Attribute: Amount, GroupDigits: true, DecimalPrecision: 2)\n" +
+			"DATEPICKER d (Attribute: DueDate, DateFormat: Custom, CustomDateFormat: 'd MMM yyyy')\n\n" +
 			"-- Actions\nACTIONBUTTON name (Caption: 'C', Action: SAVE_CHANGES, ButtonStyle: Primary)\nLINKBUTTON name (Caption: 'C', Action: ...)\n\n" +
 			"-- Display\nDYNAMICTEXT name (Content: 'Hello, {1}!', ContentParams: [{1} = Name])\nTITLE name (Content: 'Heading')\nIMAGE name (Image: 'Module.Collection.ImageName')\nIMAGE name (ImageType: imageUrl, ImageUrl: 'https://…')\n" +
 			"--   IMAGE needs a source. Its default, `ImageType: image`, shows an entry from an\n" +

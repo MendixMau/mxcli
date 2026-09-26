@@ -463,7 +463,10 @@ func widgetToGen(w pages.Widget) (element.Element, error) {
 			g.SetAttributeRef(ref)
 		}
 		g.SetEditable(pages.WidgetEditability(&x.BaseWidget))
-		g.SetFormattingInfo(newFormattingInfo())
+		// The box's own Formatting group (Decimal precision, Group digits, and
+		// the date format for a date attribute). Nil is the default Studio Pro
+		// stores on an unformatted box.
+		g.SetFormattingInfo(formattingInfoToGen(x.FormattingInfo))
 		g.SetInputMask("")
 		g.SetIsPasswordBox(x.IsPassword)
 		g.SetKeyboardType("Default")
@@ -585,7 +588,8 @@ func widgetToGen(w pages.Widget) (element.Element, error) {
 			g.SetAttributeRef(ref)
 		}
 		g.SetEditable(pages.WidgetEditability(&x.BaseWidget))
-		g.SetFormattingInfo(newFormattingInfo())
+		// The picker's "Date format"; nil is the default Date format.
+		g.SetFormattingInfo(formattingInfoToGen(x.FormattingInfo))
 		if x.Label != "" {
 			g.SetLabelTemplate(textAsClientTemplate(textFromString(x.Label)))
 		}
