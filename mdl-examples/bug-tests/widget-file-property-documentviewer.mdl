@@ -1,0 +1,55 @@
+-- ============================================================================
+-- A pluggable widget property of widget.xml `type="file"` — Document Viewer
+-- ============================================================================
+--
+-- The Document Viewer (marketplace, com.mendix.shared.widgets.documentviewer)
+-- takes the document to show in `file`, a property of type="file". mxcli had no
+-- mapping for that type, so `file:` warned MDL-WIDGET06 ("recognized but not
+-- persisted"), the value was dropped, and the build refused the widget:
+--
+--   [error] [CE0642] "Property 'Document' is required."
+--
+-- The value is an entity path from the enclosing data container, stored in the
+-- WidgetValue's EntityRef (Mendix.Modeler WidgetValueDocumentEntityPathConfig):
+--
+--   file: $currentObject              -> DirectEntityRef{Entity}  (the container's
+--                                        own object is the FileDocument)
+--   file: $currentObject/Mod.Assoc    -> IndirectEntityRef{Steps} (single-object
+--   file: Mod.Assoc                      hops to a FileDocument specialization)
+--
+-- Measured on Mendix 11.14.0 with DocumentViewer 1.3.0 installed: both forms
+-- below build at `mx check` 0 errors; the `$currentObject` form renders the PDF
+-- at runtime (`run --local`, checked in Playwright).
+-- Before the fix, each widget reported CE0642.
+--
+-- Needs a project with the widget installed (`mxcli marketplace install`), so
+-- this file is a `check`-clean syntax fixture; the write is covered by
+-- mdl/executor/widget_file_property_test.go.
+-- ============================================================================
+
+-- MARK: Setup
+
+create persistent entity FileProbe.Invoice (
+  "Number": String(20)
+);
+
+create persistent entity FileProbe.InvoiceDocument extends System.FileDocument ();
+
+create association FileProbe.InvoiceDocument_Invoice
+  from FileProbe.InvoiceDocument to FileProbe.Invoice
+  type Reference owner Both;
+
+-- MARK: The two stored shapes
+
+create or replace snippet FileProbe.DocumentPane (
+  Params: { $Invoice: FileProbe.Invoice }
+) {
+  -- Direct: the data view's object is the file itself.
+  dataview dvInvoice (DataSource: $Invoice) {
+    dataview dvFile (DataSource: $currentObject/FileProbe.InvoiceDocument_Invoice) {
+      documentviewer viewerDirect (file: $currentObject, heightUnit: 'pixels', height: 800)
+    }
+    -- Indirect: one single-object hop from the invoice to its document.
+    documentviewer viewerIndirect (file: $currentObject/FileProbe.InvoiceDocument_Invoice)
+  }
+};

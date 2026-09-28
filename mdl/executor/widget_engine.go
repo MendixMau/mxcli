@@ -91,7 +91,13 @@ const defaultSlotContainer = "template"
 //	    to a value the widget hides, which mxbuild rejects with CE0463 and which
 //	    makes `mx create-module-package` refuse the module (upstream #931). Bump
 //	    forces existing projects to regenerate their defs with both.
-const WidgetDefGeneratorVersion = 17
+//	17 — named action slots: every `type="action"` property gets a mapping,
+//	    addressed by its own key when MDL has no alias for it (#956).
+//	18 — emit a `file` PropertyMapping for `type="file"` properties (e.g.
+//	    Document Viewer `file`). Before, they had none: `file:` was reported
+//	    MDL-WIDGET06 and dropped, and a required one failed CE0642. Bump forces
+//	    existing projects to regenerate their defs with the mapping.
+const WidgetDefGeneratorVersion = 18
 
 // WidgetDefinition describes how to construct a pluggable widget from MDL syntax.
 // Loaded from embedded JSON definition files (*.def.json).
@@ -225,9 +231,13 @@ type BuildContext struct {
 	AttributePaths []string // For operations that process multiple attributes
 	AssocPath      string
 	EntityName     string
-	PrimitiveVal   string
-	DataSource     pages.DataSource
-	Action         pages.ClientAction // Domain-typed client action
+	// FileSteps are the association hops of a file-typed property's path from
+	// the enclosing data container to the file entity (EntityName). Empty means
+	// the container's own object.
+	FileSteps    []pages.AttributeRefStep
+	PrimitiveVal string
+	DataSource   pages.DataSource
+	Action       pages.ClientAction // Domain-typed client action
 	// ClientParams carries the `contentparams:` bindings for a `{1}`-style
 	// template, resolved while the AST widget is still in hand. applyOperation
 	// does not receive the AST, and a numeric placeholder written without its
@@ -566,6 +576,12 @@ func (e *PluggableWidgetEngine) Build(def *WidgetDefinition, w *ast.WidgetV3) (*
 		if m.Source != "" {
 			mappedKeys[m.Source] = true
 		}
+		// A file property is authored under its own key (`file:`), which is not
+		// its Source; without this the string form of the path was ALSO written
+		// here, as a stray PrimitiveValue beside the EntityRef.
+		if m.Operation == "file" {
+			mappedKeys[m.PropertyKey] = true
+		}
 	}
 	for _, s := range slots {
 		mappedKeys[s.MDLContainer] = true
@@ -870,6 +886,8 @@ func (e *PluggableWidgetEngine) applyOperation(builder backend.WidgetObjectBuild
 		builder.SetPrimitive(propKey, ctx.PrimitiveVal)
 	case "selection":
 		builder.SetSelection(propKey, ctx.PrimitiveVal)
+	case "file":
+		builder.SetFile(propKey, ctx.EntityName, ctx.FileSteps)
 	case "image":
 		// An image collection entry, by its three-part qualified name. The
 		// value arrives through the generic source branch, so it is in
@@ -1019,6 +1037,38 @@ func namedPropValue(mapping PropertyMapping, w *ast.WidgetV3) string {
 		}
 	}
 	return ""
+}
+
+// filePropertyPath reads a file-typed property's value as a path string.
+// `$currentObject` and `$currentObject/Mod.Assoc` parse as data-source
+// expressions, not strings, so namedPropValue alone sees nothing and the value
+// would be dropped silently; they are turned back into their written form here.
+// A bare or qualified association name arrives as a plain string. Any other
+// shape (a database or microflow source, a page parameter) is refused.
+func filePropertyPath(mapping PropertyMapping, w *ast.WidgetV3) (string, error) {
+	keys := append([]string{mapping.PropertyKey}, mapping.MdlAliases...)
+	for _, key := range keys {
+		raw, ok := lookupProperty(w.Properties, key)
+		if !ok {
+			continue
+		}
+		switch v := raw.(type) {
+		case *ast.DataSourceV3:
+			switch {
+			case v == nil:
+				return "", nil
+			case v.Type == "parameter" && strings.EqualFold(v.Reference, "$currentObject"):
+				return "$currentObject", nil
+			case v.Type == "association" && strings.EqualFold(v.ContextVariable, "currentObject"):
+				return "$currentObject/" + v.Reference, nil
+			}
+			return "", mdlerrors.NewValidationf(
+				"file property %s: takes $currentObject or an association path from the enclosing data container (e.g. $currentObject/Module.Assoc), not a %s source", key, v.Type)
+		default:
+			return stringifyAny(raw), nil
+		}
+	}
+	return "", nil
 }
 
 // namedPropValueWithKey is namedPropValue plus the NAME the value was found
@@ -1201,6 +1251,23 @@ func (e *PluggableWidgetEngine) entityContextFor(propertyKey string) string {
 		if entity := e.dataSourceEntities[key]; entity != "" {
 			return entity
 		}
+	}
+	return e.pageBuilder.entityContext
+}
+
+// fileEntityContextFor returns the entity a file-typed property's path starts
+// from: the widget's own datasource when the property declares one, and
+// otherwise the enclosing data container — the context as it stood when the
+// widget's Build started, not one a DataSource mapping of the widget itself has
+// since moved (same reasoning as the Association case, issuetracker #19).
+func (e *PluggableWidgetEngine) fileEntityContextFor(propertyKey string) string {
+	if key := e.currentPropertyTypeIDs[propertyKey].DataSourceProperty; key != "" {
+		if entity := e.dataSourceEntities[key]; entity != "" {
+			return entity
+		}
+	}
+	if e.outerEntityContext != "" {
+		return e.outerEntityContext
 	}
 	return e.pageBuilder.entityContext
 }
@@ -1405,6 +1472,27 @@ func (e *PluggableWidgetEngine) resolveMapping(mapping PropertyMapping, w *ast.W
 		ctx.EntityName = e.entityContextFor(mapping.PropertyKey)
 		if ctx.AssocPath != "" && ctx.EntityName == "" {
 			return nil, mdlerrors.NewValidationf("association %q requires an entity context (add a DataSource mapping before Association)", ctx.AssocPath)
+		}
+
+	case "File":
+		// A file-typed property (widget.xml `type="file"`, e.g. the Document
+		// Viewer's `file`) names a System.FileDocument specialization reachable
+		// from the enclosing data container: `$currentObject` for the container's
+		// own object, or an association path to one. Before this there was no
+		// mapping at all — `file:` warned MDL-WIDGET06 and the required value was
+		// dropped, which mxbuild refuses with CE0642.
+		val, err := filePropertyPath(mapping, w)
+		if err != nil {
+			return nil, err
+		}
+		if val != "" {
+			context := e.fileEntityContextFor(mapping.PropertyKey)
+			entity, steps, err := e.pageBuilder.resolveFileEntityPath(val, context)
+			if err != nil {
+				return nil, err
+			}
+			ctx.EntityName = entity
+			ctx.FileSteps = steps
 		}
 
 	case "OnClick":

@@ -2103,6 +2103,60 @@ func (pb *pageBuilder) resolveAssociationAttributePath(attrRef string) (finalQN 
 	return current + "." + stored, steps, true
 }
 
+// resolveFileEntityPath resolves the value of a file-typed widget property
+// (widget.xml `type="file"`) against the enclosing data container's entity.
+//
+// mxbuild stores the value as an entity PATH from that container, and accepts
+// two forms (Mendix.Modeler WidgetValueDocumentEntityPathConfig):
+//
+//   - the container's own object — written `$currentObject`, or the entity's
+//     own (qualified or bare) name — returned as (contextEntity, nil). A
+//     step-less path to any OTHER entity is invalid, so it is not guessed at.
+//   - an association path, one `/`-separated hop per association, each resolved
+//     against the entity reached so far — returned as (fileEntity, steps).
+//
+// Either way the final entity must be a System.FileDocument specialization;
+// that, and each hop being single-object, is left to mxbuild, which reports it
+// precisely. An empty context is refused here: mxbuild's CE6857 for a file
+// widget outside a data container names the widget, not the MDL line.
+func (pb *pageBuilder) resolveFileEntityPath(value, contextEntity string) (string, []pages.AttributeRefStep, error) {
+	path := strings.TrimSpace(value)
+	switch {
+	case strings.EqualFold(path, "$currentObject"):
+		path = ""
+	case strings.HasPrefix(strings.ToLower(path), "$currentobject/"):
+		path = path[len("$currentObject/"):]
+	}
+	if contextEntity == "" {
+		return "", nil, mdlerrors.NewValidationf(
+			"file property %q needs an enclosing data container (a dataview or list item) whose object is, or reaches, the file entity", value)
+	}
+	if strings.HasPrefix(path, "$") {
+		return "", nil, mdlerrors.NewValidationf(
+			"file property %q: only $currentObject or an association path from the enclosing data container is supported", value)
+	}
+	// The container's own entity, qualified or by its bare name.
+	if path == "" || path == contextEntity || strings.HasSuffix(contextEntity, "."+path) {
+		return contextEntity, nil, nil
+	}
+
+	current := contextEntity
+	segs := strings.Split(path, "/")
+	steps := make([]pages.AttributeRefStep, 0, len(segs))
+	for _, seg := range segs {
+		assocQN := pb.resolveAssociationPathIn(strings.TrimSpace(seg), current)
+		dest, ok := pb.associationDestination(assocQN, current)
+		if !ok {
+			return "", nil, mdlerrors.NewValidationf(
+				"file property %q: %q is not an association of %s (a file property takes $currentObject, when %s is itself the file entity, or an association path to one)",
+				value, assocQN, current, contextEntity)
+		}
+		steps = append(steps, pages.AttributeRefStep{Association: assocQN, DestinationEntity: dest})
+		current = dest
+	}
+	return current, steps, nil
+}
+
 // associationDestination returns the entity reached by navigating assocQN from
 // currentEntityQN. Uses the FROM/TO endpoints (ParentID = FROM, ChildID = TO);
 // forward navigation from the FROM entity yields the TO entity and vice versa.

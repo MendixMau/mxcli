@@ -326,6 +326,13 @@ type WidgetObjectBuilder interface {
 	// `imageObject`) at an image collection entry, by its three-part qualified
 	// name `Module.Collection.Image`.
 	SetImage(propertyKey string, imageQN string)
+	// SetFile points a file-typed property (widget.xml `type="file"`, e.g. the
+	// Document Viewer's `file`) at a System.FileDocument specialization reached
+	// from the enclosing data container. With no steps the value is the
+	// container's object itself (entityName must be the container's entity);
+	// with steps it is the object reached over those association hops, the
+	// last hop's DestinationEntity being the file entity.
+	SetFile(propertyKey string, entityName string, steps []pages.AttributeRefStep)
 	SetExpression(propertyKey string, value string)
 	SetDataSource(propertyKey string, ds pages.DataSource)
 	SetChildWidgets(propertyKey string, children []pages.Widget)

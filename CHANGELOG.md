@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A pluggable widget's `type="file"` property can be set** — the Document Viewer's `file` was the case. `file:` warned MDL-WIDGET06, the value was dropped, and the build refused the widget with CE0642 "Property 'Document' is required". It now takes `$currentObject` (the enclosing data container's object is the file) or an association path to a `System.FileDocument` specialization (`$currentObject/Mod.Assoc`, or `Mod.Assoc`), stored as the entity path Studio Pro writes: a `DirectEntityRef` or an `IndirectEntityRef` in the value's `EntityRef`. `DESCRIBE` prints it back in the same form. Measured on Mendix 11.14.0 with DocumentViewer 1.3.0: both forms build at `mx check` 0 errors, and the `$currentObject` form renders the PDF at runtime (`run --local`, Playwright). Widget definitions regenerate on the next run (generator version 18).
+
 ## [0.24.0] - 2026-09-24
 
 Headline: **An element's storage GUID is the database's identity, and mxcli now treats it as one.** A production report of 28 attributes emptied across 607 rows by a single edit (mendixlabs/mxcli#1119) traced to five write paths that re-minted GUIDs — one of them moving 282 in a single module. They are fixed, and a new guard at the write choke point refuses any write that moves one: a class of data loss that leaves the model valid, `mx check` clean and `DESCRIBE` byte-identical, and surfaces only when the package meets a database that already holds data. Alongside it, `MOVE ENTITY` and `RENAME` stop leaving a project unbuildable, and four more scripts that passed every gate and failed the build are refused.

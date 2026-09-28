@@ -38,6 +38,12 @@ var defaultKnownOperations = map[string]bool{
 	// `imageObject`). Without it the property is unreachable from MDL and the
 	// widget's default source has nothing to show — see setImageValue.
 	"image": true,
+	// A System.FileDocument specialization on a file-typed property (the
+	// Document Viewer's `file`), reached from the enclosing data container.
+	// Missing from this set, a generated def carrying the mapping is rejected
+	// at load — and the load stops at the first bad def, so every project
+	// widget after it goes unregistered (MDL-WIDGET25 on all of them).
+	"file": true,
 }
 
 // knownOperations is the active set used for validation, initialized from

@@ -303,6 +303,17 @@ func GenerateDefJSON(mpkDef *mpk.WidgetDefinition, mdlName string) *WidgetDefini
 				Operation:   "association",
 				Description: p.Description,
 			})
+		case "file":
+			// A file-typed property (e.g. Document Viewer `file`) binds a
+			// System.FileDocument specialization from the enclosing data
+			// container. Without a mapping it was reported MDL-WIDGET06 and
+			// dropped, so a required one always failed CE0642.
+			def.PropertyMappings = append(def.PropertyMappings, PropertyMapping{
+				PropertyKey: p.Key,
+				Source:      "File",
+				Operation:   "file",
+				Description: p.Description,
+			})
 		case "selection":
 			def.PropertyMappings = append(def.PropertyMappings, PropertyMapping{
 				PropertyKey: p.Key,

@@ -112,6 +112,44 @@ func (ob *Builder) SetImage(propertyKey string, imageQN string) {
 	})
 }
 
+// SetFile points a file-typed property (widget.xml `type="file"`) at a
+// System.FileDocument specialization, stored — as mxbuild reads it — in the
+// WidgetValue's `EntityRef`:
+//
+//   - no steps: the enclosing data container's own object, a
+//     DomainModels$DirectEntityRef to entityName. mxbuild accepts a step-less
+//     path only when that entity IS the container's entity.
+//   - steps: the object reached over those (single-object) association hops, a
+//     DomainModels$IndirectEntityRef with one DomainModels$EntityRefStep each.
+//
+// `SourceVariable` is left null: that is how Studio Pro stores the default
+// variable (the enclosing data container); only a page/snippet parameter or
+// another widget's variable is written there. Before this, the value had no
+// setter at all — `file:` was reported "recognized but not persisted"
+// (MDL-WIDGET06) and a required file property failed CE0642.
+func (ob *Builder) SetFile(propertyKey string, entityName string, steps []pages.AttributeRefStep) {
+	if entityName == "" && len(steps) == 0 {
+		return
+	}
+	ob.object = updateWidgetPropertyValue(ob.object, ob.propertyTypeIDs, propertyKey, func(val bson.D) bson.D {
+		return setBSONField(val, "EntityRef", fileEntityRefBSON(entityName, steps))
+	})
+}
+
+// fileEntityRefBSON builds the EntityRef of a file-typed WidgetValue: a
+// DirectEntityRef to the context entity for a step-less path, otherwise the
+// IndirectEntityRef of the association hops.
+func fileEntityRefBSON(entityName string, steps []pages.AttributeRefStep) bson.D {
+	if len(steps) == 0 {
+		return bson.D{
+			{Key: "$ID", Value: bsonutil.NewIDBsonBinary()},
+			{Key: "$Type", Value: "DomainModels$DirectEntityRef"},
+			{Key: "Entity", Value: entityName},
+		}
+	}
+	return attributeEntityRefBSON(steps).(bson.D)
+}
+
 func (ob *Builder) SetSelection(propertyKey string, value string) {
 	if value == "" {
 		return

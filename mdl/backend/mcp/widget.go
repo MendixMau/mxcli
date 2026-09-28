@@ -190,6 +190,16 @@ func (w *mcpWidgetBuilder) SetImage(propertyKey, imageQN string) {
 	w.object[propertyKey] = imageQN
 }
 
+// SetFile is not mapped for the MCP backend: its pg object form for a
+// file-typed value has not been established, so the widget is refused rather
+// than emitted without the (often required) file binding.
+func (w *mcpWidgetBuilder) SetFile(propertyKey, entityName string, steps []pages.AttributeRefStep) {
+	if entityName == "" && len(steps) == 0 {
+		return
+	}
+	w.note("file")
+}
+
 func (w *mcpWidgetBuilder) SetDataSource(propertyKey string, ds pages.DataSource) {
 	if src := customWidgetXPathSource(ds); src != nil {
 		w.object[propertyKey] = src

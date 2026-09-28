@@ -1146,6 +1146,18 @@ func extractExplicitProperties(ctx *ExecContext, w map[string]any) []rawExplicit
 			}
 		}
 
+		// A file property (widget.xml `type="file"`) stores its object in
+		// EntityRef: a DirectEntityRef when the enclosing data container's
+		// object is the file itself, an IndirectEntityRef over single-object
+		// associations otherwise. Written back unquoted, in the form the
+		// writer's resolveFileEntityPath accepts.
+		if valueTypes[typePointerID] == "File" {
+			if path := fileEntityRefPath(value["EntityRef"]); path != "" {
+				result = append(result, rawExplicitProp{Key: propKey, Value: path, IsRef: true})
+			}
+			continue
+		}
+
 		// A text-template property: its text, plus the `{N}` bindings under the
 		// `<Key>Params` companion. An unset or widget-hidden template stores a
 		// null or an empty ClientTemplate and yields "", so it emits nothing.
@@ -1174,6 +1186,37 @@ func extractExplicitProperties(ctx *ExecContext, w map[string]any) []rawExplicit
 		}
 	}
 	return result
+}
+
+// fileEntityRefPath renders the EntityRef of a file-typed widget property as
+// the MDL value the writer takes: `$currentObject` for a DirectEntityRef, and
+// `$currentObject/Mod.Assoc[/Mod.Assoc2…]` for an IndirectEntityRef. Returns
+// "" for an unset (nil) reference, so an unbound file property emits nothing.
+func fileEntityRefPath(raw any) string {
+	ref, ok := raw.(map[string]any)
+	if !ok || ref == nil {
+		return ""
+	}
+	switch extractString(ref["$Type"]) {
+	case "DomainModels$DirectEntityRef":
+		return "$currentObject"
+	case "DomainModels$IndirectEntityRef":
+		var assocs []string
+		for _, s := range getBsonArrayElements(ref["Steps"]) {
+			step, ok := s.(map[string]any)
+			if !ok {
+				continue
+			}
+			if a := extractString(step["Association"]); a != "" {
+				assocs = append(assocs, a)
+			}
+		}
+		if len(assocs) == 0 {
+			return ""
+		}
+		return "$currentObject/" + strings.Join(assocs, "/")
+	}
+	return ""
 }
 
 // extractImageProperties extracts properties from a pluggable Image CustomWidget.
